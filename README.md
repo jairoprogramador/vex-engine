@@ -1,8 +1,7 @@
 <div align="center">
-  <!-- <img src="doc/img/Vex.jpg" alt="Vex Logo" width="150"/> -->
-  <h1>Vex</h1>
-  <p><strong>Despliega cualquier tecnología en cualquier plataforma con simples comandos.</strong></p>
-  <p><i>La infraestructura se convierte en una plantilla.</i></p>
+  <h1>Vex Core</h1>
+  <p><strong>El motor de ejecución que convierte plantillas de despliegue en despliegues reales.</strong></p>
+  <p>Un comando. Cualquier tecnología. Cualquier nube.</p>
 
   <p>
     <a href="https://github.com/jairoprogramador/vex/releases">
@@ -16,21 +15,35 @@
 
 ---
 
-**`vex`** es una herramienta CLI diseñada para eliminar la complejidad de los procesos de despliegue. Olvídate de los scripts frágiles, los largos `READMEs` y la pregunta "¿cómo se desplegaba esto?". Con `vex`, estandarizas tus despliegues usando plantillas reutilizables, permitiendo que cualquier desarrollador, en cualquier equipo, pueda desplegar cualquier aplicación de forma segura y predecible.
+Tu equipo de infraestructura ya definió **cómo** se despliega. Tú solo ejecutas:
 
-**Define tu proceso de despliegue una vez, y ejecútalo miles de veces con simples comandos.**
+```sh
+vexc deploy sand
+```
 
-## ✨ Características Principales
+**Vex Core** (`vexc`) es el motor de ejecución del ecosistema [Vex](https://github.com/jairoprogramador/vex-client). Lee la configuración de tu proyecto (`vexconfig.yaml`), clona la plantilla de despliegue asociada y ejecuta cada paso en orden: `test, supply, package y deploy`. Todo esto sin que necesites saber qué hay detras.
 
-*   **⚙️ Agnostico a la Tecnología:** ¿Java, Node.js, Python, Go? ¿Terraform, Docker, Kubernetes? `vex` orquesta cualquier herramienta que puedas ejecutar en un shell.
-*   **📄 Infraestructura como plantilla:** Centraliza la lógica de tus despliegues (steps, variables, entornos) en un repositorio de plantilla. Estandariza las buenas prácticas y evoluciona tu infraestructura sin tocar tus projectos.
-*   **🚀 Despliega facil:** Clona o crea tu projecto y ejecuta: `vex init` y `vex deploy`, eso es todo. Recuerda se necesita instalar el [Cliente de Vex](https://github.com/jairoprogramador/vex-client)
-*   **✅ Verificación continua:** El estado de cada despliegue se guarda, permitiendo validaciones y evitando ejecuciones accidentales en entornos incorrectos.
-*   **💻 Mejor experiencia de desarrollador:** Comandos intuitivos, feedback claro y la abstracción perfecta para que los desarrolladores se centren en lo que importa: el código.
+Java, Node, Python, Go. AWS, Azure, GCP. Terraform, Docker, Kubernetes. A `vexc` le da igual: ejecuta lo que la plantilla diga.
 
-## 🚀 Instalación
+## Cómo encaja en el ecosistema
 
-Instala `vex` en segundos.
+`vexc` no trabaja solo. Forma parte de un ecosistema donde cada pieza tiene un rol claro:
+
+| Componente | Rol | Repositorio |
+| :--- | :--- | :--- |
+| **Vex Client** (`vex`) | Inicializa proyectos, selecciona plantillas, prepara el entorno de ejecución. | [vex-client](https://github.com/jairoprogramador/vex-client) |
+| **Vex Core** (`vexc`) | **Motor de ejecución.** Lee la configuración, clona la plantilla y ejecuta los pasos de despliegue. | Este repositorio |
+| **Template Store** | Catálogo de plantillas organizadas por nivel de arquitectura y costo. | [vex-template-store](https://github.com/jairoprogramador/vex-template-store) |
+
+**Flujo típico:**
+
+1. El desarrollador ejecuta `vex init` (vex-client) para vincular su proyecto con una plantilla.
+2. Esto genera un archivo `vexconfig.yaml` en el proyecto.
+3. Cuando el desarrollador ejecuta `vex deploy sand`, vex-client prepara el entorno y delega la ejecución a `vexc`, que se encarga del resto.
+
+> Si tu proyecto ya tiene un `vexconfig.yaml`, puedes usar `vexc` directamente. Sin embargo, se recomienda usar `vex` (vex-client) como herramienta principal: acepta los mismos comandos y los delega internamente a `vexc`, pero además prepara el entorno de ejecución que la plantilla necesita.
+
+## Instalación
 
 ### macOS (Homebrew)
 
@@ -38,144 +51,151 @@ Instala `vex` en segundos.
 brew install --cask jairoprogramador/vex/vexc
 ```
 
-Si macOS indica que no puede verificar el desarrollador, puedes permitir la ejecución en  
-**Ajustes del sistema → Privacidad y seguridad → "Abrir de todos modos"**,  
-o en Terminal: `xattr -cr $(which vexc)`.
+Si macOS indica que no puede verificar el desarrollador:
+**Ajustes del sistema → Privacidad y seguridad → "Abrir de todos modos"**, o en terminal: `xattr -cr $(which vexc)`.
 
 ### Linux
 
-Puedes descargar el paquete `.deb` o `.rpm` desde la [página de Releases](https://github.com/jairoprogramador/vex/releases) y usar tu gestor de paquetes.
+Descarga el paquete desde la [página de Releases](https://github.com/jairoprogramador/vex/releases):
 
 ```sh
-# Para sistemas basados en Debian/Ubuntu
+# Debian / Ubuntu
 sudo dpkg -i vex_*.deb
 
-# Para sistemas basados en Red Hat/Fedora
+# Red Hat / Fedora
 sudo rpm -i vex_*.rpm
 ```
 
-Alternativamente, puedes descargar el binario directamente:
+O descarga el binario directamente:
+
 ```sh
 curl -sL https://github.com/jairoprogramador/vex/releases/latest/download/vex_linux_amd64.tar.gz | tar xz
-
-sudo mv fd /usr/local/bin/
+sudo mv vexc /usr/local/bin/
 ```
 
 ### Windows
 
-1.  Descarga el archivo `vex_windows_***64.zip` desde la [página de Releases](https://github.com/jairoprogramador/vex/releases).
-2.  Descomprime el archivo.
-3.  Añade el ejecutable `vex.exe` a tu variable de entorno `PATH`.
+1. Descarga `vex_windows_amd64.zip` desde [Releases](https://github.com/jairoprogramador/vex/releases).
+2. Descomprime y añade `vexc.exe` a tu `PATH`.
 
-
-## 🏁 Guía de Inicio Rápido: Desplegando un microservicio Java
-
-Vamos a desplegar un microservicio Java que utiliza **Terraform** para provisionar la infraestructura en **Azure** y se empaqueta con **Docker**.
-
-Toda la lógica de este despliegue está definida en nuestra plantilla de ejemplo:
-➡️ **[jairoprogramador/mydeploy](https://github.com/jairoprogramador/mydeploy)**
-
-Este repositorio de plantillas contiene los `steps`, `variables` y la definición de los `environments` (ej: `sandbox`, `stagin`, `produccion`).
-
-### Paso 1: Inicializa tu Proyecto
-
-Clona o crear el proyecto de microservicio que quieres desplegar. Una vez dentro del directorio del proyecto, ejecuta:
-
-*Nota: Debes tener instalado el [Cliente de Vex](https://github.com/jairoprogramador/vex-client)*
+### Verificar instalación
 
 ```sh
+vexc --version
+```
+
+## Uso
+
+La sintaxis es siempre la misma:
+
+```sh
+vexc [step] [env]
+```
+
+Donde `step` es **hasta dónde** quieres ejecutar y `env` es **en qué entorno**.
+
+### Steps disponibles
+
+Cada step incluye la ejecución de todos los anteriores. Si ejecutas `deploy`, se ejecutan `test → supply → package → deploy`.
+
+| Step | Qué hace |
+| :--- | :--- |
+| `test` | Ejecuta pruebas: compilación, tests unitarios, análisis de seguridad, etc. |
+| `supply` | Aprovisiona infraestructura (ej: Terraform apply). |
+| `package` | Empaqueta el proyecto (ej: build de imagen Docker). |
+| `deploy` | Despliega la aplicación en el entorno indicado. |
+
+### Entornos
+
+Los entornos están definidos en la plantilla. Los más comunes:
+
+| Entorno | Uso |
+| :--- | :--- |
+| `sand` | Sandbox para desarrollo y pruebas. |
+| `stag` | Staging, pre-producción. |
+| `prod` | Producción. |
+
+### Ejemplos
+
+```sh
+# Ejecutar solo los tests en sandbox
+vexc test sand
+
+# Aprovisionar infraestructura en staging
+vexc supply stag
+
+# Despliegue completo en producción
+vexc deploy prod
+```
+
+## Control de estado inteligente
+
+`vexc` no re-ejecuta pasos innecesariamente. Usa un sistema de **fingerprints** (SHA-256) que compara el estado actual del proyecto, las variables y las instrucciones de la plantilla para decidir qué necesita ejecutarse.
+
+Las reglas varían según el step:
+
+| Step | Se re-ejecuta si... |
+| :--- | :--- |
+| `test` | El código del proyecto cambió, o pasaron más de 30 días desde la última ejecución. |
+| `supply` | La firma del ambiente cambió, o nunca se ejecutó antes. |
+| `package` | El código del proyecto cambió. |
+| `deploy` | El código del proyecto o el ambiente cambiaron, o es la primera ejecución. |
+
+Además, cualquier cambio en las **variables o instrucciones de la plantilla** fuerza la re-ejecución del step afectado, sin importar cuál sea.
+
+Esto significa menos tiempo esperando, menos errores por ejecuciones duplicadas y despliegues predecibles.
+
+## Inicio rápido
+
+### 1. Inicializa tu proyecto con vex-client
+
+```sh
+# Instala vex-client si aún no lo tienes
+# Ver: https://github.com/jairoprogramador/vex-client
+
 vex init
 ```
 
-`vex` detectará que no está inicializado y te hará un par de preguntas para crear el archivo de configuración local `vexconfig.yaml`. Este archivo vincula tu proyecto con la plantilla de despliegue.
+Esto genera el archivo `vexconfig.yaml` que vincula tu proyecto con una plantilla de despliegue:
 
 ```yaml
-# .vexconfig.yaml (Ejemplo generado)
+# vexconfig.yaml (ejemplo)
 project:
-  id: 9238fa29be....
-  name: "test"
+  id: 9238fa29be...
+  name: "mi-api"
   version: "1.0.0"
-  team: "shikigami"
-  description: "Mi proyecto de ejemplo"
-  organization: "vex"
+  team: "backend"
+  organization: "acme"
 
 template:
   url: "https://github.com/jairoprogramador/mydeploy.git"
   ref: "main"
-runtime:
-    image: Dockerfile
-    tag: latest
-    build:
-        args:
-            - name: "VEX_VERSION"
-              value: "1.0.10"
-            - name: "MAVEN_VERSION"
-              value: "3.9.12"
-    run:
-        volumes:
-            - host: /home/user/.m2/
-              container: /home/ubuntu/.m2
-            - host: /home/user/myproject
-              container: /home/vex/app
-            - host: /home/user/.vex
-              container: /home/ubuntu/.vex
-        envs:
-            - name: "ARM_CLIENT_ID"
-              value: "$ARM_CLIENT_ID"
-            - name: "ARM_CLIENT_SECRET"
-              value: "$ARM_CLIENT_SECRET"
-            - name: "ARM_TENANT_ID"
-              value: "$ARM_TENANT_ID"
-            - name: "ARM_SUBSCRIPTION_ID"
-              value: "$ARM_SUBSCRIPTION_ID"
 ```
 
-### Paso 2: Prueba el despliegue en un entorno
+### 2. Despliega con vex core
 
-Antes de desplegar, puedes validar que todo está bien. El comando `vexc test [environment]` ejecuta los comandos definidos en la plantilla referentes a las pruebas.
+> **Recomendado:** Usa los comandos a través de [vex-client](https://github.com/jairoprogramador/vex-client) (`vex deploy [env]`), ya que el cliente prepara automáticamente el entorno de ejecución que la plantilla necesita. Si usas `vexc` directamente, deberás configurar ese entorno por tu cuenta (dependencias, herramientas de la plantilla, etc.).
 
 ```sh
-# Ejecuta los pasos de prueba para el entorno 'sand'
+# Prueba primero
 vexc test sand
-```
 
-Esto podría, por ejemplo, compilar el proyecto, ejecutar los test unitarios, las pruebas de seguridad, validar versiones, verificar pull request, etc, sin desplegarlo.
-
-### Paso 3: Despliega
-
-Una vez que las pruebas pasan, estás listo para desplegar. El comando `vexc deploy [environment]` ejecuta la secuencia completa de pasos definidos en la plantilla, por ejemplo para el entorno de sandbox.
-
-```sh
-# Despliega en el entorno 'sand'
+# Si todo pasa, despliega
 vexc deploy sand
 ```
-`vex` orquestará todo el proceso:
-1.  Clonará la plantilla de despliegue.
-2.  Ejecutará los pasos para aprovisionar recursos.
-3.  Empaquetará y subirá la imagen del proyecto.
-4.  Desplegará la aplicación en el ambiente elegido.
 
-¡Y listo! Tu microservicio está desplegado.
+`vexc` se encarga de:
 
-## 📚 Comandos Básicos
+1. Clonar la plantilla de despliegue.
+2. Ejecutar los steps definidos.
+3. Registrar el estado para futuras ejecuciones.
 
-| Comando | Descripción |
-| :--- | :--- |
-| `vexc init` | Inicializa un proyecto creando el archivo `vexconfig.yaml`. |
-| `vexc [step] [env]` | Ejecuta hasta el `step` indicado en el entorno `env`. |
-| `vexc test [env]` | Ejecuta hasta el paso `test` en el entorno `env`. Verificamos la calidad del proyecto. |
-| `vexc supply [env]` | Ejecuta hasta el paso `supply` en el entorno `env`. Aprovisionamos la infraestructura necesaria. |
-| `vexc package [env]` | Ejecuta hasta el paso `package` en el entorno `env`. Empaquetamos el proyecto para su despliegue. |
-| `vexc deploy [env]` | Ejecuta hasta el paso `deploy` en el entorno `env`. Es el ultimo paso, desplegamos el projecto en el entorno indicado. |
+## Contribuciones
 
-**Flags comunes:**
-*   `--yes` o `-y`: Salta las confirmaciones interactivas, para `fdc init`
+Las contribuciones son bienvenidas. Si encuentras un error o tienes una idea, abre un [issue](https://github.com/jairoprogramador/vex/issues) o envía un [pull request](https://github.com/jairoprogramador/vex/pulls).
 
+Para entender la arquitectura interna, el proyecto sigue **Domain-Driven Design** con capas separadas en `cmd/`, `internal/application/`, `internal/domain/` e `internal/infrastructure/`.
 
-## 🤝 Contribuciones
+## Licencia
 
-¡Las contribuciones son bienvenidas! Si tienes ideas, sugerencias o encuentras un error, por favor abre un [issue](https://github.com/jairoprogramador/vex/issues) o envía un [pull request](https://github.com/jairoprogramador/vex/pulls).
-
-## 📄 Licencia
-
-`vex` está distribuido bajo la [Apache License 2.0](https://github.com/jairoprogramador/vex/blob/main/LICENSE).
+Distribuido bajo la [Apache License 2.0](https://github.com/jairoprogramador/vex/blob/main/LICENSE).
