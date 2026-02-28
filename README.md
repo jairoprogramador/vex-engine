@@ -31,7 +31,7 @@ Java, Node, Python, Go. AWS, Azure, GCP. Terraform, Docker, Kubernetes. A `vexc`
 
 | Componente | Rol | Repositorio |
 | :--- | :--- | :--- |
-| **Vex Client** (`vex`) | Interfaz de usuario. Inicializa proyectos, selecciona plantillas, prepara el entorno de ejecución. | [vex-client](https://github.com/jairoprogramador/vex-client) |
+| **Vex Client** (`vex`) | Inicializa proyectos, selecciona plantillas, prepara el entorno de ejecución. | [vex-client](https://github.com/jairoprogramador/vex-client) |
 | **Vex Core** (`vexc`) | **Motor de ejecución.** Lee la configuración, clona la plantilla y ejecuta los pasos de despliegue. | Este repositorio |
 | **Template Store** | Catálogo de plantillas organizadas por nivel de arquitectura y costo. | [vex-template-store](https://github.com/jairoprogramador/vex-template-store) |
 
