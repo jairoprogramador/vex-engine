@@ -196,3 +196,6 @@ Las contribuciones son bienvenidas. Si encuentras un error o tienes una idea, ab
 
 Para entender la arquitectura interna, el proyecto sigue **Domain-Driven Design** con capas separadas en `cmd/`, `internal/application/`, `internal/domain/` e `internal/infrastructure/`.
 
+## Licencia
+
+Distribuido bajo la [Business Source License 1.1](https://github.com/jairoprogramador/vex-engine/blob/main/LICENSE).
