@@ -5,8 +5,8 @@ import (
 	"github.com/jairoprogramador/vex/internal/infrastructure/project/dto"
 )
 
-func ProjectToDto(data *ports.ProjectConfigDTO) dto.FdConfigDTO {
-	return dto.FdConfigDTO{
+func ProjectToDto(data *ports.ProjectConfigDTO) dto.VexConfigDTO {
+	return dto.VexConfigDTO{
 		Project: dto.ProjectDTO{
 			ID:           data.ID,
 			Name:         data.Name,
@@ -22,7 +22,7 @@ func ProjectToDto(data *ports.ProjectConfigDTO) dto.FdConfigDTO {
 	}
 }
 
-func ProjectToDomain(fdConfig dto.FdConfigDTO) *ports.ProjectConfigDTO {
+func ProjectToDomain(fdConfig dto.VexConfigDTO) *ports.ProjectConfigDTO {
 	return &ports.ProjectConfigDTO{
 		ID:           fdConfig.Project.ID,
 		Name:         fdConfig.Project.Name,

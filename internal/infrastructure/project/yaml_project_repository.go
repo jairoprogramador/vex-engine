@@ -24,7 +24,7 @@ func (r *YAMLProjectRepository) Load(ctx context.Context, pathFile string) (*por
 		return nil, fmt.Errorf("no se pudo leer el archivo de configuración '%s': %w", pathFile, err)
 	}
 
-	var dto dto.FdConfigDTO
+	var dto dto.VexConfigDTO
 	if err := yaml.Unmarshal(data, &dto); err != nil {
 		return nil, fmt.Errorf("error al parsear el archivo YAML de configuración: %w", err)
 	}

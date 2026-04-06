@@ -16,8 +16,6 @@ import (
 	worAgg "github.com/jairoprogramador/vex/internal/domain/workspace/aggregates"
 )
 
-// ExecutionOrchestrator orquesta la ejecución de un plan completo,
-// coordinando los contextos de definición, estado y ejecución.
 type ExecutionOrchestrator struct {
 	projectPath       string
 	rootVexPath       string
@@ -34,7 +32,6 @@ type ExecutionOrchestrator struct {
 	gitRepository     verPrt.GitRepository
 }
 
-// NewExecutionOrchestrator crea una nueva instancia del orquestador.
 func NewExecutionOrchestrator(
 	projectPath string,
 	rootVexPath string,
@@ -67,9 +64,7 @@ func NewExecutionOrchestrator(
 	}
 }
 
-// ExecutePlan es el caso de uso principal que ejecuta un plan de despliegue.
 func (o *ExecutionOrchestrator) ExecutePlan(ctx context.Context, stepName, envName string) error {
-	// 1. Inicializar, Cargar y Clonar
 	project, err := o.loadProject(ctx, o.projectPath)
 	if err != nil {
 		return err
