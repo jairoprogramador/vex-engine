@@ -1,8 +1,8 @@
 package application
 
 import (
-	"github.com/jairoprogramador/vex/internal/domain/workspace/aggregates"
-	"github.com/jairoprogramador/vex/internal/domain/workspace/vos"
+	"github.com/jairoprogramador/vex-engine/internal/domain/workspace/aggregates"
+	"github.com/jairoprogramador/vex-engine/internal/domain/workspace/vos"
 )
 
 type WorkspaceService struct{}

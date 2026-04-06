@@ -3,8 +3,8 @@ package services
 import (
 	"fmt"
 
-	"github.com/jairoprogramador/vex/internal/domain/execution/ports"
-	"github.com/jairoprogramador/vex/internal/domain/execution/vos"
+	"github.com/jairoprogramador/vex-engine/internal/domain/execution/ports"
+	"github.com/jairoprogramador/vex-engine/internal/domain/execution/vos"
 )
 
 type FileProcessor struct {

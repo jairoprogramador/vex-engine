@@ -3,8 +3,8 @@ package aggregates
 import (
 	"errors"
 
-	"github.com/jairoprogramador/vex/internal/domain/definition/entities"
-	"github.com/jairoprogramador/vex/internal/domain/definition/vos"
+	"github.com/jairoprogramador/vex-engine/internal/domain/definition/entities"
+	"github.com/jairoprogramador/vex-engine/internal/domain/definition/vos"
 )
 
 type ExecutionPlanDefinition struct {

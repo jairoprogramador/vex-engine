@@ -1,8 +1,8 @@
 package mapper
 
 import (
-	"github.com/jairoprogramador/vex/internal/domain/project/ports"
-	"github.com/jairoprogramador/vex/internal/infrastructure/project/dto"
+	"github.com/jairoprogramador/vex-engine/internal/domain/project/ports"
+	"github.com/jairoprogramador/vex-engine/internal/infrastructure/project/dto"
 )
 
 func ProjectToDto(data *ports.ProjectConfigDTO) dto.VexConfigDTO {

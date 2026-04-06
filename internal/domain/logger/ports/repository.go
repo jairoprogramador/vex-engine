@@ -1,8 +1,8 @@
 package ports
 
 import (
-	"github.com/jairoprogramador/vex/internal/application/dto"
-	"github.com/jairoprogramador/vex/internal/domain/logger/aggregates"
+	"github.com/jairoprogramador/vex-engine/internal/application/dto"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/aggregates"
 )
 
 type LoggerRepository interface {

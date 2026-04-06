@@ -1,4 +1,4 @@
-module github.com/jairoprogramador/vex
+module github.com/jairoprogramador/vex-engine
 
 go 1.23.0
 

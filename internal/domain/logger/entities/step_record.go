@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jairoprogramador/vex/internal/domain/logger/vos"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/vos"
 )
 
 type StepRecord struct {

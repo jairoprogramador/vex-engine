@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jairoprogramador/vex/internal/domain/project/ports"
-	"github.com/jairoprogramador/vex/internal/infrastructure/project/dto"
-	"github.com/jairoprogramador/vex/internal/infrastructure/project/mapper"
+	"github.com/jairoprogramador/vex-engine/internal/domain/project/ports"
+	"github.com/jairoprogramador/vex-engine/internal/infrastructure/project/dto"
+	"github.com/jairoprogramador/vex-engine/internal/infrastructure/project/mapper"
 
 	"gopkg.in/yaml.v3"
 )

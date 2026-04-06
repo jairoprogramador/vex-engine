@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/jairoprogramador/vex/cmd/vex/cmd"
+	"github.com/jairoprogramador/vex-engine/cmd/vex/cmd"
 )
 
 var (

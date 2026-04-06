@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jairoprogramador/vex/internal/domain/execution/entities"
-	"github.com/jairoprogramador/vex/internal/domain/execution/ports"
-	"github.com/jairoprogramador/vex/internal/domain/execution/services"
-	"github.com/jairoprogramador/vex/internal/domain/execution/vos"
+	"github.com/jairoprogramador/vex-engine/internal/domain/execution/entities"
+	"github.com/jairoprogramador/vex-engine/internal/domain/execution/ports"
+	"github.com/jairoprogramador/vex-engine/internal/domain/execution/services"
+	"github.com/jairoprogramador/vex-engine/internal/domain/execution/vos"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -47,7 +47,7 @@ func (m *MockStepCommandExecutor) Execute(
 	currentVars vos.VariableSet,
 	workspaceStep, workspaceShared string,
 ) *vos.ExecutionResult {
-	args := m.Called(ctx, command, currentVars, workspaceStep)
+	args := m.Called(ctx, command, currentVars, workspaceStep, workspaceShared)
 	return args.Get(0).(*vos.ExecutionResult)
 }
 
@@ -60,6 +60,7 @@ func TestStepExecutor_Execute_Success(t *testing.T) {
 	varName1, varValue1 := "var1", "val1"
 	varInitName1, varInitValue1 := "init", "true"
 	pathRoot := "/root"
+	pathShared := "/shared"
 	log1, log2 := "log1", "log2"
 
 	output1, _ := vos.NewCommandOutput(varName1, varValue1)
@@ -68,19 +69,22 @@ func TestStepExecutor_Execute_Success(t *testing.T) {
 
 	step, _ := entities.NewStep("test-step",
 		entities.WithCommands([]vos.Command{cmd1, cmd2}),
-		entities.WithWorkspaceStep(pathRoot),
+		entities.WithWorkspaceStep(pathRoot), entities.WithWorkspaceShared(pathShared),
 	)
 
 	initialVars := vos.NewVariableSet()
 	initVar, _ := vos.NewOutputVar(varInitName1, varInitValue1, false)
 	initialVars.Add(initVar)
 
-	// Preparamos las variables esperadas para la PRIMERA llamada, incluyendo step_workdir
+	// Preparamos las variables esperadas para la PRIMERA llamada,
+	// incluyendo step_workdir y shared_workdir.
 	expectedVarsForCmd1 := initialVars.Clone()
 	stepWorkdirVar, _ := vos.NewOutputVar("step_workdir", pathRoot, false)
 	expectedVarsForCmd1.Add(stepWorkdirVar)
+	sharedWorkdirVar, _ := vos.NewOutputVar("shared_workdir", pathShared, false)
+	expectedVarsForCmd1.Add(sharedWorkdirVar)
 
-	cmdExecutor.On("Execute", mock.Anything, cmd1, expectedVarsForCmd1, pathRoot).Return(&vos.ExecutionResult{
+	cmdExecutor.On("Execute", mock.Anything, cmd1, expectedVarsForCmd1, pathRoot, pathShared).Return(&vos.ExecutionResult{
 		Status:     vos.Success,
 		Logs:       log1,
 		OutputVars: vos.VariableSet{"var1": newVar(varName1, varValue1)},
@@ -90,7 +94,7 @@ func TestStepExecutor_Execute_Success(t *testing.T) {
 	expectedVarsForCmd2 := expectedVarsForCmd1.Clone()
 	expectedVarsForCmd2.Add(newVar(varName1, varValue1))
 
-	cmdExecutor.On("Execute", mock.Anything, cmd2, expectedVarsForCmd2, pathRoot).Return(&vos.ExecutionResult{
+	cmdExecutor.On("Execute", mock.Anything, cmd2, expectedVarsForCmd2, pathRoot, pathShared).Return(&vos.ExecutionResult{
 		Status:     vos.Success,
 		Logs:       log2,
 		OutputVars: vos.NewVariableSet(), // El segundo comando no devuelve variables
@@ -126,7 +130,7 @@ func TestStepExecutor_Execute_StopsOnFailure(t *testing.T) {
 	failError := errors.New("command failed")
 
 	// Mockea la primera llamada para que falle
-	cmdExecutor.On("Execute", mock.Anything, cmd1, mock.Anything, mock.Anything).Return(&vos.ExecutionResult{
+	cmdExecutor.On("Execute", mock.Anything, cmd1, mock.Anything, mock.Anything, mock.Anything).Return(&vos.ExecutionResult{
 		Status: vos.Failure,
 		Error:  failError,
 		Logs:   "error log",
@@ -154,7 +158,7 @@ func TestStepExecutor_Execute_StopsOnIrrecoverableError(t *testing.T) {
 	step, _ := entities.NewStep("fail-step", entities.WithCommands([]vos.Command{cmd1}))
 	irrecoverableError := errors.New("irrecoverable")
 
-	cmdExecutor.On("Execute", mock.Anything, cmd1, mock.Anything, mock.Anything).Return(&vos.ExecutionResult{
+	cmdExecutor.On("Execute", mock.Anything, cmd1, mock.Anything, mock.Anything, mock.Anything).Return(&vos.ExecutionResult{
 		Status: vos.Failure, // El status debe ser Failure si hay un Error
 		Error:  irrecoverableError,
 	}).Once()

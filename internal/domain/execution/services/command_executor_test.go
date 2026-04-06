@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jairoprogramador/vex/internal/domain/execution/services"
-	"github.com/jairoprogramador/vex/internal/domain/execution/vos"
+	"github.com/jairoprogramador/vex-engine/internal/domain/execution/services"
+	"github.com/jairoprogramador/vex-engine/internal/domain/execution/vos"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -80,7 +80,7 @@ func TestCommandExecutor_Execute_Success(t *testing.T) {
 	interpolator.On("Interpolate", cmd.Cmd(), vars).Return(interpolatedCmd, nil).Once()
 	runner.On("Run", ctx, interpolatedCmd, filepath.Join(pathRoot, workdirCmd)).Return(&vos.CommandResult{ExitCode: 0, RawStdout: outputCmd, NormalizedStdout: outputCmd}, nil).Once()
 	outputExtractor.On("ExtractVars", outputCmd, cmd.Outputs()).Return(extractedVarsCmd, nil).Once()
-	fileProcessor.On("Restore").Return(nil).Once()
+	//fileProcessor.On("Restore").Return(nil).Once()
 
 	// Act
 	result := executor.Execute(ctx, cmd, vars, pathRoot, pathRoot)
@@ -111,7 +111,7 @@ func TestCommandExecutor_Execute_ErrorScenarios(t *testing.T) {
 			setupMocks: func(r *MockCommandRunner, fp *MockFileProcessor, i *MockInterpolator, oe *MockOutputExtractor) {
 				fp.On("Process", mock.Anything, mock.Anything).Return(nil).Once()
 				i.On("Interpolate", mock.Anything, mock.Anything).Return("", interpolateErr).Once()
-				fp.On("Restore").Return(nil).Once()
+				//fp.On("Restore").Return(nil).Once()
 			},
 		},
 		{
@@ -120,7 +120,7 @@ func TestCommandExecutor_Execute_ErrorScenarios(t *testing.T) {
 				fp.On("Process", mock.Anything, mock.Anything).Return(nil).Once()
 				i.On("Interpolate", mock.Anything, mock.Anything).Return("cmd", nil).Once()
 				r.On("Run", mock.Anything, "cmd", mock.Anything).Return(nil, runErr).Once()
-				fp.On("Restore").Return(nil).Once()
+				//fp.On("Restore").Return(nil).Once()
 			},
 		},
 		{
@@ -129,7 +129,7 @@ func TestCommandExecutor_Execute_ErrorScenarios(t *testing.T) {
 				fp.On("Process", mock.Anything, mock.Anything).Return(nil).Once()
 				i.On("Interpolate", mock.Anything, mock.Anything).Return("cmd", nil).Once()
 				r.On("Run", mock.Anything, "cmd", mock.Anything).Return(&vos.CommandResult{ExitCode: 1}, nil).Once()
-				fp.On("Restore").Return(nil).Once()
+				//fp.On("Restore").Return(nil).Once()
 			},
 		},
 		{
@@ -139,7 +139,7 @@ func TestCommandExecutor_Execute_ErrorScenarios(t *testing.T) {
 				i.On("Interpolate", mock.Anything, mock.Anything).Return("cmd", nil).Once()
 				r.On("Run", mock.Anything, "cmd", mock.Anything).Return(&vos.CommandResult{ExitCode: 0}, nil).Once()
 				oe.On("ExtractVars", mock.Anything, mock.Anything).Return(nil, extractErr).Once()
-				fp.On("Restore").Return(nil).Once()
+				//fp.On("Restore").Return(nil).Once()
 			},
 		},
 	}

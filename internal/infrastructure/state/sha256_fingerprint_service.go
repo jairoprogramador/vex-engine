@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jairoprogramador/vex/internal/domain/state/ports"
-	"github.com/jairoprogramador/vex/internal/domain/state/vos"
+	"github.com/jairoprogramador/vex-engine/internal/domain/state/ports"
+	"github.com/jairoprogramador/vex-engine/internal/domain/state/vos"
 	gitignore "github.com/sabhiram/go-gitignore"
 )
 

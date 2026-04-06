@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jairoprogramador/vex/internal/domain/logger/entities"
-	"github.com/jairoprogramador/vex/internal/domain/logger/vos"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/entities"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/vos"
 )
 
 type Logger struct {
