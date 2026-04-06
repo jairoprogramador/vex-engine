@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/jairoprogramador/vex/internal/domain/definition/vos"
+	"github.com/jairoprogramador/vex-engine/internal/domain/definition/vos"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

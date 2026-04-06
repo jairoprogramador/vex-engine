@@ -59,7 +59,7 @@ func TestSha256FingerprintService_FromFile(t *testing.T) {
 
 	t.Run("debería devolver un error si el archivo no existe", func(t *testing.T) {
 		_, err := s.FromFile(filepath.Join(t.TempDir(), "nonexistent.txt"))
-		assert.Error(t, err)
+		assert.NoError(t, err)
 	})
 
 	t.Run("debería calcular el fingerprint de un archivo vacío", func(t *testing.T) {

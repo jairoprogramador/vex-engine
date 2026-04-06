@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/jairoprogramador/vex/internal/infrastructure/factory"
+	"github.com/jairoprogramador/vex-engine/internal/infrastructure/factory"
 	"github.com/spf13/cobra"
 )
 

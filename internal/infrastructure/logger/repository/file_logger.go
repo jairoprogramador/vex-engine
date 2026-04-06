@@ -7,13 +7,13 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	appDto "github.com/jairoprogramador/vex/internal/application/dto"
+	appDto "github.com/jairoprogramador/vex-engine/internal/application/dto"
 
-	logAgg "github.com/jairoprogramador/vex/internal/domain/logger/aggregates"
-	logPor "github.com/jairoprogramador/vex/internal/domain/logger/ports"
+	logAgg "github.com/jairoprogramador/vex-engine/internal/domain/logger/aggregates"
+	logPor "github.com/jairoprogramador/vex-engine/internal/domain/logger/ports"
 
-	ilogDto "github.com/jairoprogramador/vex/internal/infrastructure/logger/dto"
-	ilogMap "github.com/jairoprogramador/vex/internal/infrastructure/logger/mapper"
+	ilogDto "github.com/jairoprogramador/vex-engine/internal/infrastructure/logger/dto"
+	ilogMap "github.com/jairoprogramador/vex-engine/internal/infrastructure/logger/mapper"
 )
 
 type FileLoggerRepository struct {

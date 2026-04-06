@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jairoprogramador/vex/internal/domain/project/ports"
-	"github.com/jairoprogramador/vex/internal/infrastructure/project/dto"
-	"github.com/jairoprogramador/vex/internal/infrastructure/project/mapper"
+	"github.com/jairoprogramador/vex-engine/internal/domain/project/ports"
+	"github.com/jairoprogramador/vex-engine/internal/infrastructure/project/dto"
+	"github.com/jairoprogramador/vex-engine/internal/infrastructure/project/mapper"
 
 	"gopkg.in/yaml.v3"
 )
@@ -24,7 +24,7 @@ func (r *YAMLProjectRepository) Load(ctx context.Context, pathFile string) (*por
 		return nil, fmt.Errorf("no se pudo leer el archivo de configuración '%s': %w", pathFile, err)
 	}
 
-	var dto dto.FdConfigDTO
+	var dto dto.VexConfigDTO
 	if err := yaml.Unmarshal(data, &dto); err != nil {
 		return nil, fmt.Errorf("error al parsear el archivo YAML de configuración: %w", err)
 	}

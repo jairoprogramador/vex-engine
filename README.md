@@ -1,14 +1,14 @@
 <div align="center">
-  <h1>Vex Core</h1>
+  <h1>Vex Engine</h1>
   <p><strong>El motor de ejecución que convierte plantillas de despliegue en despliegues reales.</strong></p>
   <p>Un comando. Cualquier tecnología. Cualquier nube.</p>
 
   <p>
-    <a href="https://github.com/jairoprogramador/vex/releases">
-      <img src="https://img.shields.io/github/v/release/jairoprogramador/vex?style=for-the-badge" alt="Latest Release">
+    <a href="https://github.com/jairoprogramador/vex-engine/releases">
+      <img src="https://img.shields.io/github/v/release/jairoprogramador/vex-engine?style=for-the-badge" alt="Latest Release">
     </a>
-    <a href="https://github.com/jairoprogramador/vex/blob/main/LICENSE">
-      <img src="https://img.shields.io/github/license/jairoprogramador/vex?style=for-the-badge" alt="License">
+    <a href="https://github.com/jairoprogramador/vex-engine/blob/main/LICENSE">
+      <img src="https://img.shields.io/github/license/jairoprogramador/vex-engine?style=for-the-badge" alt="License">
     </a>
   </p>
 </div>
@@ -18,70 +18,70 @@
 Tu equipo de infraestructura ya definió **cómo** se despliega. Tú solo ejecutas:
 
 ```sh
-vexc deploy sand
+vexe deploy sand
 ```
 
-**Vex Core** (`vexc`) es el motor de ejecución del ecosistema [Vex](https://github.com/jairoprogramador/vex-client). Lee la configuración de tu proyecto (`vexconfig.yaml`), clona la plantilla de despliegue asociada y ejecuta cada paso en orden: `test, supply, package y deploy`. Todo esto sin que necesites saber qué hay detras.
+**Vex Core** (`vexe`) es el motor de ejecución del ecosistema [Vex](https://github.com/jairoprogramador/vex-client). Lee la configuración de tu proyecto (`vexconfig.yaml`), clona la plantilla de despliegue asociada y ejecuta cada paso en orden: `test, supply, package y deploy`. Todo esto sin que necesites saber qué hay detras.
 
-Java, Node, Python, Go. AWS, Azure, GCP. Terraform, Docker, Kubernetes. A `vexc` le da igual: ejecuta lo que la plantilla diga.
+Java, Node, Python, Go. AWS, Azure, GCP. Terraform, Docker, Kubernetes. A `vexe` le da igual: ejecuta lo que la plantilla diga.
 
 ## Cómo encaja en el ecosistema
 
-`vexc` no trabaja solo. Forma parte de un ecosistema donde cada pieza tiene un rol claro:
+`vexe` no trabaja solo. Forma parte de un ecosistema donde cada pieza tiene un rol claro:
 
 | Componente | Rol | Repositorio |
 | :--- | :--- | :--- |
 | **Vex Client** (`vex`) | Inicializa proyectos, selecciona plantillas, prepara el entorno de ejecución. | [vex-client](https://github.com/jairoprogramador/vex-client) |
-| **Vex Core** (`vexc`) | **Motor de ejecución.** Lee la configuración, clona la plantilla y ejecuta los pasos de despliegue. | Este repositorio |
+| **Vex Engine** (`vexe`) | **Motor de ejecución.** Lee la configuración, clona la plantilla y ejecuta los pasos de despliegue. | Este repositorio |
 | **Template Store** | Catálogo de plantillas organizadas por nivel de arquitectura y costo. | [vex-template-store](https://github.com/jairoprogramador/vex-template-store) |
 
 **Flujo típico:**
 
 1. El desarrollador ejecuta `vex init` (vex-client) para vincular su proyecto con una plantilla.
 2. Esto genera un archivo `vexconfig.yaml` en el proyecto.
-3. Cuando el desarrollador ejecuta `vex deploy sand`, vex-client prepara el entorno y delega la ejecución a `vexc`, que se encarga del resto.
+3. Cuando el desarrollador ejecuta `vex deploy sand`, vex-client prepara el entorno y delega la ejecución a `vexe`, que se encarga del resto.
 
-> Si tu proyecto ya tiene un `vexconfig.yaml`, puedes usar `vexc` directamente. Sin embargo, se recomienda usar `vex` (vex-client) como herramienta principal: acepta los mismos comandos y los delega internamente a `vexc`, pero además prepara el entorno de ejecución que la plantilla necesita.
+> Si tu proyecto ya tiene un `vexconfig.yaml`, puedes usar `vexe` directamente. Sin embargo, se recomienda usar `vex` (vex-client) como herramienta principal: acepta los mismos comandos y los delega internamente a `vexe`, pero además prepara el entorno de ejecución que la plantilla necesita.
 
 ## Instalación
 
 ### macOS (Homebrew)
 
 ```sh
-brew install --cask jairoprogramador/vex/vexc
+brew install --cask jairoprogramador/vex-engine/vexe
 ```
 
 Si macOS indica que no puede verificar el desarrollador:
-**Ajustes del sistema → Privacidad y seguridad → "Abrir de todos modos"**, o en terminal: `xattr -cr $(which vexc)`.
+**Ajustes del sistema → Privacidad y seguridad → "Abrir de todos modos"**, o en terminal: `xattr -cr $(which vexe)`.
 
 ### Linux
 
-Descarga el paquete desde la [página de Releases](https://github.com/jairoprogramador/vex/releases):
+Descarga el paquete desde la [página de Releases](https://github.com/jairoprogramador/vex-engine/releases):
 
 ```sh
 # Debian / Ubuntu
-sudo dpkg -i vex_*.deb
+sudo dpkg -i vexe_*.deb
 
 # Red Hat / Fedora
-sudo rpm -i vex_*.rpm
+sudo rpm -i vexe_*.rpm
 ```
 
 O descarga el binario directamente:
 
 ```sh
-curl -sL https://github.com/jairoprogramador/vex/releases/latest/download/vex_linux_amd64.tar.gz | tar xz
-sudo mv vexc /usr/local/bin/
+curl -sL https://github.com/jairoprogramador/vex-engine/releases/latest/download/vexe_linux_amd64.tar.gz | tar xz
+sudo mv vexe /usr/local/bin/
 ```
 
 ### Windows
 
-1. Descarga `vex_windows_amd64.zip` desde [Releases](https://github.com/jairoprogramador/vex/releases).
-2. Descomprime y añade `vexc.exe` a tu `PATH`.
+1. Descarga `vexe_windows_amd64.zip` desde [Releases](https://github.com/jairoprogramador/vex-engine/releases).
+2. Descomprime y añade `vexe.exe` a tu `PATH`.
 
 ### Verificar instalación
 
 ```sh
-vexc --version
+vexe --version
 ```
 
 ## Uso
@@ -89,7 +89,7 @@ vexc --version
 La sintaxis es siempre la misma:
 
 ```sh
-vexc [step] [env]
+vexe [step] [env]
 ```
 
 Donde `step` es **hasta dónde** quieres ejecutar y `env` es **en qué entorno**.
@@ -119,18 +119,18 @@ Los entornos están definidos en la plantilla. Los más comunes:
 
 ```sh
 # Ejecutar solo los tests en sandbox
-vexc test sand
+vexe test sand
 
 # Aprovisionar infraestructura en staging
-vexc supply stag
+vexe supply stag
 
 # Despliegue completo en producción
-vexc deploy prod
+vexe deploy prod
 ```
 
 ## Control de estado inteligente
 
-`vexc` no re-ejecuta pasos innecesariamente. Usa un sistema de **fingerprints** (SHA-256) que compara el estado actual del proyecto, las variables y las instrucciones de la plantilla para decidir qué necesita ejecutarse.
+`vexe` no re-ejecuta pasos innecesariamente. Usa un sistema de **fingerprints** (SHA-256) que compara el estado actual del proyecto, las variables y las instrucciones de la plantilla para decidir qué necesita ejecutarse.
 
 Las reglas varían según el step:
 
@@ -174,17 +174,17 @@ template:
 
 ### 2. Despliega con vex core
 
-> **Recomendado:** Usa los comandos a través de [vex-client](https://github.com/jairoprogramador/vex-client) (`vex deploy [env]`), ya que el cliente prepara automáticamente el entorno de ejecución que la plantilla necesita. Si usas `vexc` directamente, deberás configurar ese entorno por tu cuenta (dependencias, herramientas de la plantilla, etc.).
+> **Recomendado:** Usa los comandos a través de [vex-client](https://github.com/jairoprogramador/vex-client) (`vex deploy [env]`), ya que el cliente prepara automáticamente el entorno de ejecución que la plantilla necesita. Si usas `vexe` directamente, deberás configurar ese entorno por tu cuenta (dependencias, herramientas de la plantilla, etc.).
 
 ```sh
 # Prueba primero
-vexc test sand
+vexe test sand
 
 # Si todo pasa, despliega
-vexc deploy sand
+vexe deploy sand
 ```
 
-`vexc` se encarga de:
+`vexe` se encarga de:
 
 1. Clonar la plantilla de despliegue.
 2. Ejecutar los steps definidos.
@@ -192,10 +192,10 @@ vexc deploy sand
 
 ## Contribuciones
 
-Las contribuciones son bienvenidas. Si encuentras un error o tienes una idea, abre un [issue](https://github.com/jairoprogramador/vex/issues) o envía un [pull request](https://github.com/jairoprogramador/vex/pulls).
+Las contribuciones son bienvenidas. Si encuentras un error o tienes una idea, abre un [issue](https://github.com/jairoprogramador/vex-engine/issues) o envía un [pull request](https://github.com/jairoprogramador/vex-engine/pulls).
 
 Para entender la arquitectura interna, el proyecto sigue **Domain-Driven Design** con capas separadas en `cmd/`, `internal/application/`, `internal/domain/` e `internal/infrastructure/`.
 
 ## Licencia
 
-Distribuido bajo la [Apache License 2.0](https://github.com/jairoprogramador/vex/blob/main/LICENSE).
+Distribuido bajo la [Business Source License 1.1](https://github.com/jairoprogramador/vex-engine/blob/main/LICENSE).

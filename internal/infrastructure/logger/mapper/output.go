@@ -1,8 +1,8 @@
 package mapper
 
 import (
-	"github.com/jairoprogramador/vex/internal/domain/logger/vos"
-	"github.com/jairoprogramador/vex/internal/infrastructure/logger/dto"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/vos"
+	"github.com/jairoprogramador/vex-engine/internal/infrastructure/logger/dto"
 )
 
 func OutputToDTO(output *vos.OutputLine) dto.OutputDTO {

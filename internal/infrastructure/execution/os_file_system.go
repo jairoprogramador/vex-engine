@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jairoprogramador/vex/internal/domain/execution/ports"
+	"github.com/jairoprogramador/vex-engine/internal/domain/execution/ports"
 )
 
 // OSFileSystem es una implementación de la interfaz FileSystem que utiliza el paquete 'os' de Go.

@@ -10,11 +10,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/jairoprogramador/vex/internal/infrastructure/factory"
+	"github.com/jairoprogramador/vex-engine/internal/infrastructure/factory"
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "vex [paso] [ambiente]",
+	Use:   "vexe [paso] [ambiente]",
 	Short: "Vex es una herramienta CLI para automatizar despliegues.",
 	Long:  `Una herramienta para orquestar despliegues de software a través de diferentes ambientes`,
 	Args: func(cmd *cobra.Command, args []string) error {

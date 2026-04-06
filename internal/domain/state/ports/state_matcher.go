@@ -1,8 +1,8 @@
 package ports
 
 import (
-	"github.com/jairoprogramador/vex/internal/domain/state/aggregates"
-	"github.com/jairoprogramador/vex/internal/domain/state/vos"
+	"github.com/jairoprogramador/vex-engine/internal/domain/state/aggregates"
+	"github.com/jairoprogramador/vex-engine/internal/domain/state/vos"
 )
 
 type StateMatcher interface {

@@ -3,14 +3,14 @@ package application
 import (
 	"context"
 
-	appDto "github.com/jairoprogramador/vex/internal/application/dto"
-	appPor "github.com/jairoprogramador/vex/internal/application/ports"
+	appDto "github.com/jairoprogramador/vex-engine/internal/application/dto"
+	appPor "github.com/jairoprogramador/vex-engine/internal/application/ports"
 
-	proPor "github.com/jairoprogramador/vex/internal/domain/project/ports"
+	proPor "github.com/jairoprogramador/vex-engine/internal/domain/project/ports"
 
-	"github.com/jairoprogramador/vex/internal/domain/logger/aggregates"
-	"github.com/jairoprogramador/vex/internal/domain/logger/entities"
-	"github.com/jairoprogramador/vex/internal/domain/logger/ports"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/aggregates"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/entities"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/ports"
 )
 
 type LoggerService struct {

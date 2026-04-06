@@ -1,6 +1,6 @@
 package ports
 
-import "github.com/jairoprogramador/vex/internal/domain/state/vos"
+import "github.com/jairoprogramador/vex-engine/internal/domain/state/vos"
 
 type FingerprintService interface {
 	FromFile(filePath string) (vos.Fingerprint, error)

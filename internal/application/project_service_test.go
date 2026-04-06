@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jairoprogramador/vex/internal/application"
-	"github.com/jairoprogramador/vex/internal/domain/project/ports"
-	"github.com/jairoprogramador/vex/internal/domain/project/vos"
+	"github.com/jairoprogramador/vex-engine/internal/application"
+	"github.com/jairoprogramador/vex-engine/internal/domain/project/ports"
+	"github.com/jairoprogramador/vex-engine/internal/domain/project/vos"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

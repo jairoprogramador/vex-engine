@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/jairoprogramador/vex/internal/application/ports"
-	"github.com/jairoprogramador/vex/internal/domain/logger/aggregates"
-	"github.com/jairoprogramador/vex/internal/domain/logger/entities"
-	"github.com/jairoprogramador/vex/internal/domain/logger/vos"
+	"github.com/jairoprogramador/vex-engine/internal/application/ports"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/aggregates"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/entities"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/vos"
 )
 
 type failedInfo struct {

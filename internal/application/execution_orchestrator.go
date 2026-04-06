@@ -3,21 +3,19 @@ package application
 import (
 	"context"
 	"fmt"
-	defAgg "github.com/jairoprogramador/vex/internal/domain/definition/aggregates"
-	defPrt "github.com/jairoprogramador/vex/internal/domain/definition/ports"
-	defVos "github.com/jairoprogramador/vex/internal/domain/definition/vos"
-	exePrt "github.com/jairoprogramador/vex/internal/domain/execution/ports"
-	exeVos "github.com/jairoprogramador/vex/internal/domain/execution/vos"
-	proAgg "github.com/jairoprogramador/vex/internal/domain/project/aggregates"
-	proPrt "github.com/jairoprogramador/vex/internal/domain/project/ports"
-	staPrt "github.com/jairoprogramador/vex/internal/domain/state/ports"
-	staVos "github.com/jairoprogramador/vex/internal/domain/state/vos"
-	verPrt "github.com/jairoprogramador/vex/internal/domain/versioning/ports"
-	worAgg "github.com/jairoprogramador/vex/internal/domain/workspace/aggregates"
+	defAgg "github.com/jairoprogramador/vex-engine/internal/domain/definition/aggregates"
+	defPrt "github.com/jairoprogramador/vex-engine/internal/domain/definition/ports"
+	defVos "github.com/jairoprogramador/vex-engine/internal/domain/definition/vos"
+	exePrt "github.com/jairoprogramador/vex-engine/internal/domain/execution/ports"
+	exeVos "github.com/jairoprogramador/vex-engine/internal/domain/execution/vos"
+	proAgg "github.com/jairoprogramador/vex-engine/internal/domain/project/aggregates"
+	proPrt "github.com/jairoprogramador/vex-engine/internal/domain/project/ports"
+	staPrt "github.com/jairoprogramador/vex-engine/internal/domain/state/ports"
+	staVos "github.com/jairoprogramador/vex-engine/internal/domain/state/vos"
+	verPrt "github.com/jairoprogramador/vex-engine/internal/domain/versioning/ports"
+	worAgg "github.com/jairoprogramador/vex-engine/internal/domain/workspace/aggregates"
 )
 
-// ExecutionOrchestrator orquesta la ejecución de un plan completo,
-// coordinando los contextos de definición, estado y ejecución.
 type ExecutionOrchestrator struct {
 	projectPath       string
 	rootVexPath       string
@@ -34,7 +32,6 @@ type ExecutionOrchestrator struct {
 	gitRepository     verPrt.GitRepository
 }
 
-// NewExecutionOrchestrator crea una nueva instancia del orquestador.
 func NewExecutionOrchestrator(
 	projectPath string,
 	rootVexPath string,
@@ -67,9 +64,7 @@ func NewExecutionOrchestrator(
 	}
 }
 
-// ExecutePlan es el caso de uso principal que ejecuta un plan de despliegue.
 func (o *ExecutionOrchestrator) ExecutePlan(ctx context.Context, stepName, envName string) error {
-	// 1. Inicializar, Cargar y Clonar
 	project, err := o.loadProject(ctx, o.projectPath)
 	if err != nil {
 		return err

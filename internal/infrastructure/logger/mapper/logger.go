@@ -1,10 +1,10 @@
 package mapper
 
 import (
-	"github.com/jairoprogramador/vex/internal/domain/logger/aggregates"
-	"github.com/jairoprogramador/vex/internal/domain/logger/entities"
-	"github.com/jairoprogramador/vex/internal/domain/logger/vos"
-	"github.com/jairoprogramador/vex/internal/infrastructure/logger/dto"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/aggregates"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/entities"
+	"github.com/jairoprogramador/vex-engine/internal/domain/logger/vos"
+	"github.com/jairoprogramador/vex-engine/internal/infrastructure/logger/dto"
 )
 
 func LoggerToDTO(logger *aggregates.Logger) dto.LoggerDTO {

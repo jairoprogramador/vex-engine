@@ -1,7 +1,7 @@
 package aggregates
 
 import (
-	"github.com/jairoprogramador/vex/internal/domain/project/vos"
+	"github.com/jairoprogramador/vex-engine/internal/domain/project/vos"
 )
 
 type Project struct {
