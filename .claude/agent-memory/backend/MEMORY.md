@@ -1,0 +1,1 @@
+- [Fase 5 completada](project_phase5_complete.md) — orchestrator migrado a daemon HTTP no bloqueante, emitter threading, DTO introducido

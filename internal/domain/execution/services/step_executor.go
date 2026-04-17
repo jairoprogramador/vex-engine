@@ -27,7 +27,10 @@ func NewStepExecutor(
 func (se *StepExecutor) Execute(
 	ctx context.Context,
 	step *entities.Step,
-	initialVars vos.VariableSet) (*vos.ExecutionResult, error) {
+	initialVars vos.VariableSet,
+	emitter ports.LogEmitter,
+	executionID vos.ExecutionID,
+) (*vos.ExecutionResult, error) {
 
 	cumulativeLogs := &strings.Builder{}
 	cumulativeVars := initialVars.Clone()
@@ -57,7 +60,7 @@ func (se *StepExecutor) Execute(
 	outputVars := vos.NewVariableSet()
 
 	for _, command := range step.Commands() {
-		cmdResult := se.commandExecutor.Execute(ctx, command, cumulativeVars, stepWorkdir, sharedWorkdir)
+		cmdResult := se.commandExecutor.Execute(ctx, command, cumulativeVars, stepWorkdir, sharedWorkdir, emitter, executionID)
 
 		if cmdResult.Logs != "" {
 			cumulativeLogs.WriteString(fmt.Sprintf("  - comando: '%s'\n", command.Name()))

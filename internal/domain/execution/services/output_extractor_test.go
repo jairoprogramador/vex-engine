@@ -14,6 +14,15 @@ func newOutputCommandForTest(name, probe string) vos.CommandOutput {
 	return cmd
 }
 
+// mustVariableSetFromMap crea un VariableSet desde un mapa. Panics en tests son aceptables.
+func mustVariableSetFromMap(m map[string]string) vos.VariableSet {
+	vs, err := vos.NewVariableSetFromMap(m)
+	if err != nil {
+		panic(err)
+	}
+	return vs
+}
+
 func TestOutputExtractor_Extract(t *testing.T) {
 
 	testCases := []struct {
@@ -27,7 +36,7 @@ func TestOutputExtractor_Extract(t *testing.T) {
 			name:          "Extraccion Exitosa Simple",
 			outputs:       []vos.CommandOutput{newOutputCommandForTest("azure_cr", `azure_cr\s*=\s*"([^"]+)"`)},
 			commandOutput: `azure_cr = "valor"`,
-			expectedVars:  vos.NewVariableSetFromMap(map[string]string{"azure_cr": "valor"}),
+			expectedVars:  mustVariableSetFromMap(map[string]string{"azure_cr": "valor"}),
 			expectError:   false,
 		},
 		{
@@ -37,7 +46,7 @@ func TestOutputExtractor_Extract(t *testing.T) {
 				newOutputCommandForTest("id", `id:\s+(\d+)`),
 			},
 			commandOutput: "user: myuser, id: 12345",
-			expectedVars:  vos.NewVariableSetFromMap(map[string]string{"user": "myuser", "id": "12345"}),
+			expectedVars:  mustVariableSetFromMap(map[string]string{"user": "myuser", "id": "12345"}),
 			expectError:   false,
 		},
 		{

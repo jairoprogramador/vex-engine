@@ -13,6 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testNoopEmitter descarta todos los logs. Se define aquí para tests de command_executor.
+type testNoopEmitter struct{}
+
+func (t *testNoopEmitter) Emit(_ vos.ExecutionID, _ string) {}
+
 // MockCommandRunner
 type MockCommandRunner struct{ mock.Mock }
 
@@ -82,8 +87,11 @@ func TestCommandExecutor_Execute_Success(t *testing.T) {
 	outputExtractor.On("ExtractVars", outputCmd, cmd.Outputs()).Return(extractedVarsCmd, nil).Once()
 	//fileProcessor.On("Restore").Return(nil).Once()
 
+	emitter := &testNoopEmitter{}
+	executionID := vos.NewExecutionID()
+
 	// Act
-	result := executor.Execute(ctx, cmd, vars, pathRoot, pathRoot)
+	result := executor.Execute(ctx, cmd, vars, pathRoot, pathRoot, emitter, executionID)
 
 	// Assert
 	require.NotNil(t, result)
@@ -154,7 +162,7 @@ func TestCommandExecutor_Execute_ErrorScenarios(t *testing.T) {
 
 			tc.setupMocks(runner, fileProcessor, interpolator, outputExtractor)
 
-			result := executor.Execute(context.Background(), cmd, vos.VariableSet{}, "/app", "/app")
+			result := executor.Execute(context.Background(), cmd, vos.VariableSet{}, "/app", "/app", &testNoopEmitter{}, vos.NewExecutionID())
 
 			require.NotNil(t, result.Error)
 			assert.Equal(t, vos.Failure, result.Status)

@@ -9,5 +9,11 @@ import (
 
 // StepExecutor define la interfaz para ejecutar un único paso de un plan de ejecución.
 type StepExecutor interface {
-	Execute(ctx context.Context, step *entities.Step, initialVars vos.VariableSet) (*vos.ExecutionResult, error)
+	Execute(
+		ctx context.Context,
+		step *entities.Step,
+		initialVars vos.VariableSet,
+		emitter LogEmitter,
+		executionID vos.ExecutionID,
+	) (*vos.ExecutionResult, error)
 }

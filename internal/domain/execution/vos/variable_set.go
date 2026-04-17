@@ -2,16 +2,16 @@ package vos
 
 type VariableSet map[string]OutputVar
 
-func NewVariableSetFromMap(varsMap map[string]string) VariableSet {
+func NewVariableSetFromMap(varsMap map[string]string) (VariableSet, error) {
 	vs := NewVariableSet()
 	for name, value := range varsMap {
 		v, err := NewOutputVar(name, value, false)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		vs.Add(v)
 	}
-	return vs
+	return vs, nil
 }
 
 func NewVariableSet() VariableSet {

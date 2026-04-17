@@ -11,5 +11,8 @@ type CommandExecutor interface {
 		ctx context.Context,
 		command vos.Command,
 		currentVars vos.VariableSet,
-		workspaceStep, workspaceShared string) *vos.ExecutionResult
+		workspaceStep, workspaceShared string,
+		emitter LogEmitter,
+		executionID vos.ExecutionID,
+	) *vos.ExecutionResult
 }

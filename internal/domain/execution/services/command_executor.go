@@ -35,7 +35,10 @@ func (ce *CommandExecutor) Execute(
 	ctx context.Context,
 	command vos.Command,
 	currentVars vos.VariableSet,
-	workspaceStep, workspaceShared string) *vos.ExecutionResult {
+	workspaceStep, workspaceShared string,
+	emitter ports.LogEmitter,
+	executionID vos.ExecutionID,
+) *vos.ExecutionResult {
 
 	workspaceMain := workspaceStep
 	isShared := filepath.Base(command.Workdir()) == vos.SharedScope
@@ -63,7 +66,7 @@ func (ce *CommandExecutor) Execute(
 		execDir = filepath.Join(workspaceMain, command.Workdir())
 	}
 
-	fmt.Printf("Ejecutando: '%s'\n", command.Name())
+	emitter.Emit(executionID, fmt.Sprintf("Ejecutando: %s", command.Name()))
 	cmdResult, err := ce.runner.Run(ctx, interpolatedCmd, execDir)
 	if err != nil {
 		return &vos.ExecutionResult{Status: vos.Failure, Error: fmt.Errorf("no se pudo iniciar el comando: %w", err)}
