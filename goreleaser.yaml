@@ -1,5 +1,5 @@
 version: 2
-project_name: vexe
+project_name: vexd
 
 release:
   mode: replace
@@ -7,9 +7,9 @@ release:
   prerelease: auto
 
 builds:
-  - id: vexe
-    main: ./cmd/vex
-    binary: vexe
+  - id: vexd
+    main: ./cmd/vexd
+    binary: vexd
     env:
       - CGO_ENABLED=0
     goos:
@@ -27,7 +27,7 @@ builds:
 
 archives:
   - id: archive
-    ids: [vexe]
+    ids: [vexd]
     name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}'
     format_overrides:
       - goos: windows
@@ -37,12 +37,12 @@ archives:
       - README.md
 
 nfpms:
-  - id: vexe
-    package_name: vexe
+  - id: vexd
+    package_name: vexd
     file_name_template: '{{ .PackageName }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}'
-    ids: [vexe]
+    ids: [vexd]
     maintainer: "Jairo <jairo.jggc@gmail.com>"
-    description: "CLI multiplataforma para despliegues automáticos y rápidos de aplicaciones"
+    description: "Daemon de ejecución para despliegues automáticos y rápidos de aplicaciones"
     homepage: "https://github.com/jairoprogramador/vex-engine"
     license: Apache License
     formats:
@@ -51,7 +51,7 @@ nfpms:
       - apk
 
 homebrew_casks:
-  - name: vexe
+  - name: vexd
     ids:
       - archive
     repository:
@@ -62,8 +62,8 @@ homebrew_casks:
       name: Jairo Galvez
       email: jairo.jggc@gmail.com
     homepage: "https://github.com/jairoprogramador/vex-engine"
-    description: "CLI multiplataforma para despliegues automáticos y rápidos de aplicaciones"
-    binaries: [vexe]
+    description: "Daemon de ejecución para despliegues automáticos y rápidos de aplicaciones"
+    binaries: [vexd]
 
 changelog:
   use: git
