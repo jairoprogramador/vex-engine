@@ -1,0 +1,92 @@
+package usecase
+
+import (
+	"context"
+	"crypto/md5" //nolint:gosec // solo se usa para derivar un nombre de directorio, no para seguridad
+	"fmt"
+
+	defPrt "github.com/jairoprogramador/vex-engine/internal/domain/definition/ports"
+	proPrt "github.com/jairoprogramador/vex-engine/internal/domain/project/ports"
+)
+
+// ValidatePipelineCommand contiene los parámetros para validar un repositorio pipelinecode.
+type ValidatePipelineCommand struct {
+	PipelineURL string
+	PipelineRef string
+}
+
+// ValidatePipelineResult reporta si el repositorio pipelinecode es parseable.
+type ValidatePipelineResult struct {
+	Valid        bool
+	Steps        []string
+	Environments []string
+	Errors       []string
+}
+
+// ValidatePipelineUseCase clona el repositorio pipelinecode y valida su estructura
+// sin ejecutar ningún paso.
+type ValidatePipelineUseCase struct {
+	gitCloner   proPrt.ClonerTemplate
+	planBuilder defPrt.PlanBuilder
+	rootVexPath string
+}
+
+// NewValidatePipelineUseCase construye el use case con las dependencias inyectadas.
+func NewValidatePipelineUseCase(
+	gitCloner proPrt.ClonerTemplate,
+	planBuilder defPrt.PlanBuilder,
+	rootVexPath string,
+) *ValidatePipelineUseCase {
+	return &ValidatePipelineUseCase{
+		gitCloner:   gitCloner,
+		planBuilder: planBuilder,
+		rootVexPath: rootVexPath,
+	}
+}
+
+// Execute clona el repositorio y parsea su estructura.
+// Retorna Valid=false con los errores encontrados si el repo no es válido,
+// o Valid=true con los steps y environments disponibles si es correcto.
+func (uc *ValidatePipelineUseCase) Execute(ctx context.Context, cmd ValidatePipelineCommand) (ValidatePipelineResult, error) {
+	if cmd.PipelineURL == "" {
+		return ValidatePipelineResult{}, fmt.Errorf("use case validate pipeline: pipeline url is required")
+	}
+
+	localPath := fmt.Sprintf("%s/pipelines/validate-%s", uc.rootVexPath, urlHash(cmd.PipelineURL))
+
+	if err := uc.gitCloner.EnsureCloned(ctx, cmd.PipelineURL, cmd.PipelineRef, localPath); err != nil {
+		return ValidatePipelineResult{
+			Valid:  false,
+			Errors: []string{fmt.Sprintf("clone repository: %v", err)},
+		}, nil
+	}
+
+	planDef, err := uc.planBuilder.Build(ctx, localPath, "", "")
+	if err != nil {
+		return ValidatePipelineResult{
+			Valid:  false,
+			Errors: []string{err.Error()},
+		}, nil
+	}
+
+	steps := make([]string, 0, len(planDef.Steps()))
+	for _, stepDef := range planDef.Steps() {
+		steps = append(steps, stepDef.NameDef().Name())
+	}
+
+	environments := []string{planDef.Environment().String()}
+
+	return ValidatePipelineResult{
+		Valid:        true,
+		Steps:        steps,
+		Environments: environments,
+	}, nil
+}
+
+// urlHash retorna los primeros 8 caracteres del hash MD5 de la URL,
+// para derivar un nombre de directorio único y seguro para el filesystem.
+func urlHash(url string) string {
+	//nolint:gosec // no es uso criptográfico — solo naming de directorios
+	h := md5.Sum([]byte(url)) //nolint:gosec
+	return fmt.Sprintf("%x", h)[:8]
+}

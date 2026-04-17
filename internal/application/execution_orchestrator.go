@@ -3,10 +3,12 @@ package application
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	defAgg "github.com/jairoprogramador/vex-engine/internal/domain/definition/aggregates"
 	defPrt "github.com/jairoprogramador/vex-engine/internal/domain/definition/ports"
 	defVos "github.com/jairoprogramador/vex-engine/internal/domain/definition/vos"
+	exeAgg "github.com/jairoprogramador/vex-engine/internal/domain/execution/aggregates"
 	exePrt "github.com/jairoprogramador/vex-engine/internal/domain/execution/ports"
 	exeVos "github.com/jairoprogramador/vex-engine/internal/domain/execution/vos"
 	proAgg "github.com/jairoprogramador/vex-engine/internal/domain/project/aggregates"
@@ -17,7 +19,6 @@ import (
 	worAgg "github.com/jairoprogramador/vex-engine/internal/domain/workspace/aggregates"
 
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
-	exeAgg "github.com/jairoprogramador/vex-engine/internal/domain/execution/aggregates"
 )
 
 // ExecutionOrchestrator coordina todo el ciclo de vida de una ejecución de pipeline:
@@ -38,6 +39,9 @@ type ExecutionOrchestrator struct {
 	gitRepository     verPrt.GitRepository
 	emitter           exePrt.LogEmitter
 	executionRepo     exePrt.ExecutionRepository
+	// liveExecutions mantiene los agregados activos en memoria para poder cancelarlos.
+	// La persistencia (cancelFn) no viaja al storage — solo vive aquí.
+	liveExecutions sync.Map // map[string]*exeAgg.Execution
 }
 
 func NewExecutionOrchestrator(
@@ -97,14 +101,42 @@ func (o *ExecutionOrchestrator) Run(ctx context.Context, cmd dto.CreateExecution
 	childCtx, cancelFn := context.WithCancel(context.Background())
 	execution.SetCancelFn(cancelFn)
 
+	o.liveExecutions.Store(execution.ID().String(), execution)
+
 	go o.executePlan(childCtx, execution.ID(), cmd)
 
 	return execution.ID(), nil
 }
 
+// Cancel interrumpe una ejecución en curso invocando su cancelFn y actualizando
+// el estado en el repositorio a StatusCancelled. Si la ejecución ya no está en
+// memoria (terminó o nunca existió en este proceso) retorna error.
+func (o *ExecutionOrchestrator) Cancel(ctx context.Context, executionID exeVos.ExecutionID) error {
+	val, ok := o.liveExecutions.Load(executionID.String())
+	if !ok {
+		return fmt.Errorf("execution orchestrator: cancel: execution %s not found in memory", executionID.String())
+	}
+
+	execution, ok := val.(*exeAgg.Execution)
+	if !ok {
+		return fmt.Errorf("execution orchestrator: cancel: unexpected type in live executions map")
+	}
+
+	execution.Cancel()
+	o.liveExecutions.Delete(executionID.String())
+
+	if err := o.executionRepo.UpdateStatus(ctx, executionID, exeVos.StatusCancelled); err != nil {
+		return fmt.Errorf("execution orchestrator: cancel: update status: %w", err)
+	}
+
+	return nil
+}
+
 // executePlan corre en goroutine y ejecuta el pipeline completo.
 // Actualiza el estado de la ejecución en el repositorio al terminar.
 func (o *ExecutionOrchestrator) executePlan(ctx context.Context, executionID exeVos.ExecutionID, cmd dto.CreateExecutionCommand) {
+	defer o.liveExecutions.Delete(executionID.String())
+
 	emit := func(line string) {
 		o.emitter.Emit(executionID, line)
 	}
