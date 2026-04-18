@@ -46,7 +46,7 @@ func buildServer(cfg config) *vexhttp.Server {
 
 	// Infrastructure — shared services
 	runner := execInfra.NewShellCommandRunner()
-	gitCloner := gitInfra.NewGitCloner(runner)
+	gitCloner := gitInfra.NewRepositoryGitImpl()
 	gitRepo := verInfra.NewGoGitRepository()
 	stateRepo := stateInfra.NewGobStateRepository()
 	fpSvc := stateInfra.NewSha256FingerprintService()
