@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -17,24 +16,14 @@ var (
 )
 
 func main() {
-	port := os.Getenv("VEXD_PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", handleHealth)
-
-	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: mux,
-	}
+	cfg := loadConfig()
+	srv := buildServer(cfg)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
 
 	go func() {
-		log.Printf("vexd %s (%s) starting on :%s", version, commit, port)
+		log.Printf("vexd %s (%s) starting on :%s", version, commit, cfg.port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("vexd: listen: %v", err)
 		}
@@ -53,7 +42,9 @@ func main() {
 	log.Println("vexd: stopped")
 }
 
-func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

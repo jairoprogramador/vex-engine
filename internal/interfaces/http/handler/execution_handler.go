@@ -92,7 +92,6 @@ func (h *ExecutionHandler) Create(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
-		// Errores de validación del use case (step/environment vacíos)
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
