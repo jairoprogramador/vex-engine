@@ -63,7 +63,7 @@ func (s *ProjectService) Load(
 // FromDTO construye un agregado Project directamente desde un CreateExecutionCommand,
 // sin tocar el filesystem. Útil cuando los datos del proyecto vienen del request HTTP
 // en lugar de un vexconfig.yaml local.
-func (s *ProjectService) FromDTO(cmd dto.CreateExecutionCommand, projectLocalPath string) (*aggregates.Project, error) {
+func (s *ProjectService) FromDTO(cmd dto.RequestInput, projectLocalPath string) (*aggregates.Project, error) {
 	projectData, err := vos.NewProjectData(cmd.Project.Name, cmd.Project.Org, cmd.Project.Team, "", "")
 	if err != nil {
 		return nil, fmt.Errorf("datos del proyecto inválidos: %w", err)

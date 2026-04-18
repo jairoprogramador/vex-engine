@@ -30,7 +30,7 @@ type ExecutionOrchestrator struct {
 	workspaceSvc      *WorkspaceService
 	gitCloner         proPrt.ClonerTemplate
 	versionCalculator verPrt.VersionCalculator
-	planBuilder       defPrt.PlanBuilder
+	planBuilder       defPrt.PipelineParser
 	fingerprintSvc    staPrt.FingerprintService
 	stateManager      staPrt.StateManager
 	stepExecutor      exePrt.StepExecutor
@@ -50,7 +50,7 @@ func NewExecutionOrchestrator(
 	workspaceSvc *WorkspaceService,
 	gitCloner proPrt.ClonerTemplate,
 	versionCalculator verPrt.VersionCalculator,
-	planBuilder defPrt.PlanBuilder,
+	planBuilder defPrt.PipelineParser,
 	fingerprintSvc staPrt.FingerprintService,
 	stateManager staPrt.StateManager,
 	stepExecutor exePrt.StepExecutor,
@@ -81,7 +81,7 @@ func NewExecutionOrchestrator(
 // Run crea el agregado Execution, lo persiste y lanza la goroutine de ejecución.
 // Retorna el ExecutionID inmediatamente — el caller puede usarlo para hacer polling
 // o abrir un stream de logs via SSE.
-func (o *ExecutionOrchestrator) Run(ctx context.Context, cmd dto.CreateExecutionCommand) (exeVos.ExecutionID, error) {
+func (o *ExecutionOrchestrator) Run(ctx context.Context, cmd dto.RequestInput) (exeVos.ExecutionID, error) {
 	runtimeCfg := exeVos.NewRuntimeConfig(cmd.Execution.RuntimeImage, cmd.Execution.RuntimeTag)
 
 	execution := exeAgg.NewExecution(
@@ -134,7 +134,7 @@ func (o *ExecutionOrchestrator) Cancel(ctx context.Context, executionID exeVos.E
 
 // executePlan corre en goroutine y ejecuta el pipeline completo.
 // Actualiza el estado de la ejecución en el repositorio al terminar.
-func (o *ExecutionOrchestrator) executePlan(ctx context.Context, executionID exeVos.ExecutionID, cmd dto.CreateExecutionCommand) {
+func (o *ExecutionOrchestrator) executePlan(ctx context.Context, executionID exeVos.ExecutionID, cmd dto.RequestInput) {
 	defer o.liveExecutions.Delete(executionID.String())
 
 	emit := func(line string) {
@@ -165,7 +165,7 @@ func (o *ExecutionOrchestrator) executePlan(ctx context.Context, executionID exe
 
 // runPipeline contiene la lógica central de ejecución: carga proyecto, workspace,
 // clona template, construye plan y ejecuta cada paso.
-func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exeVos.ExecutionID, cmd dto.CreateExecutionCommand) error {
+func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exeVos.ExecutionID, cmd dto.RequestInput) error {
 	emit := func(line string) {
 		o.emitter.Emit(executionID, line)
 	}
@@ -323,7 +323,7 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 //     El path local se deriva del nombre del proyecto dentro del rootVexPath.
 //   - Si cmd.Project.URL == "": cmd.Project.ID se trata como una ruta local absoluta
 //     (comportamiento legacy compatbile con el CLI síncrono anterior).
-func (o *ExecutionOrchestrator) resolveProject(ctx context.Context, cmd dto.CreateExecutionCommand) (*proAgg.Project, string, error) {
+func (o *ExecutionOrchestrator) resolveProject(ctx context.Context, cmd dto.RequestInput) (*proAgg.Project, string, error) {
 	if cmd.Project.URL != "" {
 		// Modo daemon: el workspace del código fuente del proyecto se aloja bajo rootVexPath.
 		// La convención es <rootVexPath>/projects/<project-name>.
@@ -364,7 +364,7 @@ func (o *ExecutionOrchestrator) cloneTemplate(
 
 func (o *ExecutionOrchestrator) buildPlan(
 	ctx context.Context, templateLocalPath, stepName, envName string) (*defAgg.ExecutionPlanDefinition, error) {
-	planDef, err := o.planBuilder.Build(ctx, templateLocalPath, stepName, envName)
+	planDef, err := o.planBuilder.Parser(ctx, templateLocalPath, stepName, envName)
 	if err != nil {
 		return nil, fmt.Errorf("construir definición del plan: %w", err)
 	}

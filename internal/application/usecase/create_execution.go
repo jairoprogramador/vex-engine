@@ -8,8 +8,8 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
 )
 
-// CreateExecutionResult transporta el resultado inmediato de enqueue de una ejecución.
-type CreateExecutionResult struct {
+// CreateExecutionOutput transporta el resultado inmediato de enqueue de una ejecución.
+type CreateExecutionOutput struct {
 	ExecutionID string
 	Status      string
 }
@@ -26,20 +26,20 @@ func NewCreateExecutionUseCase(orchestrator *application.ExecutionOrchestrator) 
 
 // Execute valida el comando, lanza la ejecución de forma no bloqueante y retorna
 // el ID asignado con estado "queued".
-func (uc *CreateExecutionUseCase) Execute(ctx context.Context, cmd dto.CreateExecutionCommand) (CreateExecutionResult, error) {
+func (uc *CreateExecutionUseCase) Execute(ctx context.Context, cmd dto.RequestInput) (CreateExecutionOutput, error) {
 	if cmd.Execution.Step == "" {
-		return CreateExecutionResult{}, fmt.Errorf("use case create execution: step is required")
+		return CreateExecutionOutput{}, fmt.Errorf("use case create execution: step is required")
 	}
 	if cmd.Execution.Environment == "" {
-		return CreateExecutionResult{}, fmt.Errorf("use case create execution: environment is required")
+		return CreateExecutionOutput{}, fmt.Errorf("use case create execution: environment is required")
 	}
 
 	executionID, err := uc.orchestrator.Run(ctx, cmd)
 	if err != nil {
-		return CreateExecutionResult{}, fmt.Errorf("use case create execution: %w", err)
+		return CreateExecutionOutput{}, fmt.Errorf("use case create execution: %w", err)
 	}
 
-	return CreateExecutionResult{
+	return CreateExecutionOutput{
 		ExecutionID: executionID.String(),
 		Status:      "queued",
 	}, nil
