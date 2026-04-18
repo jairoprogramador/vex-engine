@@ -2,10 +2,11 @@ package usecase
 
 import (
 	"context"
-	"crypto/md5" //nolint:gosec // solo se usa para derivar un nombre de directorio, no para seguridad
 	"fmt"
 
-	defPrt "github.com/jairoprogramador/vex-engine/internal/domain/definition/ports"
+	pipDom "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
+	pipPrt "github.com/jairoprogramador/vex-engine/internal/domain/pipeline/ports"
+	pipSer "github.com/jairoprogramador/vex-engine/internal/domain/pipeline/services"
 )
 
 // ValidatePipelineInput contiene los parámetros para validar un repositorio pipeline.
@@ -25,63 +26,69 @@ type ValidatePipelineOutput struct {
 // ValidatePipelineUseCase clona el repositorio pipeline y valida su estructura
 // sin ejecutar ningún paso.
 type ValidatePipelineUseCase struct {
-	pipelineCloner defPrt.PipelineCloner
-	pipelineParser defPrt.PipelineParser
+	fetcher pipPrt.RepositoryFetcher
+	loader  *pipSer.PlanBuilder
 }
 
 // NewValidatePipelineUseCase construye el use case con las dependencias inyectadas.
 func NewValidatePipelineUseCase(
-	pipelineCloner defPrt.PipelineCloner,
-	pipelineParser defPrt.PipelineParser,
+	fetcher pipPrt.RepositoryFetcher,
+	loader *pipSer.PlanBuilder,
 ) *ValidatePipelineUseCase {
 	return &ValidatePipelineUseCase{
-		pipelineCloner: pipelineCloner,
-		pipelineParser: pipelineParser,
+		fetcher: fetcher,
+		loader:  loader,
 	}
 }
 
 // Execute clona el repositorio y parsea su estructura.
 // Retorna Valid=false con los errores encontrados si el repo no es válido,
 // o Valid=true con los steps y environments disponibles si es correcto.
-func (uc *ValidatePipelineUseCase) Execute(ctx context.Context, pipelineInput ValidatePipelineInput) (ValidatePipelineOutput, error) {
-	if pipelineInput.PipelineUrl == "" {
+func (uc *ValidatePipelineUseCase) Execute(ctx context.Context, input ValidatePipelineInput) (ValidatePipelineOutput, error) {
+	if input.PipelineUrl == "" {
 		return ValidatePipelineOutput{}, fmt.Errorf("use case validate pipeline: pipeline url is required")
 	}
 
-	localPath, err := uc.pipelineCloner.Clone(ctx, pipelineInput.PipelineUrl, pipelineInput.PipelineRef)
+	repoURL, err := pipDom.NewRepositoryURL(input.PipelineUrl)
 	if err != nil {
 		return ValidatePipelineOutput{
 			Valid:  false,
-			Errors: []string{fmt.Sprintf("clone repository: %v", err)},
+			Errors: []string{fmt.Sprintf("invalid pipeline url: %v", err)},
 		}, nil
 	}
 
-	pipelineDefinition, err := uc.pipelineParser.Parser(ctx, localPath, "", "")
+	repoRef, err := pipDom.NewRepositoryRef(input.PipelineRef)
 	if err != nil {
 		return ValidatePipelineOutput{
 			Valid:  false,
-			Errors: []string{fmt.Sprintf("parse pipeline: %v", err)},
+			Errors: []string{fmt.Sprintf("invalid pipeline ref: %v", err)},
 		}, nil
 	}
 
-	steps := make([]string, 0, len(pipelineDefinition.Steps()))
-	for _, stepDef := range pipelineDefinition.Steps() {
-		steps = append(steps, stepDef.NameDef().Name())
+	localPath, err := uc.fetcher.Fetch(ctx, repoURL, repoRef)
+	if err != nil {
+		return ValidatePipelineOutput{
+			Valid:  false,
+			Errors: []string{fmt.Sprintf("fetch repository: %v", err)},
+		}, nil
 	}
 
-	environments := []string{pipelineDefinition.Environment().String()}
+	plan, err := uc.loader.Load(ctx, localPath, "", pipDom.NewStepLimit(""))
+	if err != nil {
+		return ValidatePipelineOutput{
+			Valid:  false,
+			Errors: []string{fmt.Sprintf("load pipeline: %v", err)},
+		}, nil
+	}
+
+	steps := make([]string, 0, len(plan.Steps()))
+	for _, stepDef := range plan.Steps() {
+		steps = append(steps, stepDef.Name().Name())
+	}
 
 	return ValidatePipelineOutput{
 		Valid:        true,
 		Steps:        steps,
-		Environments: environments,
+		Environments: []string{plan.Environment().Value()},
 	}, nil
-}
-
-// urlHash retorna los primeros 8 caracteres del hash MD5 de la URL,
-// para derivar un nombre de directorio único y seguro para el filesystem.
-func urlHash(url string) string {
-	//nolint:gosec // no es uso criptográfico — solo naming de directorios
-	h := md5.Sum([]byte(url)) //nolint:gosec
-	return fmt.Sprintf("%x", h)[:8]
 }

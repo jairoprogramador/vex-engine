@@ -1,29 +1,29 @@
-package vos
+package pipeline
 
 import (
 	"errors"
 )
 
-type CommandDefinition struct {
+type Command struct {
 	name          string
 	description   string
 	cmd           string
 	workdir       string
 	templateFiles []string
-	outputs       []OutputDefinition
+	outputs       []Output
 }
 
-type CommandOption func(*CommandDefinition)
+type CommandOption func(*Command)
 
-func NewCommandDefinition(name, cmd string, opts ...CommandOption) (CommandDefinition, error) {
+func NewCommand(name, cmd string, opts ...CommandOption) (Command, error) {
 	if name == "" {
-		return CommandDefinition{}, errors.New("el nombre de la definición de comando no puede estar vacío")
+		return Command{}, errors.New("el nombre del comando debe estar vacío")
 	}
 	if cmd == "" {
-		return CommandDefinition{}, errors.New("el comando no puede estar vacío")
+		return Command{}, errors.New("el comando debe estar vacío")
 	}
 
-	cmdDef := &CommandDefinition{
+	cmdDef := &Command{
 		name: name,
 		cmd:  cmd,
 	}
@@ -36,7 +36,7 @@ func NewCommandDefinition(name, cmd string, opts ...CommandOption) (CommandDefin
 		templateFilesMap := make(map[string]struct{})
 		for _, file := range cmdDef.templateFiles {
 			if _, exists := templateFilesMap[file]; exists {
-				return CommandDefinition{}, errors.New("archivo de plantilla duplicado")
+				return Command{}, errors.New("template duplicado")
 			}
 			templateFilesMap[file] = struct{}{}
 		}
@@ -46,7 +46,7 @@ func NewCommandDefinition(name, cmd string, opts ...CommandOption) (CommandDefin
 		outputNames := make(map[string]struct{})
 		for _, output := range cmdDef.outputs {
 			if _, exists := outputNames[output.Name()]; exists {
-				return CommandDefinition{}, errors.New("salida duplicada")
+				return Command{}, errors.New("output duplicado")
 			}
 			outputNames[output.Name()] = struct{}{}
 		}
@@ -56,53 +56,53 @@ func NewCommandDefinition(name, cmd string, opts ...CommandOption) (CommandDefin
 }
 
 func WithWorkdir(workdir string) CommandOption {
-	return func(c *CommandDefinition) {
+	return func(c *Command) {
 		c.workdir = workdir
 	}
 }
 
 func WithDescription(description string) CommandOption {
-	return func(c *CommandDefinition) {
+	return func(c *Command) {
 		c.description = description
 	}
 }
 
 func WithTemplateFiles(files []string) CommandOption {
-	return func(c *CommandDefinition) {
+	return func(c *Command) {
 		c.templateFiles = files
 	}
 }
 
-func WithOutputs(outputs []OutputDefinition) CommandOption {
-	return func(c *CommandDefinition) {
+func WithOutputs(outputs []Output) CommandOption {
+	return func(c *Command) {
 		c.outputs = outputs
 	}
 }
 
-func (cd CommandDefinition) Name() string {
+func (cd Command) Name() string {
 	return cd.name
 }
 
-func (cd CommandDefinition) Description() string {
+func (cd Command) Description() string {
 	return cd.description
 }
 
-func (cd CommandDefinition) Cmd() string {
+func (cd Command) Cmd() string {
 	return cd.cmd
 }
 
-func (cd CommandDefinition) Workdir() string {
+func (cd Command) Workdir() string {
 	return cd.workdir
 }
 
-func (cd CommandDefinition) TemplateFiles() []string {
+func (cd Command) TemplateFiles() []string {
 	filesCopy := make([]string, len(cd.templateFiles))
 	copy(filesCopy, cd.templateFiles)
 	return filesCopy
 }
 
-func (cd CommandDefinition) Outputs() []OutputDefinition {
-	outputsCopy := make([]OutputDefinition, len(cd.outputs))
+func (cd Command) Outputs() []Output {
+	outputsCopy := make([]Output, len(cd.outputs))
 	copy(outputsCopy, cd.outputs)
 	return outputsCopy
 }

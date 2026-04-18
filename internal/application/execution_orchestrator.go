@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"sync"
 
-	defAgg "github.com/jairoprogramador/vex-engine/internal/domain/definition/aggregates"
-	defPrt "github.com/jairoprogramador/vex-engine/internal/domain/definition/ports"
-	defVos "github.com/jairoprogramador/vex-engine/internal/domain/definition/vos"
 	exeAgg "github.com/jairoprogramador/vex-engine/internal/domain/execution/aggregates"
 	exePrt "github.com/jairoprogramador/vex-engine/internal/domain/execution/ports"
 	exeVos "github.com/jairoprogramador/vex-engine/internal/domain/execution/vos"
+	pipDom "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
+	pipPrt "github.com/jairoprogramador/vex-engine/internal/domain/pipeline/ports"
+	pipSer "github.com/jairoprogramador/vex-engine/internal/domain/pipeline/services"
 	proAgg "github.com/jairoprogramador/vex-engine/internal/domain/project/aggregates"
-	proPrt "github.com/jairoprogramador/vex-engine/internal/domain/project/ports"
 	staPrt "github.com/jairoprogramador/vex-engine/internal/domain/state/ports"
 	staVos "github.com/jairoprogramador/vex-engine/internal/domain/state/vos"
 	verPrt "github.com/jairoprogramador/vex-engine/internal/domain/versioning/ports"
 	worAgg "github.com/jairoprogramador/vex-engine/internal/domain/workspace/aggregates"
+	gitInf "github.com/jairoprogramador/vex-engine/internal/infrastructure/git"
 
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
 )
@@ -28,9 +28,10 @@ type ExecutionOrchestrator struct {
 	rootVexPath       string
 	projectSvc        *ProjectService
 	workspaceSvc      *WorkspaceService
-	gitCloner         proPrt.ClonerTemplate
+	gitCloner         gitInf.RepositoryGit
 	versionCalculator verPrt.VersionCalculator
-	planBuilder       defPrt.PipelineParser
+	fetcher           pipPrt.RepositoryFetcher
+	pipelineLoader    *pipSer.PlanBuilder
 	fingerprintSvc    staPrt.FingerprintService
 	stateManager      staPrt.StateManager
 	stepExecutor      exePrt.StepExecutor
@@ -48,9 +49,10 @@ func NewExecutionOrchestrator(
 	rootVexPath string,
 	projectSvc *ProjectService,
 	workspaceSvc *WorkspaceService,
-	gitCloner proPrt.ClonerTemplate,
+	gitCloner gitInf.RepositoryGit,
 	versionCalculator verPrt.VersionCalculator,
-	planBuilder defPrt.PipelineParser,
+	fetcher pipPrt.RepositoryFetcher,
+	pipelineLoader *pipSer.PlanBuilder,
 	fingerprintSvc staPrt.FingerprintService,
 	stateManager staPrt.StateManager,
 	stepExecutor exePrt.StepExecutor,
@@ -66,7 +68,8 @@ func NewExecutionOrchestrator(
 		workspaceSvc:      workspaceSvc,
 		gitCloner:         gitCloner,
 		versionCalculator: versionCalculator,
-		planBuilder:       planBuilder,
+		fetcher:           fetcher,
+		pipelineLoader:    pipelineLoader,
 		fingerprintSvc:    fingerprintSvc,
 		stateManager:      stateManager,
 		stepExecutor:      stepExecutor,
@@ -185,7 +188,7 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 		return err
 	}
 
-	planDef, err := o.buildPlan(ctx, templateLocalPath, cmd.Execution.Step, cmd.Execution.Environment)
+	planDef, err := o.fetchAndBuildPlan(ctx, cmd)
 	if err != nil {
 		return err
 	}
@@ -195,7 +198,7 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 		return fmt.Errorf("calcular versión: %w", err)
 	}
 
-	environment := planDef.Environment().String()
+	environment := planDef.Environment().Value()
 
 	projectVars, err := o.prepareProjectVariables(project)
 	if err != nil {
@@ -217,69 +220,69 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 	emit(fmt.Sprintf("  - Commit: %s", commit.String()))
 
 	for _, stepDef := range planDef.Steps() {
-		emit(fmt.Sprintf("Ejecutando paso %s ...", stepDef.NameDef().Name()))
+		emit(fmt.Sprintf("Ejecutando paso %s ...", stepDef.Name().Name()))
 
-		fingerprints, err := o.generateStepFingerprints(projectPath, environment, workspace, stepDef.NameDef())
+		fingerprints, err := o.generateStepFingerprints(projectPath, environment, workspace, stepDef.Name())
 		if err != nil {
-			return fmt.Errorf("generar fingerprint para el paso '%s': %w", stepDef.NameDef().Name(), err)
+			return fmt.Errorf("generar fingerprint para el paso '%s': %w", stepDef.Name().Name(), err)
 		}
 
-		stateTablePath, err := workspace.StateTablePath(stepDef.NameDef().Name())
+		stateTablePath, err := workspace.StateTablePath(stepDef.Name().Name())
 		if err != nil {
-			return fmt.Errorf("obtener ruta de estado del paso '%s': %w", stepDef.NameDef().Name(), err)
+			return fmt.Errorf("obtener ruta de estado del paso '%s': %w", stepDef.Name().Name(), err)
 		}
 
 		hasChanged, err := o.stateManager.HasStateChanged(stateTablePath, fingerprints, staVos.NewCachePolicy(0))
 		if err != nil {
-			return fmt.Errorf("comprobar estado del paso '%s': %w", stepDef.NameDef().Name(), err)
+			return fmt.Errorf("comprobar estado del paso '%s': %w", stepDef.Name().Name(), err)
 		}
 
-		varsStepPath := workspace.VarsFilePath(environment, stepDef.NameDef().Name())
+		varsStepPath := workspace.VarsFilePath(environment, stepDef.Name().Name())
 		varsStep, err := o.varsRepository.Get(varsStepPath)
 		if err != nil {
-			return fmt.Errorf("obtener variables del paso '%s' en entorno '%s': %w", stepDef.NameDef().Name(), environment, err)
+			return fmt.Errorf("obtener variables del paso '%s' en entorno '%s': %w", stepDef.Name().Name(), environment, err)
 		}
 		cumulativeVars.AddAll(varsStep)
 
-		varsSharedPath := workspace.VarsFilePath("shared", stepDef.NameDef().Name())
+		varsSharedPath := workspace.VarsFilePath("shared", stepDef.Name().Name())
 		varsShared, err := o.varsRepository.Get(varsSharedPath)
 		if err != nil {
-			return fmt.Errorf("obtener variables del paso '%s' en entorno 'shared': %w", stepDef.NameDef().Name(), err)
+			return fmt.Errorf("obtener variables del paso '%s' en entorno 'shared': %w", stepDef.Name().Name(), err)
 		}
 		cumulativeVars.AddAll(varsShared)
 
 		if !hasChanged {
-			emit(fmt.Sprintf("  - Paso '%s' sin cambios. Omitiendo.", stepDef.NameDef().Name()))
+			emit(fmt.Sprintf("  - Paso '%s' sin cambios. Omitiendo.", stepDef.Name().Name()))
 			continue
 		}
 
-		envStepPath := workspace.ScopeWorkdirPath(planDef.Environment().String(), stepDef.NameDef().Name())
-		if err := o.copyWorkdir.Copy(ctx, workspace.StepTemplatePath(stepDef.NameDef().FullName()), envStepPath, false); err != nil {
-			return fmt.Errorf("copiar paso '%s' al workspace de entorno: %w", stepDef.NameDef().Name(), err)
+		envStepPath := workspace.ScopeWorkdirPath(planDef.Environment().Value(), stepDef.Name().Name())
+		if err := o.copyWorkdir.Copy(ctx, workspace.StepTemplatePath(stepDef.Name().FullName()), envStepPath, false); err != nil {
+			return fmt.Errorf("copiar paso '%s' al workspace de entorno: %w", stepDef.Name().Name(), err)
 		}
 
-		sharedStepPath := workspace.ScopeWorkdirPath(exeVos.SharedScope, stepDef.NameDef().Name())
-		if err := o.copyWorkdir.Copy(ctx, workspace.StepTemplatePath(stepDef.NameDef().FullName()), sharedStepPath, true); err != nil {
-			return fmt.Errorf("copiar paso '%s' al workspace compartido: %w", stepDef.NameDef().Name(), err)
+		sharedStepPath := workspace.ScopeWorkdirPath(exeVos.SharedScope, stepDef.Name().Name())
+		if err := o.copyWorkdir.Copy(ctx, workspace.StepTemplatePath(stepDef.Name().FullName()), sharedStepPath, true); err != nil {
+			return fmt.Errorf("copiar paso '%s' al workspace compartido: %w", stepDef.Name().Name(), err)
 		}
 
 		execStep, err := mapToExecutionStep(stepDef, envStepPath, sharedStepPath)
 		if err != nil {
-			return fmt.Errorf("mapear definición del paso '%s': %w", stepDef.NameDef().Name(), err)
+			return fmt.Errorf("mapear definición del paso '%s': %w", stepDef.Name().Name(), err)
 		}
 
 		execResult, err := o.stepExecutor.Execute(ctx, execStep, cumulativeVars, o.emitter, executionID)
 		if err != nil {
-			return fmt.Errorf("ejecución del paso '%s': %w", stepDef.NameDef().Name(), err)
+			return fmt.Errorf("ejecución del paso '%s': %w", stepDef.Name().Name(), err)
 		}
 		if execResult.Error != nil || execResult.Status == exeVos.Failure {
 			emit("--- Logs del fallo ---")
 			emit(execResult.Logs)
 			emit("---------------------")
-			return fmt.Errorf("el paso '%s' finalizó con error: %w", stepDef.NameDef().Name(), execResult.Error)
+			return fmt.Errorf("el paso '%s' finalizó con error: %w", stepDef.Name().Name(), execResult.Error)
 		}
 
-		emit(fmt.Sprintf("  - Paso '%s' completado:\n%s", stepDef.NameDef().Name(), execResult.Logs))
+		emit(fmt.Sprintf("  - Paso '%s' completado:\n%s", stepDef.Name().Name(), execResult.Logs))
 		cumulativeVars.AddAll(execResult.OutputVars)
 
 		outputSharedVars := execResult.OutputVars.Filter(func(v exeVos.OutputVar) bool {
@@ -287,7 +290,7 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 		})
 		if !outputSharedVars.Equals(varsShared) {
 			if err := o.varsRepository.Save(varsSharedPath, outputSharedVars); err != nil {
-				return fmt.Errorf("guardar variables compartidas del paso '%s': %w", stepDef.NameDef().Name(), err)
+				return fmt.Errorf("guardar variables compartidas del paso '%s': %w", stepDef.Name().Name(), err)
 			}
 		}
 
@@ -296,14 +299,14 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 		})
 		if !outputStepVars.Equals(varsStep) {
 			if err := o.varsRepository.Save(varsStepPath, outputStepVars); err != nil {
-				return fmt.Errorf("guardar variables del paso '%s' en entorno '%s': %w", stepDef.NameDef().Name(), environment, err)
+				return fmt.Errorf("guardar variables del paso '%s' en entorno '%s': %w", stepDef.Name().Name(), environment, err)
 			}
 		}
 
 		if err := o.stateManager.UpdateState(stateTablePath, fingerprints); err != nil {
 			// El paso fue exitoso. No fallamos la ejecución por esto, pero lo notificamos
 			// porque la próxima ejecución repetirá el paso innecesariamente.
-			emit(fmt.Sprintf("ADVERTENCIA: no se pudo guardar el estado del paso '%s'. Se re-ejecutará la próxima vez. Error: %v", stepDef.NameDef().Name(), err))
+			emit(fmt.Sprintf("ADVERTENCIA: no se pudo guardar el estado del paso '%s'. Se re-ejecutará la próxima vez. Error: %v", stepDef.Name().Name(), err))
 		}
 	}
 
@@ -322,11 +325,9 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 //   - Si cmd.Project.URL != "": los datos del proyecto vienen del DTO (modelo daemon HTTP).
 //     El path local se deriva del nombre del proyecto dentro del rootVexPath.
 //   - Si cmd.Project.URL == "": cmd.Project.ID se trata como una ruta local absoluta
-//     (comportamiento legacy compatbile con el CLI síncrono anterior).
+//     (comportamiento legacy compatible con el CLI síncrono anterior).
 func (o *ExecutionOrchestrator) resolveProject(ctx context.Context, cmd dto.RequestInput) (*proAgg.Project, string, error) {
 	if cmd.Project.URL != "" {
-		// Modo daemon: el workspace del código fuente del proyecto se aloja bajo rootVexPath.
-		// La convención es <rootVexPath>/projects/<project-name>.
 		projectPath := fmt.Sprintf("%s/projects/%s", o.rootVexPath, cmd.Project.Name)
 		project, err := o.projectSvc.FromDTO(cmd, projectPath)
 		if err != nil {
@@ -335,7 +336,6 @@ func (o *ExecutionOrchestrator) resolveProject(ctx context.Context, cmd dto.Requ
 		return project, projectPath, nil
 	}
 
-	// Modo legacy: cmd.Project.ID es la ruta local al directorio del proyecto.
 	projectPath := cmd.Project.ID
 	project, err := o.projectSvc.Load(ctx, projectPath)
 	if err != nil {
@@ -355,20 +355,35 @@ func (o *ExecutionOrchestrator) loadWorkspace(project *proAgg.Project) (*worAgg.
 
 func (o *ExecutionOrchestrator) cloneTemplate(
 	ctx context.Context, project *proAgg.Project, templateLocalPath string) error {
-	if err := o.gitCloner.EnsureCloned(ctx, project.TemplateRepo().URL(),
+	if err := o.gitCloner.Clone(ctx, project.TemplateRepo().URL(),
 		project.TemplateRepo().Ref(), templateLocalPath); err != nil {
 		return fmt.Errorf("clonar repositorio de plantillas: %w", err)
 	}
 	return nil
 }
 
-func (o *ExecutionOrchestrator) buildPlan(
-	ctx context.Context, templateLocalPath, stepName, envName string) (*defAgg.ExecutionPlanDefinition, error) {
-	planDef, err := o.planBuilder.Parser(ctx, templateLocalPath, stepName, envName)
+func (o *ExecutionOrchestrator) fetchAndBuildPlan(ctx context.Context, cmd dto.RequestInput) (*pipDom.PipelinePlan, error) {
+	repoURL, err := pipDom.NewRepositoryURL(cmd.Pipeline.URL)
 	if err != nil {
-		return nil, fmt.Errorf("construir definición del plan: %w", err)
+		return nil, fmt.Errorf("fetchAndBuildPlan: url inválida: %w", err)
 	}
-	return planDef, nil
+
+	ref, err := pipDom.NewRepositoryRef(cmd.Pipeline.Ref)
+	if err != nil {
+		return nil, fmt.Errorf("fetchAndBuildPlan: ref inválida: %w", err)
+	}
+
+	localPath, err := o.fetcher.Fetch(ctx, repoURL, ref)
+	if err != nil {
+		return nil, fmt.Errorf("obtener repositorio pipeline: %w", err)
+	}
+
+	limit := pipDom.NewStepLimit(cmd.Execution.Step)
+	plan, err := o.pipelineLoader.Load(ctx, localPath, cmd.Execution.Environment, limit)
+	if err != nil {
+		return nil, fmt.Errorf("cargar plan: %w", err)
+	}
+	return plan, nil
 }
 
 func (o *ExecutionOrchestrator) prepareProjectVariables(project *proAgg.Project) (exeVos.VariableSet, error) {
@@ -418,7 +433,7 @@ func (o *ExecutionOrchestrator) generateVarsFingerprint(templateVarsPath string)
 func (o *ExecutionOrchestrator) generateStepFingerprints(
 	projectPath, environment string,
 	workspace *worAgg.Workspace,
-	stepDef defVos.StepNameDefinition) (staVos.CurrentStateFingerprints, error) {
+	stepName pipDom.StepName) (staVos.CurrentStateFingerprints, error) {
 
 	envFp, err := staVos.NewEnvironment(environment)
 	if err != nil {
@@ -430,13 +445,13 @@ func (o *ExecutionOrchestrator) generateStepFingerprints(
 		return staVos.CurrentStateFingerprints{}, err
 	}
 
-	instructionPath := workspace.StepTemplatePath(stepDef.FullName())
+	instructionPath := workspace.StepTemplatePath(stepName.FullName())
 	instFp, err := o.generateInstructionFingerprint(instructionPath)
 	if err != nil {
 		return staVos.CurrentStateFingerprints{}, err
 	}
 
-	varsPath := workspace.VarsTemplatePath(environment, stepDef.Name())
+	varsPath := workspace.VarsTemplatePath(environment, stepName.Name())
 	varsFp, err := o.generateVarsFingerprint(varsPath)
 	if err != nil {
 		return staVos.CurrentStateFingerprints{}, err
@@ -445,7 +460,4 @@ func (o *ExecutionOrchestrator) generateStepFingerprints(
 	return staVos.NewCurrentStateFingerprints(codeFp, instFp, varsFp, envFp), nil
 }
 
-// Verificación de contrato en compile-time.
-// Si ExecutionOrchestrator deja de satisfacer alguna interfaz esperada por los
-// callers, el compilador lo detecta aquí.
 var _ = (*ExecutionOrchestrator)(nil)

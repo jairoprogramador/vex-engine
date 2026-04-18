@@ -5,12 +5,13 @@ import (
 
 	"github.com/jairoprogramador/vex-engine/internal/application"
 	"github.com/jairoprogramador/vex-engine/internal/application/usecase"
-	defSvc "github.com/jairoprogramador/vex-engine/internal/domain/definition/services"
 	execSvc "github.com/jairoprogramador/vex-engine/internal/domain/execution/services"
+	pipSer "github.com/jairoprogramador/vex-engine/internal/domain/pipeline/services"
 	stateSvc "github.com/jairoprogramador/vex-engine/internal/domain/state/services"
 	verSvc "github.com/jairoprogramador/vex-engine/internal/domain/versioning/services"
-	defInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/definition"
 	execInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/execution"
+	gitInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/git"
+	pipInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
 	projInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/project"
 	stateInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/state"
 	"github.com/jairoprogramador/vex-engine/internal/infrastructure/storage/filesystem"
@@ -38,39 +39,39 @@ func loadConfig() config {
 
 // buildServer construye y cablea todas las dependencias del daemon y retorna el servidor HTTP listo.
 func buildServer(cfg config) *vexhttp.Server {
+	pipelinesBaseDir := cfg.rootVexPath + "/pipelines"
+
 	// Infrastructure — storage
 	execRepo := filesystem.NewExecutionRepository(cfg.storagePath)
 
 	// Infrastructure — shared services
-	gitCloner   := projInfra.NewGitClonerTemplate()
-	gitRepo     := verInfra.NewGoGitRepository()
-	stateRepo   := stateInfra.NewGobStateRepository()
-	fpSvc       := stateInfra.NewSha256FingerprintService()
-	runner      := execInfra.NewShellCommandRunner()
+	runner := execInfra.NewShellCommandRunner()
+	gitCloner := gitInfra.NewGitCloner(runner)
+	gitRepo := verInfra.NewGoGitRepository()
+	stateRepo := stateInfra.NewGobStateRepository()
+	fpSvc := stateInfra.NewSha256FingerprintService()
 	copyWorkdir := execInfra.NewCopyWorkdir()
-	varsRepo    := execInfra.NewGobVarsRepository()
-	fs          := execInfra.NewOSFileSystem()
-	projRepo    := projInfra.NewYAMLProjectRepository()
-	defReader   := defInfra.NewYamlDefinitionReader()
+	varsRepo := execInfra.NewGobVarsRepository()
+	fs := execInfra.NewOSFileSystem()
+	projRepo := projInfra.NewYAMLProjectRepository()
+
+	// Infrastructure — pipeline
+	gitFetcher := pipInfra.NewGitFetcher(gitCloner, pipelinesBaseDir)
+	pipelineLoader := pipSer.NewPlanBuilder(pipInfra.NewYamlPipelineReader())
 
 	// Domain services
-	interpolator    := execSvc.NewInterpolator()
+	interpolator := execSvc.NewInterpolator()
 	outputExtractor := execSvc.NewOutputExtractor()
-	fileProcessor   := execSvc.NewFileProcessor(fs, interpolator)
-	cmdExecutor     := execSvc.NewCommandExecutor(runner, fileProcessor, interpolator, outputExtractor)
-	varResolver     := execSvc.NewVariableResolver(interpolator)
-	stepExecutor    := execSvc.NewStepExecutor(cmdExecutor, varResolver)
-	stateManager    := stateSvc.NewStateManager(stateRepo)
-	versionCalc     := verSvc.NewVersionCalculator(gitRepo)
-	planBuilder     := defSvc.NewPlanBuilder(defReader)
-
-	// Adapters — bridging domain interface contracts
-	pipelineParser := defInfra.NewPipelineParserAdapter(planBuilder)
-	pipelineCloner := defInfra.NewPipelineClonerAdapter(gitCloner, cfg.rootVexPath+"/pipelines")
+	fileProcessor := execSvc.NewFileProcessor(fs, interpolator)
+	cmdExecutor := execSvc.NewCommandExecutor(runner, fileProcessor, interpolator, outputExtractor)
+	varResolver := execSvc.NewVariableResolver(interpolator)
+	stepExecutor := execSvc.NewStepExecutor(cmdExecutor, varResolver)
+	stateManager := stateSvc.NewStateManager(stateRepo)
+	versionCalc := verSvc.NewVersionCalculator(gitRepo)
 
 	// Application
-	logBroker    := application.NewMemLogBroker()
-	projectSvc   := application.NewProjectService(projRepo)
+	logBroker := application.NewMemLogBroker()
+	projectSvc := application.NewProjectService(projRepo)
 	workspaceSvc := application.NewWorkspaceService()
 	orchestrator := application.NewExecutionOrchestrator(
 		cfg.rootVexPath,
@@ -78,7 +79,8 @@ func buildServer(cfg config) *vexhttp.Server {
 		workspaceSvc,
 		gitCloner,
 		versionCalc,
-		pipelineParser,
+		gitFetcher,
+		pipelineLoader,
 		fpSvc,
 		stateManager,
 		stepExecutor,
@@ -90,11 +92,11 @@ func buildServer(cfg config) *vexhttp.Server {
 	)
 
 	// Use cases
-	createExec       := usecase.NewCreateExecutionUseCase(orchestrator)
-	getExec          := usecase.NewGetExecutionUseCase(execRepo)
-	streamLogs       := usecase.NewLogsExecutionUseCase(logBroker, execRepo)
-	deleteExec       := usecase.NewDeleteExecutionUseCase(orchestrator, execRepo)
-	validatePipeline := usecase.NewValidatePipelineUseCase(pipelineCloner, pipelineParser)
+	createExec := usecase.NewCreateExecutionUseCase(orchestrator)
+	getExec := usecase.NewGetExecutionUseCase(execRepo)
+	streamLogs := usecase.NewLogsExecutionUseCase(logBroker, execRepo)
+	deleteExec := usecase.NewDeleteExecutionUseCase(orchestrator, execRepo)
+	validatePipeline := usecase.NewValidatePipelineUseCase(gitFetcher, pipelineLoader)
 
 	return vexhttp.NewServer(cfg.port, cfg.authToken, createExec, getExec, streamLogs, deleteExec, validatePipeline)
 }
