@@ -11,10 +11,11 @@ import (
 	pipDom "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
 	pipPrt "github.com/jairoprogramador/vex-engine/internal/domain/pipeline/ports"
 	pipSer "github.com/jairoprogramador/vex-engine/internal/domain/pipeline/services"
-	proAgg "github.com/jairoprogramador/vex-engine/internal/domain/project/aggregates"
+	projDomain "github.com/jairoprogramador/vex-engine/internal/domain/project"
+	proPorts "github.com/jairoprogramador/vex-engine/internal/domain/project/ports"
+	proServices "github.com/jairoprogramador/vex-engine/internal/domain/project/services"
 	staPrt "github.com/jairoprogramador/vex-engine/internal/domain/state/ports"
 	staVos "github.com/jairoprogramador/vex-engine/internal/domain/state/vos"
-	verPrt "github.com/jairoprogramador/vex-engine/internal/domain/versioning/ports"
 	worAgg "github.com/jairoprogramador/vex-engine/internal/domain/workspace/aggregates"
 	gitInf "github.com/jairoprogramador/vex-engine/internal/infrastructure/git"
 
@@ -25,21 +26,21 @@ import (
 // crea el agregado Execution, lo persiste, lanza la goroutine de ejecución y retorna
 // el ID inmediatamente al caller (modelo no bloqueante para el daemon HTTP).
 type ExecutionOrchestrator struct {
-	rootVexPath       string
-	projectSvc        *ProjectService
-	workspaceSvc      *WorkspaceService
-	gitCloner         gitInf.RepositoryGit
-	versionCalculator verPrt.VersionCalculator
-	fetcher           pipPrt.RepositoryFetcher
-	pipelineLoader    *pipSer.PlanBuilder
-	fingerprintSvc    staPrt.FingerprintService
-	stateManager      staPrt.StateManager
-	stepExecutor      exePrt.StepExecutor
-	copyWorkdir       exePrt.CopyWorkdir
-	varsRepository    exePrt.VarsRepository
-	gitRepository     verPrt.GitRepository
-	emitter           exePrt.LogEmitter
-	executionRepo     exePrt.ExecutionRepository
+	rootVexPath    string
+	projectSvc     *ProjectService
+	workspaceSvc   *WorkspaceService
+	gitCloner      gitInf.RepositoryGit
+	versionResolver *proServices.VersionResolver
+	projectFetcher  proPorts.RepositoryFetcher
+	fetcher        pipPrt.RepositoryFetcher
+	pipelineLoader *pipSer.PlanResolver
+	fingerprintSvc staPrt.FingerprintService
+	stateManager   staPrt.StateManager
+	stepExecutor   exePrt.StepExecutor
+	copyWorkdir    exePrt.CopyWorkdir
+	varsRepository exePrt.VarsRepository
+	emitter        exePrt.LogEmitter
+	executionRepo  exePrt.ExecutionRepository
 	// liveExecutions mantiene los agregados activos en memoria para poder cancelarlos.
 	// La persistencia (cancelFn) no viaja al storage — solo vive aquí.
 	liveExecutions sync.Map // map[string]*exeAgg.Execution
@@ -50,34 +51,34 @@ func NewExecutionOrchestrator(
 	projectSvc *ProjectService,
 	workspaceSvc *WorkspaceService,
 	gitCloner gitInf.RepositoryGit,
-	versionCalculator verPrt.VersionCalculator,
+	versionResolver *proServices.VersionResolver,
+	projectFetcher proPorts.RepositoryFetcher,
 	fetcher pipPrt.RepositoryFetcher,
-	pipelineLoader *pipSer.PlanBuilder,
+	pipelineLoader *pipSer.PlanResolver,
 	fingerprintSvc staPrt.FingerprintService,
 	stateManager staPrt.StateManager,
 	stepExecutor exePrt.StepExecutor,
 	copyWorkdir exePrt.CopyWorkdir,
 	varsRepository exePrt.VarsRepository,
-	gitRepository verPrt.GitRepository,
 	emitter exePrt.LogEmitter,
 	executionRepo exePrt.ExecutionRepository,
 ) *ExecutionOrchestrator {
 	return &ExecutionOrchestrator{
-		rootVexPath:       rootVexPath,
-		projectSvc:        projectSvc,
-		workspaceSvc:      workspaceSvc,
-		gitCloner:         gitCloner,
-		versionCalculator: versionCalculator,
-		fetcher:           fetcher,
-		pipelineLoader:    pipelineLoader,
-		fingerprintSvc:    fingerprintSvc,
-		stateManager:      stateManager,
-		stepExecutor:      stepExecutor,
-		copyWorkdir:       copyWorkdir,
-		varsRepository:    varsRepository,
-		gitRepository:     gitRepository,
-		emitter:           emitter,
-		executionRepo:     executionRepo,
+		rootVexPath:     rootVexPath,
+		projectSvc:      projectSvc,
+		workspaceSvc:    workspaceSvc,
+		gitCloner:       gitCloner,
+		versionResolver: versionResolver,
+		projectFetcher:  projectFetcher,
+		fetcher:         fetcher,
+		pipelineLoader:  pipelineLoader,
+		fingerprintSvc:  fingerprintSvc,
+		stateManager:    stateManager,
+		stepExecutor:    stepExecutor,
+		copyWorkdir:     copyWorkdir,
+		varsRepository:  varsRepository,
+		emitter:         emitter,
+		executionRepo:   executionRepo,
 	}
 }
 
@@ -173,18 +174,22 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 		o.emitter.Emit(executionID, line)
 	}
 
-	project, projectPath, err := o.resolveProject(ctx, cmd)
+	proj, err := o.projectSvc.FromDTO(cmd)
 	if err != nil {
-		return fmt.Errorf("resolver proyecto: %w", err)
+		return fmt.Errorf("construir proyecto: %w", err)
 	}
 
-	workspace, err := o.loadWorkspace(project)
+	version, commitHash, projectPath, err := o.versionResolver.NextVersion(ctx, proj.URL(), proj.Ref())
+	if err != nil {
+		return fmt.Errorf("calcular versión: %w", err)
+	}
+
+	workspace, err := o.loadWorkspace(proj, cmd)
 	if err != nil {
 		return err
 	}
 
-	templateLocalPath := workspace.TemplatePath()
-	if err := o.cloneTemplate(ctx, project, templateLocalPath); err != nil {
+	if err := o.cloneTemplate(ctx, cmd, workspace.TemplatePath()); err != nil {
 		return err
 	}
 
@@ -193,19 +198,14 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 		return err
 	}
 
-	version, commit, err := o.versionCalculator.CalculateNextVersion(ctx, projectPath, false)
-	if err != nil {
-		return fmt.Errorf("calcular versión: %w", err)
-	}
-
 	environment := planDef.Environment().Value()
 
-	projectVars, err := o.prepareProjectVariables(project)
+	projectVars, err := o.prepareProjectVariables(proj)
 	if err != nil {
 		return fmt.Errorf("preparar variables del proyecto: %w", err)
 	}
 
-	othersVars, err := o.prepareOthersVariables(environment, projectPath, version.String(), commit.String())
+	othersVars, err := o.prepareOthersVariables(environment, projectPath, version.String(), commitHash)
 	if err != nil {
 		return fmt.Errorf("preparar variables de entorno: %w", err)
 	}
@@ -217,7 +217,7 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 	emit("Iniciando la ejecución del plan...")
 	emit(fmt.Sprintf("  - Entorno: %s", environment))
 	emit(fmt.Sprintf("  - Versión: %s", version.String()))
-	emit(fmt.Sprintf("  - Commit: %s", commit.String()))
+	emit(fmt.Sprintf("  - Commit: %s", commitHash))
 
 	for _, stepDef := range planDef.Steps() {
 		emit(fmt.Sprintf("Ejecutando paso %s ...", stepDef.Name().Name()))
@@ -311,7 +311,7 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 	}
 
 	if cmd.Execution.Step == "deploy" {
-		if err := o.gitRepository.CreateTagForCommit(ctx, projectPath, commit.String(), version.String()); err != nil {
+		if err := o.projectFetcher.CreateTagForCommit(ctx, projectPath, commitHash, version.String()); err != nil {
 			emit(fmt.Sprintf("ADVERTENCIA: no se pudo crear el tag del commit. Error: %v", err))
 		}
 	}
@@ -319,56 +319,37 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 	return nil
 }
 
-// resolveProject determina el path local del proyecto y carga el agregado Project.
-//
-// Estrategia de resolución:
-//   - Si cmd.Project.URL != "": los datos del proyecto vienen del DTO (modelo daemon HTTP).
-//     El path local se deriva del nombre del proyecto dentro del rootVexPath.
-//   - Si cmd.Project.URL == "": cmd.Project.ID se trata como una ruta local absoluta
-//     (comportamiento legacy compatible con el CLI síncrono anterior).
-func (o *ExecutionOrchestrator) resolveProject(ctx context.Context, cmd dto.RequestInput) (*proAgg.Project, string, error) {
-	if cmd.Project.URL != "" {
-		projectPath := fmt.Sprintf("%s/projects/%s", o.rootVexPath, cmd.Project.Name)
-		project, err := o.projectSvc.FromDTO(cmd, projectPath)
-		if err != nil {
-			return nil, "", fmt.Errorf("construir proyecto desde DTO: %w", err)
-		}
-		return project, projectPath, nil
-	}
 
-	projectPath := cmd.Project.ID
-	project, err := o.projectSvc.Load(ctx, projectPath)
+func (o *ExecutionOrchestrator) loadWorkspace(project *projDomain.Project, cmd dto.RequestInput) (*worAgg.Workspace, error) {
+	// Derive template dir name from the last path segment of the pipeline URL.
+	pipelineURL, err := pipDom.NewPipelineURL(cmd.Pipeline.URL)
 	if err != nil {
-		return nil, "", fmt.Errorf("cargar proyecto desde filesystem: %w", err)
+		return nil, fmt.Errorf("cargar workspace: url de pipeline inválida: %w", err)
 	}
-	return project, projectPath, nil
-}
+	templateDirName := pipelineURL.Name()
 
-func (o *ExecutionOrchestrator) loadWorkspace(project *proAgg.Project) (*worAgg.Workspace, error) {
 	workspace, err := o.workspaceSvc.NewWorkspace(
-		o.rootVexPath, project.Data().Name(), project.TemplateRepo().DirName())
+		o.rootVexPath, project.Name().String(), templateDirName)
 	if err != nil {
 		return nil, fmt.Errorf("cargar workspace: %w", err)
 	}
 	return workspace, nil
 }
 
-func (o *ExecutionOrchestrator) cloneTemplate(
-	ctx context.Context, project *proAgg.Project, templateLocalPath string) error {
-	if err := o.gitCloner.Clone(ctx, project.TemplateRepo().URL(),
-		project.TemplateRepo().Ref(), templateLocalPath); err != nil {
+func (o *ExecutionOrchestrator) cloneTemplate(ctx context.Context, cmd dto.RequestInput, templateLocalPath string) error {
+	if err := o.gitCloner.Clone(ctx, cmd.Pipeline.URL, cmd.Pipeline.Ref, templateLocalPath); err != nil {
 		return fmt.Errorf("clonar repositorio de plantillas: %w", err)
 	}
 	return nil
 }
 
 func (o *ExecutionOrchestrator) fetchAndBuildPlan(ctx context.Context, cmd dto.RequestInput) (*pipDom.PipelinePlan, error) {
-	repoURL, err := pipDom.NewRepositoryURL(cmd.Pipeline.URL)
+	repoURL, err := pipDom.NewPipelineURL(cmd.Pipeline.URL)
 	if err != nil {
 		return nil, fmt.Errorf("fetchAndBuildPlan: url inválida: %w", err)
 	}
 
-	ref, err := pipDom.NewRepositoryRef(cmd.Pipeline.Ref)
+	ref, err := pipDom.NewPipelineRef(cmd.Pipeline.Ref)
 	if err != nil {
 		return nil, fmt.Errorf("fetchAndBuildPlan: ref inválida: %w", err)
 	}
@@ -386,19 +367,27 @@ func (o *ExecutionOrchestrator) fetchAndBuildPlan(ctx context.Context, cmd dto.R
 	return plan, nil
 }
 
-func (o *ExecutionOrchestrator) prepareProjectVariables(project *proAgg.Project) (exeVos.VariableSet, error) {
+func (o *ExecutionOrchestrator) prepareProjectVariables(project *projDomain.Project) (exeVos.VariableSet, error) {
+	idStr := project.ID().String()
+	if len(idStr) > 8 {
+		idStr = idStr[:8]
+	}
 	return exeVos.NewVariableSetFromMap(map[string]string{
-		"project_id":           project.ID().String()[:8],
-		"project_name":         project.Data().Name(),
-		"project_organization": project.Data().Organization(),
-		"project_team":         project.Data().Team(),
+		"project_id":           idStr,
+		"project_name":         project.Name().String(),
+		"project_organization": project.Org().String(),
+		"project_team":         project.Team().String(),
 	})
 }
 
 func (o *ExecutionOrchestrator) prepareOthersVariables(environment, projectWorkdir, version, commit string) (exeVos.VariableSet, error) {
+	shortHash := commit
+	if len(shortHash) > 8 {
+		shortHash = shortHash[:8]
+	}
 	return exeVos.NewVariableSetFromMap(map[string]string{
 		"project_version":       version,
-		"project_revision":      commit[:8],
+		"project_revision":      shortHash,
 		"project_revision_full": commit,
 		"environment":           environment,
 		"project_workdir":       projectWorkdir,

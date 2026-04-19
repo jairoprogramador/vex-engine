@@ -10,19 +10,19 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/domain/pipeline/ports"
 )
 
-type PlanBuilder struct {
+type PlanResolver struct {
 	pipelineReader ports.PipelineReader
 }
 
-func NewPlanBuilder(pipelineReader ports.PipelineReader) *PlanBuilder {
-	return &PlanBuilder{pipelineReader: pipelineReader}
+func NewPlanResolver(pipelineReader ports.PipelineReader) *PlanResolver {
+	return &PlanResolver{pipelineReader: pipelineReader}
 }
 
 // Load implementa la carga del pipeline a partir de un repositorio ya disponible localmente.
 // pathBase es el identificador opaco retornado por RepositoryFetcher.Fetch().
 // Cuando envName == "" retorna el primer entorno definido (comportamiento intencional:
 // permite ejecutar sin especificar entorno usando el default del pipeline).
-func (b *PlanBuilder) Load(
+func (b *PlanResolver) Load(
 	ctx context.Context,
 	pathBase string,
 	envName string,
@@ -50,7 +50,7 @@ func (b *PlanBuilder) Load(
 	return pipeline.NewPipelinePlan(environment, assembledSteps)
 }
 
-func (b *PlanBuilder) resolveEnvironment(ctx context.Context, pathBase, envName string) (pipeline.Environment, error) {
+func (b *PlanResolver) resolveEnvironment(ctx context.Context, pathBase, envName string) (pipeline.Environment, error) {
 	environments, err := b.pipelineReader.ReadEnvironments(ctx, pathBase)
 	if err != nil {
 		return pipeline.Environment{}, fmt.Errorf("no se pudieron leer los entornos: %w", err)
@@ -72,7 +72,7 @@ func (b *PlanBuilder) resolveEnvironment(ctx context.Context, pathBase, envName 
 	return pipeline.Environment{}, fmt.Errorf("el entorno '%s' no es válido", envName)
 }
 
-func (b *PlanBuilder) resolveSteps(ctx context.Context, pathBase string, limit pipeline.StepLimit) ([]pipeline.StepName, error) {
+func (b *PlanResolver) resolveSteps(ctx context.Context, pathBase string, limit pipeline.StepLimit) ([]pipeline.StepName, error) {
 	allStepNames, err := b.pipelineReader.ReadStepNames(ctx, pathBase)
 	if err != nil {
 		return nil, fmt.Errorf("no se pudieron leer los pasos: %w", err)
@@ -101,7 +101,7 @@ func (b *PlanBuilder) resolveSteps(ctx context.Context, pathBase string, limit p
 	return allStepNames[:finalStepIndex+1], nil
 }
 
-func (b *PlanBuilder) assembleStep(
+func (b *PlanResolver) assembleStep(
 	ctx context.Context,
 	pathBase string,
 	stepName pipeline.StepName,

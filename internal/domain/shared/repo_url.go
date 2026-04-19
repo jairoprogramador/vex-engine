@@ -1,4 +1,4 @@
-package pipeline
+package shared
 
 import (
 	"fmt"
@@ -11,36 +11,36 @@ var (
 	sshURLRegex   = regexp.MustCompile(`^git@[^:]+:.+`)
 )
 
-type RepositoryURL struct {
+// RepoURL representa una URL de clonación de repositorio Git (https o ssh).
+type RepoURL struct {
 	raw string
 }
 
-func NewRepositoryURL(raw string) (RepositoryURL, error) {
+// ParseRepoURL valida y construye un RepoURL a partir del texto crudo.
+func ParseRepoURL(raw string) (RepoURL, error) {
 	if !httpsURLRegex.MatchString(raw) && !sshURLRegex.MatchString(raw) {
-		return RepositoryURL{}, fmt.Errorf("url de repositorio inválida '%s': debe ser https:// o git@", raw)
+		return RepoURL{}, fmt.Errorf("url de repositorio inválida '%s': debe ser https:// o git@", raw)
 	}
-	return RepositoryURL{raw: raw}, nil
+	return RepoURL{raw: raw}, nil
 }
 
-// Name extrae owner/repo como identificador único del repositorio.
-func (r RepositoryURL) Name() string {
+// Name extrae owner/repo (https) o la parte tras el host (ssh) como identificador del repositorio.
+func (r RepoURL) Name() string {
 	s := r.raw
 	s = strings.TrimSuffix(s, ".git")
 	if httpsURLRegex.MatchString(s) {
-		// https://host/owner/repo → owner/repo
 		parts := strings.SplitN(s, "/", 4)
 		if len(parts) >= 4 {
 			return parts[2] + "/" + parts[3]
 		}
 		return parts[len(parts)-1]
 	}
-	// git@host:owner/repo → owner/repo
 	if idx := strings.Index(s, ":"); idx >= 0 {
 		return s[idx+1:]
 	}
 	return s
 }
 
-func (r RepositoryURL) String() string {
+func (r RepoURL) String() string {
 	return r.raw
 }

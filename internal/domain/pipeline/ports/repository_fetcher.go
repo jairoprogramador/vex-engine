@@ -7,5 +7,5 @@ import (
 )
 
 type RepositoryFetcher interface {
-	Fetch(ctx context.Context, url pipeline.RepositoryURL, ref pipeline.RepositoryRef) (string, error)
+	Fetch(ctx context.Context, url pipeline.PipelineURL, ref pipeline.PipelineRef) (string, error)
 }

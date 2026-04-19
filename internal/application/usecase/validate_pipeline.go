@@ -27,13 +27,13 @@ type ValidatePipelineOutput struct {
 // sin ejecutar ningún paso.
 type ValidatePipelineUseCase struct {
 	fetcher pipPrt.RepositoryFetcher
-	loader  *pipSer.PlanBuilder
+	loader  *pipSer.PlanResolver
 }
 
 // NewValidatePipelineUseCase construye el use case con las dependencias inyectadas.
 func NewValidatePipelineUseCase(
 	fetcher pipPrt.RepositoryFetcher,
-	loader *pipSer.PlanBuilder,
+	loader *pipSer.PlanResolver,
 ) *ValidatePipelineUseCase {
 	return &ValidatePipelineUseCase{
 		fetcher: fetcher,
@@ -49,7 +49,7 @@ func (uc *ValidatePipelineUseCase) Execute(ctx context.Context, input ValidatePi
 		return ValidatePipelineOutput{}, fmt.Errorf("use case validate pipeline: pipeline url is required")
 	}
 
-	repoURL, err := pipDom.NewRepositoryURL(input.PipelineUrl)
+	repoURL, err := pipDom.NewPipelineURL(input.PipelineUrl)
 	if err != nil {
 		return ValidatePipelineOutput{
 			Valid:  false,
@@ -57,7 +57,7 @@ func (uc *ValidatePipelineUseCase) Execute(ctx context.Context, input ValidatePi
 		}, nil
 	}
 
-	repoRef, err := pipDom.NewRepositoryRef(input.PipelineRef)
+	repoRef, err := pipDom.NewPipelineRef(input.PipelineRef)
 	if err != nil {
 		return ValidatePipelineOutput{
 			Valid:  false,

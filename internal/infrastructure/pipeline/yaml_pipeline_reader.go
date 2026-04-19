@@ -12,8 +12,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// yamlFileReader implementa services.Reader leyendo archivos YAML del filesystem.
-// Es la única capa que conoce la estructura de directorios del repositorio pipelinecode.
 type yamlFileReader struct{}
 
 func NewYamlPipelineReader() ports.PipelineReader {

@@ -7,15 +7,14 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/application/usecase"
 	execSvc "github.com/jairoprogramador/vex-engine/internal/domain/execution/services"
 	pipSer "github.com/jairoprogramador/vex-engine/internal/domain/pipeline/services"
+	projServices "github.com/jairoprogramador/vex-engine/internal/domain/project/services"
 	stateSvc "github.com/jairoprogramador/vex-engine/internal/domain/state/services"
-	verSvc "github.com/jairoprogramador/vex-engine/internal/domain/versioning/services"
 	execInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/execution"
 	gitInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/git"
 	pipInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
 	projInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/project"
 	stateInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/state"
 	"github.com/jairoprogramador/vex-engine/internal/infrastructure/storage/filesystem"
-	verInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/versioning"
 	vexhttp "github.com/jairoprogramador/vex-engine/internal/interfaces/http"
 )
 
@@ -40,6 +39,7 @@ func loadConfig() config {
 // buildServer construye y cablea todas las dependencias del daemon y retorna el servidor HTTP listo.
 func buildServer(cfg config) *vexhttp.Server {
 	pipelinesBaseDir := cfg.rootVexPath + "/pipelines"
+	projectsBaseDir := cfg.rootVexPath + "/projects"
 
 	// Infrastructure — storage
 	execRepo := filesystem.NewExecutionRepository(cfg.storagePath)
@@ -47,17 +47,18 @@ func buildServer(cfg config) *vexhttp.Server {
 	// Infrastructure — shared services
 	runner := execInfra.NewShellCommandRunner()
 	gitCloner := gitInfra.NewRepositoryGitImpl()
-	gitRepo := verInfra.NewGoGitRepository()
 	stateRepo := stateInfra.NewGobStateRepository()
 	fpSvc := stateInfra.NewSha256FingerprintService()
 	copyWorkdir := execInfra.NewCopyWorkdir()
 	varsRepo := execInfra.NewGobVarsRepository()
 	fs := execInfra.NewOSFileSystem()
-	projRepo := projInfra.NewYAMLProjectRepository()
+
+	// Infrastructure — project
+	projectRepo := projInfra.NewGitRepositoryFetcher(gitCloner, projectsBaseDir)
 
 	// Infrastructure — pipeline
-	gitFetcher := pipInfra.NewGitFetcher(gitCloner, pipelinesBaseDir)
-	pipelineLoader := pipSer.NewPlanBuilder(pipInfra.NewYamlPipelineReader())
+	gitFetcher := pipInfra.NewGitRepositoryFetcher(gitCloner, pipelinesBaseDir)
+	pipelineLoader := pipSer.NewPlanResolver(pipInfra.NewYamlPipelineReader())
 
 	// Domain services
 	interpolator := execSvc.NewInterpolator()
@@ -67,18 +68,19 @@ func buildServer(cfg config) *vexhttp.Server {
 	varResolver := execSvc.NewVariableResolver(interpolator)
 	stepExecutor := execSvc.NewStepExecutor(cmdExecutor, varResolver)
 	stateManager := stateSvc.NewStateManager(stateRepo)
-	versionCalc := verSvc.NewVersionCalculator(gitRepo)
+	versionResolver := projServices.NewVersionResolver(projectRepo)
 
 	// Application
 	logBroker := application.NewMemLogBroker()
-	projectSvc := application.NewProjectService(projRepo)
+	projectSvc := application.NewProjectService()
 	workspaceSvc := application.NewWorkspaceService()
 	orchestrator := application.NewExecutionOrchestrator(
 		cfg.rootVexPath,
 		projectSvc,
 		workspaceSvc,
 		gitCloner,
-		versionCalc,
+		versionResolver,
+		projectRepo,
 		gitFetcher,
 		pipelineLoader,
 		fpSvc,
@@ -86,7 +88,6 @@ func buildServer(cfg config) *vexhttp.Server {
 		stepExecutor,
 		copyWorkdir,
 		varsRepo,
-		gitRepo,
 		logBroker,
 		execRepo,
 	)
