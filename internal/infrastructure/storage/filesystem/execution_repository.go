@@ -15,43 +15,45 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/domain/execution/vos"
 )
 
+// Debe transldarse al dominio executor
+
 // ErrNotFound se retorna cuando una ejecución no existe en storage.
 var ErrNotFound = errors.New("execution not found")
 
 // executionDTO es la representación serializable de un Execution para JSON.
 type executionDTO struct {
-	ID          string     `json:"id"`
-	Status      string     `json:"status"`
-	ProjectID   string     `json:"project_id"`
-	ProjectName string     `json:"project_name"`
-	PipelineURL string     `json:"pipeline_url"`
-	PipelineRef string     `json:"pipeline_ref"`
-	Step        string     `json:"step"`
-	Environment string     `json:"environment"`
-	RuntimeImage string    `json:"runtime_image,omitempty"`
-	RuntimeTag  string     `json:"runtime_tag,omitempty"`
-	StartedAt   time.Time  `json:"started_at"`
-	FinishedAt  *time.Time `json:"finished_at,omitempty"`
-	ExitCode    *int       `json:"exit_code,omitempty"`
+	ID           string     `json:"id"`
+	Status       string     `json:"status"`
+	ProjectID    string     `json:"project_id"`
+	ProjectName  string     `json:"project_name"`
+	PipelineURL  string     `json:"pipeline_url"`
+	PipelineRef  string     `json:"pipeline_ref"`
+	Step         string     `json:"step"`
+	Environment  string     `json:"environment"`
+	RuntimeImage string     `json:"runtime_image,omitempty"`
+	RuntimeTag   string     `json:"runtime_tag,omitempty"`
+	StartedAt    time.Time  `json:"started_at"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+	ExitCode     *int       `json:"exit_code,omitempty"`
 }
 
 // toDTO convierte un agregado Execution al DTO serializable.
 func toDTO(e *aggregates.Execution) executionDTO {
 	cfg := e.RuntimeConfig()
 	return executionDTO{
-		ID:          e.ID().String(),
-		Status:      e.Status().String(),
-		ProjectID:   e.ProjectID(),
-		ProjectName: e.ProjectName(),
-		PipelineURL: e.PipelineURL(),
-		PipelineRef: e.PipelineRef(),
-		Step:        e.Step(),
-		Environment: e.Environment(),
+		ID:           e.ID().String(),
+		Status:       e.Status().String(),
+		ProjectID:    e.ProjectID(),
+		ProjectName:  e.ProjectName(),
+		PipelineURL:  e.PipelineURL(),
+		PipelineRef:  e.PipelineRef(),
+		Step:         e.Step(),
+		Environment:  e.Environment(),
 		RuntimeImage: cfg.Image,
-		RuntimeTag:  cfg.Tag,
-		StartedAt:   e.StartedAt(),
-		FinishedAt:  e.FinishedAt(),
-		ExitCode:    e.ExitCode(),
+		RuntimeTag:   cfg.Tag,
+		StartedAt:    e.StartedAt(),
+		FinishedAt:   e.FinishedAt(),
+		ExitCode:     e.ExitCode(),
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 
 const (
 	varsExtension = "var"
-	stateExtension = "tb"
 )
 
 type FileName struct {
@@ -27,10 +26,6 @@ func NewFileName(name, extension string) (FileName, error) {
 
 func NewVarsFileName(stepName string) (FileName, error) {
 	return NewFileName(stepName, varsExtension)
-}
-
-func NewStateFileName(stepName string) (FileName, error) {
-	return NewFileName(stepName, stateExtension)
 }
 
 func (f FileName) String() string {

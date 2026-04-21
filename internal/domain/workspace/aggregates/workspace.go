@@ -64,14 +64,3 @@ func (w *Workspace) ScopeWorkdirPath(scope string, stepName string) string {
 	return filepath.Join(w.WorkdirPath(), scope, stepName)
 }
 
-func (w *Workspace) StateDirPath() string {
-	return filepath.Join(w.WorkspacePath(), "state")
-}
-
-func (w *Workspace) StateTablePath(stateName string) (string, error) {
-	fileName, err := vos.NewStateFileName(stateName)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(w.StateDirPath(), fileName.String()), nil
-}

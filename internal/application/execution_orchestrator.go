@@ -14,8 +14,9 @@ import (
 	projDomain "github.com/jairoprogramador/vex-engine/internal/domain/project"
 	proPorts "github.com/jairoprogramador/vex-engine/internal/domain/project/ports"
 	proServices "github.com/jairoprogramador/vex-engine/internal/domain/project/services"
-	staPrt "github.com/jairoprogramador/vex-engine/internal/domain/state/ports"
-	staVos "github.com/jairoprogramador/vex-engine/internal/domain/state/vos"
+	storagePorts "github.com/jairoprogramador/vex-engine/internal/domain/storage/ports"
+	storageSvc "github.com/jairoprogramador/vex-engine/internal/domain/storage/services"
+	storageVos "github.com/jairoprogramador/vex-engine/internal/domain/storage/vos"
 	worAgg "github.com/jairoprogramador/vex-engine/internal/domain/workspace/aggregates"
 	gitInf "github.com/jairoprogramador/vex-engine/internal/infrastructure/git"
 
@@ -26,23 +27,22 @@ import (
 // crea el agregado Execution, lo persiste, lanza la goroutine de ejecución y retorna
 // el ID inmediatamente al caller (modelo no bloqueante para el daemon HTTP).
 type ExecutionOrchestrator struct {
-	rootVexPath    string
-	projectSvc     *ProjectService
-	workspaceSvc   *WorkspaceService
-	gitCloner      gitInf.RepositoryGit
+	rootVexPath     string
+	projectSvc      *ProjectService
+	workspaceSvc    *WorkspaceService
+	gitCloner       gitInf.RepositoryGit
 	versionResolver *proServices.VersionResolver
 	projectFetcher  proPorts.RepositoryFetcher
-	fetcher        pipPrt.RepositoryFetcher
-	pipelineLoader *pipSer.PlanResolver
-	fingerprintSvc staPrt.FingerprintService
-	stateManager   staPrt.StateManager
-	stepExecutor   exePrt.StepExecutor
-	copyWorkdir    exePrt.CopyWorkdir
-	varsRepository exePrt.VarsRepository
-	emitter        exePrt.LogEmitter
-	executionRepo  exePrt.ExecutionRepository
+	fetcher         pipPrt.RepositoryFetcher
+	pipelineLoader  *pipSer.PlanResolver
+	fingerprintSvc  storagePorts.FingerprintFilesystem
+	decider         *storageSvc.ExecutionDecider
+	stepExecutor    exePrt.StepExecutor
+	copyWorkdir     exePrt.CopyWorkdir
+	varsRepository  exePrt.VarsRepository
+	emitter         exePrt.LogEmitter
+	executionRepo   exePrt.ExecutionRepository
 	// liveExecutions mantiene los agregados activos en memoria para poder cancelarlos.
-	// La persistencia (cancelFn) no viaja al storage — solo vive aquí.
 	liveExecutions sync.Map // map[string]*exeAgg.Execution
 }
 
@@ -55,8 +55,8 @@ func NewExecutionOrchestrator(
 	projectFetcher proPorts.RepositoryFetcher,
 	fetcher pipPrt.RepositoryFetcher,
 	pipelineLoader *pipSer.PlanResolver,
-	fingerprintSvc staPrt.FingerprintService,
-	stateManager staPrt.StateManager,
+	fingerprintSvc storagePorts.FingerprintFilesystem,
+	decider *storageSvc.ExecutionDecider,
 	stepExecutor exePrt.StepExecutor,
 	copyWorkdir exePrt.CopyWorkdir,
 	varsRepository exePrt.VarsRepository,
@@ -73,7 +73,7 @@ func NewExecutionOrchestrator(
 		fetcher:         fetcher,
 		pipelineLoader:  pipelineLoader,
 		fingerprintSvc:  fingerprintSvc,
-		stateManager:    stateManager,
+		decider:         decider,
 		stepExecutor:    stepExecutor,
 		copyWorkdir:     copyWorkdir,
 		varsRepository:  varsRepository,
@@ -83,7 +83,7 @@ func NewExecutionOrchestrator(
 }
 
 // Run crea el agregado Execution, lo persiste y lanza la goroutine de ejecución.
-// Retorna el ExecutionID inmediatamente — el caller puede usarlo para hacer polling
+// Retorna el ExecutionID inmediatamente — el caller puede usarlo para polling
 // o abrir un stream de logs via SSE.
 func (o *ExecutionOrchestrator) Run(ctx context.Context, cmd dto.RequestInput) (exeVos.ExecutionID, error) {
 	runtimeCfg := exeVos.NewRuntimeConfig(cmd.Execution.RuntimeImage, cmd.Execution.RuntimeTag)
@@ -113,8 +113,7 @@ func (o *ExecutionOrchestrator) Run(ctx context.Context, cmd dto.RequestInput) (
 }
 
 // Cancel interrumpe una ejecución en curso invocando su cancelFn y actualizando
-// el estado en el repositorio a StatusCancelled. Si la ejecución ya no está en
-// memoria (terminó o nunca existió en este proceso) retorna error.
+// el estado en el repositorio a StatusCancelled.
 func (o *ExecutionOrchestrator) Cancel(ctx context.Context, executionID exeVos.ExecutionID) error {
 	val, ok := o.liveExecutions.Load(executionID.String())
 	if !ok {
@@ -137,7 +136,6 @@ func (o *ExecutionOrchestrator) Cancel(ctx context.Context, executionID exeVos.E
 }
 
 // executePlan corre en goroutine y ejecuta el pipeline completo.
-// Actualiza el estado de la ejecución en el repositorio al terminar.
 func (o *ExecutionOrchestrator) executePlan(ctx context.Context, executionID exeVos.ExecutionID, cmd dto.RequestInput) {
 	defer o.liveExecutions.Delete(executionID.String())
 
@@ -151,24 +149,18 @@ func (o *ExecutionOrchestrator) executePlan(ctx context.Context, executionID exe
 
 	if err := o.runPipeline(ctx, executionID, cmd); err != nil {
 		emit(fmt.Sprintf("ERROR: %v", err))
-		exitCode := 1
 		_ = o.executionRepo.UpdateStatus(ctx, executionID, exeVos.StatusFailed)
-		// Ignoramos el error de UpdateStatus aquí porque ya estamos en el camino de error —
-		// el log emitido preserva el contexto para el operador.
-		_ = exitCode
 		return
 	}
 
-	exitCode := 0
-	_ = exitCode
 	if err := o.executionRepo.UpdateStatus(ctx, executionID, exeVos.StatusSucceeded); err != nil {
 		emit(fmt.Sprintf("ADVERTENCIA: ejecución exitosa pero no se pudo actualizar el estado: %v", err))
 	}
 	emit("Ejecución completada con éxito.")
 }
 
-// runPipeline contiene la lógica central de ejecución: carga proyecto, workspace,
-// clona template, construye plan y ejecuta cada paso.
+// runPipeline contiene la lógica central: carga proyecto, workspace, clona template,
+// construye plan y ejecuta cada paso usando el ExecutionDecider para decidir skip/run.
 func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exeVos.ExecutionID, cmd dto.RequestInput) error {
 	emit := func(line string) {
 		o.emitter.Emit(executionID, line)
@@ -214,6 +206,13 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 	cumulativeVars.AddAll(projectVars)
 	cumulativeVars.AddAll(othersVars)
 
+	// templateName se extrae de la URL del pipeline (último segmento)
+	pipelineURL, err := pipDom.NewPipelineURL(cmd.Pipeline.URL)
+	if err != nil {
+		return fmt.Errorf("url de pipeline inválida: %w", err)
+	}
+	templateName := pipelineURL.Name()
+
 	emit("Iniciando la ejecución del plan...")
 	emit(fmt.Sprintf("  - Entorno: %s", environment))
 	emit(fmt.Sprintf("  - Versión: %s", version.String()))
@@ -227,14 +226,16 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 			return fmt.Errorf("generar fingerprint para el paso '%s': %w", stepDef.Name().Name(), err)
 		}
 
-		stateTablePath, err := workspace.StateTablePath(stepDef.Name().Name())
+		stepName, err := storageVos.NewStepName(stepDef.Name().Name())
 		if err != nil {
-			return fmt.Errorf("obtener ruta de estado del paso '%s': %w", stepDef.Name().Name(), err)
+			return fmt.Errorf("nombre de paso inválido '%s': %w", stepDef.Name().Name(), err)
 		}
 
-		hasChanged, err := o.stateManager.HasStateChanged(stateTablePath, fingerprints, staVos.NewCachePolicy(0))
+		key := storageVos.NewStorageKey(proj.Name().String(), templateName, stepName)
+
+		decision, err := o.decider.Decide(ctx, key, fingerprints)
 		if err != nil {
-			return fmt.Errorf("comprobar estado del paso '%s': %w", stepDef.Name().Name(), err)
+			return fmt.Errorf("decidir ejecución del paso '%s': %w", stepDef.Name().Name(), err)
 		}
 
 		varsStepPath := workspace.VarsFilePath(environment, stepDef.Name().Name())
@@ -251,8 +252,9 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 		}
 		cumulativeVars.AddAll(varsShared)
 
-		if !hasChanged {
-			emit(fmt.Sprintf("  - Paso '%s' sin cambios. Omitiendo.", stepDef.Name().Name()))
+		if !decision.ShouldRun() {
+			emit(fmt.Sprintf("  - Paso '%s' sin cambios en el historial de ejecución (match de %s). Omitiendo.",
+				stepDef.Name().Name(), decision.MatchedAt().Format("2006-01-02 15:04:05")))
 			continue
 		}
 
@@ -303,10 +305,10 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 			}
 		}
 
-		if err := o.stateManager.UpdateState(stateTablePath, fingerprints); err != nil {
-			// El paso fue exitoso. No fallamos la ejecución por esto, pero lo notificamos
-			// porque la próxima ejecución repetirá el paso innecesariamente.
-			emit(fmt.Sprintf("ADVERTENCIA: no se pudo guardar el estado del paso '%s'. Se re-ejecutará la próxima vez. Error: %v", stepDef.Name().Name(), err))
+		if err := o.decider.RecordSuccess(ctx, key, fingerprints); err != nil {
+			// El paso fue exitoso. No fallamos la ejecución por esto, pero lo notificamos.
+			emit(fmt.Sprintf("ADVERTENCIA: no se pudo guardar el historial de ejecución del paso '%s'. Se re-ejecutará la próxima vez. Error: %v",
+				stepDef.Name().Name(), err))
 		}
 	}
 
@@ -319,9 +321,7 @@ func (o *ExecutionOrchestrator) runPipeline(ctx context.Context, executionID exe
 	return nil
 }
 
-
 func (o *ExecutionOrchestrator) loadWorkspace(project *projDomain.Project, cmd dto.RequestInput) (*worAgg.Workspace, error) {
-	// Derive template dir name from the last path segment of the pipeline URL.
 	pipelineURL, err := pipDom.NewPipelineURL(cmd.Pipeline.URL)
 	if err != nil {
 		return nil, fmt.Errorf("cargar workspace: url de pipeline inválida: %w", err)
@@ -395,58 +395,47 @@ func (o *ExecutionOrchestrator) prepareOthersVariables(environment, projectWorkd
 	})
 }
 
-func (o *ExecutionOrchestrator) generateCodeFingerprint(projectPath string) (staVos.Fingerprint, error) {
-	codeFp, err := o.fingerprintSvc.FromDirectory(projectPath)
-	if err != nil {
-		return staVos.Fingerprint{}, fmt.Errorf("generar fingerprint del proyecto: %w", err)
-	}
-	return codeFp, nil
-}
-
-func (o *ExecutionOrchestrator) generateInstructionFingerprint(templateInstPath string) (staVos.Fingerprint, error) {
-	instFp, err := o.fingerprintSvc.FromDirectory(templateInstPath)
-	if err != nil {
-		return staVos.Fingerprint{}, fmt.Errorf("generar fingerprint de instrucciones: %w", err)
-	}
-	return instFp, nil
-}
-
-func (o *ExecutionOrchestrator) generateVarsFingerprint(templateVarsPath string) (staVos.Fingerprint, error) {
-	varsFp, err := o.fingerprintSvc.FromFile(templateVarsPath)
-	if err != nil {
-		return staVos.Fingerprint{}, fmt.Errorf("generar fingerprint de variables: %w", err)
-	}
-	return varsFp, nil
-}
-
 func (o *ExecutionOrchestrator) generateStepFingerprints(
 	projectPath, environment string,
 	workspace *worAgg.Workspace,
-	stepName pipDom.StepName) (staVos.CurrentStateFingerprints, error) {
+	stepName pipDom.StepName) (storageVos.FingerprintSet, error) {
 
-	envFp, err := staVos.NewEnvironment(environment)
+	envFp, err := storageVos.NewEnvironment(environment)
 	if err != nil {
-		return staVos.CurrentStateFingerprints{}, err
+		return storageVos.FingerprintSet{}, err
 	}
 
-	codeFp, err := o.generateCodeFingerprint(projectPath)
+	codeFp, err := o.fingerprintSvc.FromDirectory(projectPath)
 	if err != nil {
-		return staVos.CurrentStateFingerprints{}, err
+		return storageVos.FingerprintSet{}, fmt.Errorf("generar fingerprint del proyecto: %w", err)
 	}
 
 	instructionPath := workspace.StepTemplatePath(stepName.FullName())
-	instFp, err := o.generateInstructionFingerprint(instructionPath)
+	instFp, err := o.fingerprintSvc.FromDirectory(instructionPath)
 	if err != nil {
-		return staVos.CurrentStateFingerprints{}, err
+		return storageVos.FingerprintSet{}, fmt.Errorf("generar fingerprint de instrucciones: %w", err)
 	}
 
 	varsPath := workspace.VarsTemplatePath(environment, stepName.Name())
-	varsFp, err := o.generateVarsFingerprint(varsPath)
+	varsFp, err := o.fingerprintSvc.FromFile(varsPath)
 	if err != nil {
-		return staVos.CurrentStateFingerprints{}, err
+		return storageVos.FingerprintSet{}, fmt.Errorf("generar fingerprint de variables: %w", err)
 	}
 
-	return staVos.NewCurrentStateFingerprints(codeFp, instFp, varsFp, envFp), nil
+	fps := make(map[storageVos.FingerprintKind]storageVos.Fingerprint)
+
+	// Solo añadimos fingerprints válidos (no vacíos) al set
+	if codeFp.String() != "" {
+		fps[storageVos.KindCode] = codeFp
+	}
+	if instFp.String() != "" {
+		fps[storageVos.KindInstruction] = instFp
+	}
+	if varsFp.String() != "" {
+		fps[storageVos.KindVars] = varsFp
+	}
+
+	return storageVos.NewFingerprintSet(fps, envFp), nil
 }
 
 var _ = (*ExecutionOrchestrator)(nil)

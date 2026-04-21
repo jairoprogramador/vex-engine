@@ -8,12 +8,12 @@ import (
 	execSvc "github.com/jairoprogramador/vex-engine/internal/domain/execution/services"
 	pipSer "github.com/jairoprogramador/vex-engine/internal/domain/pipeline/services"
 	projServices "github.com/jairoprogramador/vex-engine/internal/domain/project/services"
-	stateSvc "github.com/jairoprogramador/vex-engine/internal/domain/state/services"
+	storageSvc "github.com/jairoprogramador/vex-engine/internal/domain/storage/services"
 	execInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/execution"
 	gitInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/git"
 	pipInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
 	projInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/project"
-	stateInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/state"
+	storage "github.com/jairoprogramador/vex-engine/internal/infrastructure/storage"
 	"github.com/jairoprogramador/vex-engine/internal/infrastructure/storage/filesystem"
 	vexhttp "github.com/jairoprogramador/vex-engine/internal/interfaces/http"
 )
@@ -47,11 +47,15 @@ func buildServer(cfg config) *vexhttp.Server {
 	// Infrastructure — shared services
 	runner := execInfra.NewShellCommandRunner()
 	gitCloner := gitInfra.NewRepositoryGitImpl()
-	stateRepo := stateInfra.NewGobStateRepository()
-	fpSvc := stateInfra.NewSha256FingerprintService()
 	copyWorkdir := execInfra.NewCopyWorkdir()
 	varsRepo := execInfra.NewGobVarsRepository()
 	fs := execInfra.NewOSFileSystem()
+
+	// Infrastructure — storage/gob (historial de ejecución)
+	pathResolver := storage.NewDefaultPathResolver(cfg.rootVexPath)
+	historyRepo := storage.NewHistoryRepository(pathResolver)
+	fpSvc := storage.NewSha256Fingerprint()
+	clock := storage.NewSystemClock()
 
 	// Infrastructure — project
 	projectRepo := projInfra.NewGitRepositoryFetcher(gitCloner, projectsBaseDir)
@@ -67,8 +71,9 @@ func buildServer(cfg config) *vexhttp.Server {
 	cmdExecutor := execSvc.NewCommandExecutor(runner, fileProcessor, interpolator, outputExtractor)
 	varResolver := execSvc.NewVariableResolver(interpolator)
 	stepExecutor := execSvc.NewStepExecutor(cmdExecutor, varResolver)
-	stateManager := stateSvc.NewStateManager(stateRepo)
 	versionResolver := projServices.NewVersionResolver(projectRepo)
+	catalog := storageSvc.DefaultCatalog()
+	decider := storageSvc.NewExecutionDecider(historyRepo, catalog, clock)
 
 	// Application
 	logBroker := application.NewMemLogBroker()
@@ -84,7 +89,7 @@ func buildServer(cfg config) *vexhttp.Server {
 		gitFetcher,
 		pipelineLoader,
 		fpSvc,
-		stateManager,
+		decider,
 		stepExecutor,
 		copyWorkdir,
 		varsRepo,
