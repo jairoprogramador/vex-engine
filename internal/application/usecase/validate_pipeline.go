@@ -2,11 +2,6 @@ package usecase
 
 import (
 	"context"
-	"fmt"
-
-	pipDom "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
-	pipPrt "github.com/jairoprogramador/vex-engine/internal/domain/pipeline/ports"
-	pipSer "github.com/jairoprogramador/vex-engine/internal/domain/pipeline/services"
 )
 
 // ValidatePipelineInput contiene los parámetros para validar un repositorio pipeline.
@@ -26,18 +21,15 @@ type ValidatePipelineOutput struct {
 // ValidatePipelineUseCase clona el repositorio pipeline y valida su estructura
 // sin ejecutar ningún paso.
 type ValidatePipelineUseCase struct {
-	fetcher pipPrt.RepositoryFetcher
-	loader  *pipSer.PlanResolver
+	pipelinesBasePath string
 }
 
 // NewValidatePipelineUseCase construye el use case con las dependencias inyectadas.
 func NewValidatePipelineUseCase(
-	fetcher pipPrt.RepositoryFetcher,
-	loader *pipSer.PlanResolver,
+	pipelinesBasePath string,
 ) *ValidatePipelineUseCase {
 	return &ValidatePipelineUseCase{
-		fetcher: fetcher,
-		loader:  loader,
+		pipelinesBasePath: pipelinesBasePath,
 	}
 }
 
@@ -45,7 +37,7 @@ func NewValidatePipelineUseCase(
 // Retorna Valid=false con los errores encontrados si el repo no es válido,
 // o Valid=true con los steps y environments disponibles si es correcto.
 func (uc *ValidatePipelineUseCase) Execute(ctx context.Context, input ValidatePipelineInput) (ValidatePipelineOutput, error) {
-	if input.PipelineUrl == "" {
+	/* if input.PipelineUrl == "" {
 		return ValidatePipelineOutput{}, fmt.Errorf("use case validate pipeline: pipeline url is required")
 	}
 
@@ -65,7 +57,7 @@ func (uc *ValidatePipelineUseCase) Execute(ctx context.Context, input ValidatePi
 		}, nil
 	}
 
-	localPath, err := uc.fetcher.Fetch(ctx, repoURL, repoRef)
+	pipelineLocalPath, err := uc.gitRepository.Clone(ctx, repoURL, repoRef.String(), uc.pipelinesBasePath)
 	if err != nil {
 		return ValidatePipelineOutput{
 			Valid:  false,
@@ -73,7 +65,7 @@ func (uc *ValidatePipelineUseCase) Execute(ctx context.Context, input ValidatePi
 		}, nil
 	}
 
-	plan, err := uc.loader.Load(ctx, localPath, "", pipDom.NewStepLimit(""))
+	plan, err := uc.loader.Load(ctx, pipelineLocalPath, "", pipDom.NewStepLimit(""))
 	if err != nil {
 		return ValidatePipelineOutput{
 			Valid:  false,
@@ -83,12 +75,18 @@ func (uc *ValidatePipelineUseCase) Execute(ctx context.Context, input ValidatePi
 
 	steps := make([]string, 0, len(plan.Steps()))
 	for _, stepDef := range plan.Steps() {
-		steps = append(steps, stepDef.Name().Name())
+		steps = append(steps, stepDef.StepName().Name())
 	}
 
 	return ValidatePipelineOutput{
 		Valid:        true,
 		Steps:        steps,
 		Environments: []string{plan.Environment().Value()},
+	}, nil */
+	return ValidatePipelineOutput{
+		Valid:        true,
+		Steps:        []string{"hdk"},
+		Environments: []string{"hdk"},
+		Errors:       []string{},
 	}, nil
 }

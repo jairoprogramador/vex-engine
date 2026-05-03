@@ -11,21 +11,18 @@ var (
 	sshURLRegex   = regexp.MustCompile(`^git@[^:]+:.+`)
 )
 
-// RepoURL representa una URL de clonación de repositorio Git (https o ssh).
-type RepoURL struct {
+type RepositoryUrl struct {
 	raw string
 }
 
-// ParseRepoURL valida y construye un RepoURL a partir del texto crudo.
-func ParseRepoURL(raw string) (RepoURL, error) {
+func NewRepositoryURL(raw string) (RepositoryUrl, error) {
 	if !httpsURLRegex.MatchString(raw) && !sshURLRegex.MatchString(raw) {
-		return RepoURL{}, fmt.Errorf("url de repositorio inválida '%s': debe ser https:// o git@", raw)
+		return RepositoryUrl{}, fmt.Errorf("url de repositorio inválida '%s': debe ser https:// o git@", raw)
 	}
-	return RepoURL{raw: raw}, nil
+	return RepositoryUrl{raw: raw}, nil
 }
 
-// Name extrae owner/repo (https) o la parte tras el host (ssh) como identificador del repositorio.
-func (r RepoURL) Name() string {
+func (r RepositoryUrl) Name() string {
 	s := r.raw
 	s = strings.TrimSuffix(s, ".git")
 	if httpsURLRegex.MatchString(s) {
@@ -41,6 +38,6 @@ func (r RepoURL) Name() string {
 	return s
 }
 
-func (r RepoURL) String() string {
+func (r RepositoryUrl) String() string {
 	return r.raw
 }

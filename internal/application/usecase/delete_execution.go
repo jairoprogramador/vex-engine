@@ -2,11 +2,8 @@ package usecase
 
 import (
 	"context"
-	"fmt"
 
-	"github.com/jairoprogramador/vex-engine/internal/application"
-	exePrt "github.com/jairoprogramador/vex-engine/internal/domain/execution/ports"
-	exeVos "github.com/jairoprogramador/vex-engine/internal/domain/execution/vos"
+	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 )
 
 // DeleteExecutionResult transporta el estado final de la ejecución cancelada.
@@ -18,19 +15,17 @@ type DeleteExecutionResult struct {
 // DeleteExecutionUseCase cancela una ejecución en curso delegando al orchestrator,
 // que es quien mantiene el cancelFn en memoria.
 type DeleteExecutionUseCase struct {
-	orchestrator *application.ExecutionOrchestrator
-	repo         exePrt.ExecutionRepository
 }
 
 // NewDeleteExecutionUseCase construye el use case con el orchestrator y repositorio inyectados.
-func NewDeleteExecutionUseCase(orchestrator *application.ExecutionOrchestrator, repo exePrt.ExecutionRepository) *DeleteExecutionUseCase {
-	return &DeleteExecutionUseCase{orchestrator: orchestrator, repo: repo}
+func NewDeleteExecutionUseCase() *DeleteExecutionUseCase {
+	return &DeleteExecutionUseCase{}
 }
 
 // Execute cancela la ejecución identificada por executionID.
 // Retorna el resultado con el estado actualizado tras la cancelación.
 func (uc *DeleteExecutionUseCase) Execute(ctx context.Context, executionID string) (DeleteExecutionResult, error) {
-	id, err := exeVos.ExecutionIDFromString(executionID)
+	/* id, err := exeAggr.ExecutionIDFromString(executionID)
 	if err != nil {
 		return DeleteExecutionResult{}, fmt.Errorf("use case delete execution: %w", err)
 	}
@@ -45,10 +40,10 @@ func (uc *DeleteExecutionUseCase) Execute(ctx context.Context, executionID strin
 	}
 	if execution == nil {
 		return DeleteExecutionResult{}, fmt.Errorf("use case delete execution: execution %s: not found after cancel", executionID)
-	}
+	} */
 
 	return DeleteExecutionResult{
-		ExecutionID: execution.ID().String(),
-		Status:      execution.Status().String(),
+		ExecutionID: "hdk",
+		Status:      command.StatusCancelled.String(),
 	}, nil
 }

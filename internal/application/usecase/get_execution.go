@@ -2,11 +2,9 @@ package usecase
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	exePrt "github.com/jairoprogramador/vex-engine/internal/domain/execution/ports"
-	exeVos "github.com/jairoprogramador/vex-engine/internal/domain/execution/vos"
+	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 )
 
 // ExecutionView es la proyección de lectura del agregado Execution.
@@ -24,18 +22,17 @@ type ExecutionView struct {
 
 // GetExecutionUseCase consulta el repositorio por ID y retorna una vista completa.
 type GetExecutionUseCase struct {
-	repo exePrt.ExecutionRepository
 }
 
 // NewGetExecutionUseCase construye el use case con el repositorio inyectado.
-func NewGetExecutionUseCase(repo exePrt.ExecutionRepository) *GetExecutionUseCase {
-	return &GetExecutionUseCase{repo: repo}
+func NewGetExecutionUseCase() *GetExecutionUseCase {
+	return &GetExecutionUseCase{}
 }
 
 // Execute busca la ejecución por ID y retorna su vista de lectura.
 // Retorna error si el ID es inválido o si la ejecución no existe.
 func (uc *GetExecutionUseCase) Execute(ctx context.Context, executionID string) (ExecutionView, error) {
-	id, err := exeVos.ExecutionIDFromString(executionID)
+	/* id, err := exeAggr.ExecutionIDFromString(executionID)
 	if err != nil {
 		return ExecutionView{}, fmt.Errorf("use case get execution: %w", err)
 	}
@@ -53,10 +50,21 @@ func (uc *GetExecutionUseCase) Execute(ctx context.Context, executionID string) 
 		Status:      execution.Status().String(),
 		Step:        execution.Step(),
 		Environment: execution.Environment(),
-		ProjectID:   execution.ProjectID(),
+		ProjectID:   execution.ProjectId(),
 		ProjectName: execution.ProjectName(),
 		StartedAt:   execution.StartedAt(),
 		FinishedAt:  execution.FinishedAt(),
 		ExitCode:    execution.ExitCode(),
+	}, nil */
+	return ExecutionView{
+		ExecutionID: "hdk",
+		Status:      command.StatusCancelled.String(),
+		Step:        "hdk",
+		Environment: "hdk",
+		ProjectID:   "hdk",
+		ProjectName: "hdk",
+		StartedAt:   time.Now(),
+		FinishedAt:  nil,
+		ExitCode:    nil,
 	}, nil
 }

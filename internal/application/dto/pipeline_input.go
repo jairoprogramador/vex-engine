@@ -2,6 +2,6 @@ package dto
 
 // PipelineInput identifica el repositorio pipelinecode a ejecutar.
 type PipelineInput struct {
-	URL string
+	Url string
 	Ref string
 }

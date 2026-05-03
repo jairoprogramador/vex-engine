@@ -67,15 +67,15 @@ func (h *ExecutionHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	cmd := dto.RequestInput{
 		Project: dto.ProjectInput{
-			ID:   req.Project.ID,
+			Id:   req.Project.ID,
 			Name: req.Project.Name,
 			Team: req.Project.Team,
 			Org:  req.Project.Org,
-			URL:  req.Project.URL,
+			Url:  req.Project.URL,
 			Ref:  req.Project.Ref,
 		},
 		Pipeline: dto.PipelineInput{
-			URL: req.Pipeline.URL,
+			Url: req.Pipeline.URL,
 			Ref: req.Pipeline.Ref,
 		},
 		Execution: dto.ExecutionInput{

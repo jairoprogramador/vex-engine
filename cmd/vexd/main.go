@@ -48,3 +48,11 @@ func envOrDefault(key, def string) string {
 	}
 	return def
 }
+
+func userHomeDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatalf("error getting user home directory: %v", err)
+	}
+	return home
+}
