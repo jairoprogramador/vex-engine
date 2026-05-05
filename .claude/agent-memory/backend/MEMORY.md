@@ -1,2 +1,0 @@
-- [Fase 5 completada](project_phase5_complete.md) — orchestrator migrado a daemon HTTP no bloqueante, emitter threading, DTO introducido
-- [Refactoring versionado](project_versioning_refactor.md) — RepositoryFetcher unificada, ProjectCommit eliminado, dominio desacoplado de go-git
