@@ -22,8 +22,11 @@ func TestForClone_stableAndDeterministic(t *testing.T) {
 		t.Fatalf("ForClone not deterministic: %q vs %q", namePath1, namePath2)
 	}
 
+	// The directory name is intentionally `<lastSegment><hash[:8]>` with no
+	// separator; CLAUDE.md §"Storage en Filesystem" pins this format and
+	// other repos depend on it, so the test asserts the same convention.
 	wantSuffix := fmt.Sprintf("%x", sha256.Sum256([]byte(raw)))[:8]
-	wantName := "my-app-" + wantSuffix
+	wantName := "my-app" + wantSuffix
 	if filepath.Base(namePath1) != wantName {
 		t.Errorf("basename got %q want %q", filepath.Base(namePath1), wantName)
 	}
@@ -40,7 +43,7 @@ func TestForClone_sshURL(t *testing.T) {
 	}
 	got := LocalRepositoryPath("/base", u)
 	wantSuffix := fmt.Sprintf("%x", sha256.Sum256([]byte(raw)))[:8]
-	want := filepath.Join("/base", "repo-"+wantSuffix)
+	want := filepath.Join("/base", "repo"+wantSuffix)
 	if got != want {
 		t.Errorf("got %q want %q", got, want)
 	}
@@ -51,8 +54,8 @@ func TestForClone_trimsGitSuffixOnLastSegment(t *testing.T) {
 	u := stubURL{name: "owner/foo.git", raw: "https://example.com/x"}
 	got := filepath.Base(LocalRepositoryPath("/tmp", u))
 	wantSuffix := fmt.Sprintf("%x", sha256.Sum256([]byte(u.raw)))[:8]
-	if got != "foo-"+wantSuffix {
-		t.Errorf("got %q want foo-%s", got, wantSuffix)
+	if got != "foo"+wantSuffix {
+		t.Errorf("got %q want foo%s", got, wantSuffix)
 	}
 }
 
