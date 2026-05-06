@@ -2,10 +2,8 @@ package dto
 
 // ExecutionInput contiene los parámetros de ejecución del pipeline.
 type ExecutionInput struct {
-	Step        string
-	Environment string
-	//ParametersURL string
-	//SecretsURL    string
-	RuntimeImage string
-	RuntimeTag   string
+	Step         string `json:"step"`
+	Environment  string `json:"environment"`
+	RuntimeImage string `json:"runtime_image,omitempty"`
+	RuntimeTag   string `json:"runtime_tag,omitempty"`
 }

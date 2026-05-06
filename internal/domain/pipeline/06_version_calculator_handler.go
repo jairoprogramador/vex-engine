@@ -42,6 +42,7 @@ func NewVersionCalculatorHandler(repository ProjectTagRepository) PipelineHandle
 }
 
 func (h *VersionCalculatorHandler) Handle(ctx *context.Context, request *PipelineRequestHandler) error {
+	request.NotifyStage("calculating_version")
 	projectVersion, projectHeadHash, err := h.NextVersion(ctx, request.ProjectLocalPath(), time.Now())
 	if err != nil {
 		return fmt.Errorf("%w", err)

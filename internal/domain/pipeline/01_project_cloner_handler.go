@@ -20,6 +20,7 @@ func NewProjectClonerHandler(repository ProjectClonerRepository) PipelineHandler
 }
 
 func (h *ProjectClonerHandler) Handle(ctx *context.Context, request *PipelineRequestHandler) error {
+	request.NotifyStage("cloning_project")
 	projectLocalPath, err := h.repository.Clone(ctx, request.ProjectUrl(), request.ProjectRef())
 	if err != nil {
 		return fmt.Errorf("clonar proyecto: %w", err)

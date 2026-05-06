@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -10,65 +11,41 @@ import (
 	stepDom "github.com/jairoprogramador/vex-engine/internal/domain/step"
 	stepStat "github.com/jairoprogramador/vex-engine/internal/domain/step/status"
 	cmdInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/command"
-	notify "github.com/jairoprogramador/vex-engine/internal/infrastructure/notify"
 	pippInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
 	stepInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step"
 	stepStatInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step/status"
-	vexhttp "github.com/jairoprogramador/vex-engine/internal/interfaces/http"
+	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
 )
 
-// config agrupa la configuración del daemon leída desde env vars.
-type config struct {
-	port             string
-	rootVexPath      string
-	authToken        string
-	logStdoutEnabled bool
+// vexdConfig agrupa la configuración mínima del binario one-shot.
+// Las env vars HTTP (VEXD_PORT, VEXD_AUTH_TOKEN, VEXD_LOG_STDOUT) quedaron
+// obsoletas con la eliminación del server HTTP en M3.
+type vexdConfig struct {
+	rootVexPath string
 }
 
-// loadConfig lee las variables de entorno y aplica valores por defecto.
-func loadConfig() config {
-	home := userHomeDir()
-	return config{
-		port:             envOrDefault("VEXD_PORT", "65001"),
-		rootVexPath:      envOrDefault("VEXD_ROOT_PATH", home),
-		authToken:        os.Getenv("VEXD_AUTH_TOKEN"),
-		logStdoutEnabled: os.Getenv("VEXD_LOG_STDOUT") == "1",
+func loadConfig() (vexdConfig, error) {
+	root := os.Getenv("VEXD_ROOT_PATH")
+	if root == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return vexdConfig{}, fmt.Errorf("resolve user home: %w", err)
+		}
+		root = home
 	}
+	return vexdConfig{rootVexPath: root}, nil
 }
 
-func chainPipelineHandlers(handlers ...pipDom.PipelineHandler) pipDom.PipelineHandler {
-	for i := 0; i < len(handlers)-1; i++ {
-		handlers[i].SetNext(handlers[i+1])
+// buildRunCommand cablea todas las dependencias y retorna un *cli.RunCommand
+// listo para usar. Lo invoca el subcomando `vexd run` por cada ejecución.
+//
+// El wiring NO incluye observers: éstos los construye RunCommand.Execute
+// dinámicamente según los flags (--log-endpoint, --status-endpoint, --quiet).
+func buildRunCommand() (*cli.RunCommand, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return nil, err
 	}
-	if len(handlers) == 0 {
-		return nil
-	}
-	return handlers[0]
-}
-
-func chainStepHandlers(handlers ...stepDom.StepHandler) stepDom.StepHandler {
-	for i := 0; i < len(handlers)-1; i++ {
-		handlers[i].SetNext(handlers[i+1])
-	}
-	if len(handlers) == 0 {
-		return nil
-	}
-	return handlers[0]
-}
-
-func chainCommandHandlers(handlers ...command.CommandHandler) command.CommandHandler {
-	for i := 0; i < len(handlers)-1; i++ {
-		handlers[i].SetNext(handlers[i+1])
-	}
-	if len(handlers) == 0 {
-		return nil
-	}
-	return handlers[0]
-}
-
-// buildServer construye y cablea todas las dependencias del daemon y retorna el servidor HTTP listo.
-// Opcional (VEXD_LOG_STDOUT=1): registra StdoutLogObserver en el mismo publicador sin perder SSE.
-func buildServer(cfg config) *vexhttp.Server {
 	projectsBasePath := filepath.Join(cfg.rootVexPath, ".vex", "projects")
 
 	// --- Infrastructure: pipeline ---
@@ -137,21 +114,41 @@ func buildServer(cfg config) *vexhttp.Server {
 	executableCommand := command.NewCommandExecutable(commandHead)
 
 	// --- Application ---
-	logBroker := notify.NewMemLogPublisher()
-	if cfg.logStdoutEnabled {
-		logBroker.RegisterObserver(notify.NewStdoutLogObserver())
-	}
-
 	createExec := usecase.NewCreateExecutionUseCase(
 		executablePipeline,
 		executableCommand,
 		executableStep,
-		logBroker,
 	)
-	getExec := usecase.NewGetExecutionUseCase()
-	streamLogs := usecase.NewLogsExecutionUseCase(logBroker)
-	deleteExec := usecase.NewDeleteExecutionUseCase()
-	validatePipeline := usecase.NewValidatePipelineUseCase(projectsBasePath)
 
-	return vexhttp.NewServer(cfg.port, cfg.authToken, createExec, getExec, streamLogs, deleteExec, validatePipeline)
+	return cli.NewRunCommand(createExec), nil
+}
+
+func chainPipelineHandlers(handlers ...pipDom.PipelineHandler) pipDom.PipelineHandler {
+	if len(handlers) == 0 {
+		return nil
+	}
+	for i := 0; i < len(handlers)-1; i++ {
+		handlers[i].SetNext(handlers[i+1])
+	}
+	return handlers[0]
+}
+
+func chainStepHandlers(handlers ...stepDom.StepHandler) stepDom.StepHandler {
+	if len(handlers) == 0 {
+		return nil
+	}
+	for i := 0; i < len(handlers)-1; i++ {
+		handlers[i].SetNext(handlers[i+1])
+	}
+	return handlers[0]
+}
+
+func chainCommandHandlers(handlers ...command.CommandHandler) command.CommandHandler {
+	if len(handlers) == 0 {
+		return nil
+	}
+	for i := 0; i < len(handlers)-1; i++ {
+		handlers[i].SetNext(handlers[i+1])
+	}
+	return handlers[0]
 }

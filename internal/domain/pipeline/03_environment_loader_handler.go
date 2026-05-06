@@ -21,6 +21,7 @@ func NewEnvironmentLoaderHandler(repository PipelineEnvironmentRepository) Pipel
 }
 
 func (h *EnvironmentLoaderHandler) Handle(ctx *context.Context, request *PipelineRequestHandler) error {
+	request.NotifyStage("loading_environment")
 	environments, err := h.repository.Get(ctx, request.PipelineLocalPath())
 	if err != nil {
 		return fmt.Errorf("cargar ambientes: %w", err)

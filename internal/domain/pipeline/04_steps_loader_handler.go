@@ -22,6 +22,7 @@ func NewStepsLoaderHandler(repository PipelineStepRepository) PipelineHandler {
 }
 
 func (h *StepsLoaderHandler) Handle(ctx *context.Context, request *PipelineRequestHandler) error {
+	request.NotifyStage("loading_steps")
 	stepNames, err := h.repository.Get(ctx, request.PipelineLocalPath())
 	if err != nil {
 		return fmt.Errorf("cargar pasos: %w", err)

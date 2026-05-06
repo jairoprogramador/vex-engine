@@ -1,12 +1,12 @@
 package dto
 
 // ProjectInput contiene los datos de identificación del proyecto.
-// Si URL está vacío, el orchestrator trata ID como una ruta local (modo legacy CLI).
+// `Url` y `Ref` son obligatorios desde M1: identifican el repo del proyecto a clonar.
 type ProjectInput struct {
-	Id   string
-	Name string
-	Team string
-	Org  string
-	Url  string
-	Ref  string
+	Id   string `json:"id"`
+	Name string `json:"name"`
+	Team string `json:"team"`
+	Org  string `json:"organization"`
+	Url  string `json:"url"`
+	Ref  string `json:"ref"`
 }

@@ -35,6 +35,7 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 	return s.Run(
 		executionContext,
 		func() error {
+			executionContext.NotifyStage("running_step:" + executionContext.StepName())
 			executionContext.ResetFileSessions()
 			stepWorkdir := filepath.Join(executionContext.Workdir(), "steps", executionContext.StepFullName())
 			stepWorkdirVariable, err := command.NewVariable(command.VarStepWorkdir, stepWorkdir, false)

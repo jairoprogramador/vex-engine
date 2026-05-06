@@ -24,7 +24,7 @@ func (p *Policy) Evaluate(ctx RuleContext) (Decision, error) {
 	for _, rule := range p.rules {
 		result, err := rule.Evaluate(ctx)
 		if err != nil {
-			return DecisionRun(fmt.Sprintf("rule %q failed: %w", rule.Name(), err)), err
+			return DecisionRun(fmt.Sprintf("rule %q failed: %s", rule.Name(), err)), err
 		}
 		if result.ShouldRun() {
 			return result, nil

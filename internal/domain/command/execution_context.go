@@ -14,24 +14,30 @@ type ExecutionContext struct {
 	commandExecutable Executable
 	stepExecutable    Executable
 	emitter           domNotify.LogObserver
+	statusEmitter     domNotify.StatusObserver
 	workdir           string
 	step              Step
 	command           Command
 	fileSessions      []FileInterpolatorSession
 }
 
+// NewExecutionContext compone el contexto compartido entre las tres cadenas
+// (pipeline / step / command). El statusEmitter es opcional: si es nil, las
+// llamadas a NotifyStage se descartan silenciosamente.
 func NewExecutionContext(
 	ctx *context.Context,
 	execution *Execution,
 	commandExecutable Executable,
 	stepExecutable Executable,
-	emitter domNotify.LogObserver) *ExecutionContext {
+	emitter domNotify.LogObserver,
+	statusEmitter domNotify.StatusObserver) *ExecutionContext {
 
 	return &ExecutionContext{
 		ctx:               ctx,
 		accumulatedVars:   NewExecutionVariableMap(),
 		execution:         execution,
 		emitter:           emitter,
+		statusEmitter:     statusEmitter,
 		commandExecutable: commandExecutable,
 		stepExecutable:    stepExecutable,
 		fileSessions:      make([]FileInterpolatorSession, 0),
@@ -155,6 +161,15 @@ func (ec *ExecutionContext) Step() Step {
 
 func (ec *ExecutionContext) Emit(line string) {
 	ec.emitter.Notify(ec.execution.ID().String(), line)
+}
+
+// NotifyStage reporta una transición de fase al StatusObserver registrado.
+// Es seguro llamarlo aunque no haya statusEmitter (no-op).
+func (ec *ExecutionContext) NotifyStage(stage string) {
+	if ec.statusEmitter == nil {
+		return
+	}
+	ec.statusEmitter.Notify(ec.execution.ID().String(), stage)
 }
 
 func (ec *ExecutionContext) Ctx() *context.Context {

@@ -1,58 +1,29 @@
 package main
 
 import (
-	"context"
-	"log"
-	"net/http"
+	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
+
+	"github.com/spf13/cobra"
 )
 
-var (
-	version = "unknown"
-	commit  = "unknown"
-)
+// version se sobrescribe con `-ldflags "-X main.version=<tag>"` en el build.
+var version = "dev"
 
 func main() {
-	cfg := loadConfig()
-	srv := buildServer(cfg)
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
-
-	go func() {
-		log.Printf("vexd %s (%s) starting on :%s", version, commit, cfg.port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("vexd: listen: %v", err)
-		}
-	}()
-
-	<-stop
-	log.Println("vexd: shutting down...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("vexd: shutdown: %v", err)
+	rootCmd := &cobra.Command{
+		Use:           "vexd",
+		Short:         "Vex execution engine",
+		Long:          "vexd ejecuta una pipeline definida por un RequestInput JSON y termina con exit code 0/1.",
+		SilenceErrors: true,
+		SilenceUsage:  true,
 	}
 
-	log.Println("vexd: stopped")
-}
+	rootCmd.AddCommand(newRunCommand())
+	rootCmd.AddCommand(newVersionCommand(version))
 
-func envOrDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
 	}
-	return def
-}
-
-func userHomeDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatalf("error getting user home directory: %v", err)
-	}
-	return home
 }

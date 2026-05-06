@@ -133,6 +133,10 @@ func (r *PipelineRequestHandler) Emit(line string) {
 	r.executionContext.Emit(line)
 }
 
+func (r *PipelineRequestHandler) NotifyStage(stage string) {
+	r.executionContext.NotifyStage(stage)
+}
+
 func (r *PipelineRequestHandler) AddAccumulatedVars(variable command.Variable) {
 	r.executionContext.AccumulatedVars().Add(variable)
 }

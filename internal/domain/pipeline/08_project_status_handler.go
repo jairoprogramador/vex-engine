@@ -20,6 +20,7 @@ func NewProjectStatusHandler(fingerprint ProjectFingerprint) PipelineHandler {
 }
 
 func (h *ProjectStatusHandler) Handle(ctx *context.Context, request *PipelineRequestHandler) error {
+	request.NotifyStage("computing_fingerprint")
 	statusFingerprint, err := h.fingerprint.FromDirectory(request.ProjectLocalPath())
 	if err != nil {
 		return fmt.Errorf("obtener fingerprint de estado del proyecto: %w", err)
