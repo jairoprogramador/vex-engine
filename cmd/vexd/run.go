@@ -42,8 +42,8 @@ Exit codes:
 
 	cmd.Flags().StringVar(&args.InputFile, "input", "", "ruta a un archivo con el RequestInput JSON")
 	cmd.Flags().StringVar(&args.InputEnv, "input-env", "VEX_REQUEST_INPUT", "nombre de la env var con el RequestInput (raw JSON o base64)")
-	cmd.Flags().StringVar(&args.LogEndpoint, "log-endpoint", "", "URL de la edge function log-ingest (M5)")
-	cmd.Flags().StringVar(&args.StatusEndpoint, "status-endpoint", "", "URL de la edge function execution-status (M4)")
+	cmd.Flags().StringVar(&args.LogEndpoint, "log-endpoint", "", "URL de la edge function log-ingest")
+	cmd.Flags().StringVar(&args.StatusEndpoint, "status-endpoint", "", "URL de la edge function execution-status")
 	cmd.Flags().StringVar(&args.LogToken, "log-token", "", "bearer token para los endpoints supabase")
 	cmd.Flags().StringVar(&args.ExecutionID, "execution-id", "", "UUID asignado externamente para la ejecución (lo usa el reporter)")
 	cmd.Flags().BoolVar(&args.Quiet, "quiet", false, "suprime stdout local (no afecta a los endpoints supabase)")

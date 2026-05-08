@@ -18,8 +18,6 @@ import (
 )
 
 // vexdConfig agrupa la configuración mínima del binario one-shot.
-// Las env vars HTTP (VEXD_PORT, VEXD_AUTH_TOKEN, VEXD_LOG_STDOUT) quedaron
-// obsoletas con la eliminación del server HTTP en M3.
 type vexdConfig struct {
 	rootVexPath string
 }
