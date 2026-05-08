@@ -74,9 +74,6 @@ func (uc *CreateExecutionUseCase) Execute(ctx context.Context, request dto.Reque
 	if request.Execution.Step == "" {
 		return CreateExecutionOutput{}, fmt.Errorf("use case create execution: step is required")
 	}
-	if request.Execution.Environment == "" {
-		return CreateExecutionOutput{}, fmt.Errorf("use case create execution: environment is required")
-	}
 	if request.Project.Id == "" {
 		return CreateExecutionOutput{}, fmt.Errorf("use case create execution: project id is required")
 	}
