@@ -148,6 +148,10 @@ func (ec *ExecutionContext) Environment() string {
 	return ec.execution.Environment()
 }
 
+func (ec *ExecutionContext) SetEnvironment(environment string) {
+	ec.execution.SetEnvironment(environment)
+}
+
 func (ec *ExecutionContext) StartedAt() time.Time {
 	return ec.execution.StartedAt()
 }

@@ -69,6 +69,10 @@ func (r *PipelineRequestHandler) Environment() string {
 	return r.executionContext.Environment()
 }
 
+func (r *PipelineRequestHandler) SetEnvironment(environment string) {
+	r.executionContext.SetEnvironment(environment)
+}
+
 func (r *PipelineRequestHandler) ProjectUrl() string {
 	return r.executionContext.ProjectUrl()
 }

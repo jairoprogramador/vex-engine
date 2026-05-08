@@ -27,9 +27,17 @@ func (h *EnvironmentLoaderHandler) Handle(ctx *context.Context, request *Pipelin
 		return fmt.Errorf("cargar ambientes: %w", err)
 	}
 
-	contains := slices.Contains(environments, request.Environment())
-	if !contains {
-		return fmt.Errorf("el ambiente %s no está definido en el pipeline", request.Environment())
+	if len(environments) == 0 {
+		return fmt.Errorf("No hay ambientes configurados")
+	}
+
+	if request.Environment() == "" {
+		request.SetEnvironment(environments[0])
+	} else {
+		contains := slices.Contains(environments, request.Environment())
+		if !contains {
+			return fmt.Errorf("el ambiente %s no está definido en el pipeline", request.Environment())
+		}
 	}
 
 	if h.Next != nil {

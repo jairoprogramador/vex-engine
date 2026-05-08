@@ -112,6 +112,10 @@ func (e *Execution) Environment() string {
 	return e.environment
 }
 
+func (e *Execution) SetEnvironment(environment string) {
+	e.environment = environment
+}
+
 func (e *Execution) Runtime() ExecutionRuntime {
 	return e.runtime
 }
