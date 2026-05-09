@@ -69,7 +69,7 @@ func (r *SupabaseStatusReporter) Notify(executionID string, stage string) {
 	r.mu.Unlock()
 
 	body := map[string]any{
-		"execution_id":  executionID,
+		"execution_id":  r.executionID,
 		"status":        "running",
 		"current_stage": stage,
 	}

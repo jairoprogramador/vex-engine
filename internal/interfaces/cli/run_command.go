@@ -92,7 +92,7 @@ func (c *RunCommand) Execute(stdin io.Reader, stdout io.Writer, stderr io.Writer
 
 	var supabaseLogs *notify.SupabaseLogObserver
 	if args.LogEndpoint != "" {
-		supabaseLogs = notify.NewSupabaseLogObserver(args.LogEndpoint, args.LogToken)
+		supabaseLogs = notify.NewSupabaseLogObserver(args.LogEndpoint, args.LogToken, args.ExecutionID)
 		logObservers = append(logObservers, supabaseLogs)
 	}
 

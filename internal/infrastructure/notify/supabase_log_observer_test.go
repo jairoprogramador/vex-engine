@@ -46,11 +46,12 @@ func TestSupabaseLogObserver_Notify_BatchesAndPosts(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	observer := NewSupabaseLogObserver(srv.URL, "t0k3n")
+	const execID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+	observer := NewSupabaseLogObserver(srv.URL, "t0k3n", execID)
 	observer.httpClient = srv.Client()
 
 	for i := 0; i < 5; i++ {
-		observer.Notify("exec-1", "line-"+itoa(i))
+		observer.Notify("ignored-id", "line-"+itoa(i))
 	}
 
 	observer.Close()
@@ -59,6 +60,11 @@ func TestSupabaseLogObserver_Notify_BatchesAndPosts(t *testing.T) {
 	defer mu.Unlock()
 	if len(batches) == 0 {
 		t.Fatalf("expected at least one batch, got 0")
+	}
+	for _, b := range batches {
+		if b.ExecutionID != execID {
+			t.Errorf("batch execution_id: got %q, want %q", b.ExecutionID, execID)
+		}
 	}
 	var seqs []int64
 	for _, b := range batches {
@@ -98,7 +104,7 @@ func TestSupabaseLogObserver_FlushSizeForcesBatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	observer := NewSupabaseLogObserver(srv.URL, "")
+	observer := NewSupabaseLogObserver(srv.URL, "", "exec-flush-size")
 	observer.httpClient = srv.Client()
 
 	// Genera líneas en bursts pequeños separados por una pausa < flushInterval
@@ -139,10 +145,10 @@ func TestSupabaseLogObserver_RetriesOnServerError(t *testing.T) {
 	supabaseRetryBackoff = []time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond}
 	defer func() { supabaseRetryBackoff = prevBackoff }()
 
-	observer := NewSupabaseLogObserver(srv.URL, "")
+	observer := NewSupabaseLogObserver(srv.URL, "", "exec-retry")
 	observer.httpClient = srv.Client()
 
-	observer.Notify("exec-1", "hello")
+	observer.Notify("exec-retry", "hello")
 	observer.Close()
 
 	if got := attempts.Load(); got < 3 {
@@ -166,10 +172,10 @@ func TestSupabaseLogObserver_LogsLostWhenAllRetriesFail(t *testing.T) {
 	supabaseRetryBackoff = []time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond}
 	defer func() { supabaseRetryBackoff = prevBackoff }()
 
-	observer := NewSupabaseLogObserver(srv.URL, "")
+	observer := NewSupabaseLogObserver(srv.URL, "", "exec-fail")
 	observer.httpClient = srv.Client()
 
-	observer.Notify("exec-1", "doomed")
+	observer.Notify("exec-fail", "doomed")
 	observer.Close()
 
 	if !observer.LogsLost() {
@@ -186,14 +192,14 @@ func TestSupabaseLogObserver_CloseIsIdempotent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	observer := NewSupabaseLogObserver(srv.URL, "")
+	observer := NewSupabaseLogObserver(srv.URL, "", "exec-idempotent")
 	observer.httpClient = srv.Client()
-	observer.Notify("exec-1", "x")
+	observer.Notify("exec-idempotent", "x")
 	observer.Close()
 	// Una segunda llamada debe ser no-op (no panic, no double-close del canal).
 	observer.Close()
 	// Notify después de Close se descarta silenciosamente.
-	observer.Notify("exec-1", "y")
+	observer.Notify("exec-idempotent", "y")
 }
 
 func TestSupabaseLogObserver_TruncatesOversizedLines(t *testing.T) {
@@ -210,7 +216,7 @@ func TestSupabaseLogObserver_TruncatesOversizedLines(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	observer := NewSupabaseLogObserver(srv.URL, "")
+	observer := NewSupabaseLogObserver(srv.URL, "", "exec-truncate")
 	observer.httpClient = srv.Client()
 
 	huge := strings.Repeat("A", supabaseMaxBatchBytes*2)
