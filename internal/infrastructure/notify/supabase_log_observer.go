@@ -84,9 +84,10 @@ type logLine struct {
 //   - Close drena el canal pendiente, hace un flush final y espera al
 //     término de la goroutine. Idempotente: llamadas posteriores son no-op.
 type SupabaseLogObserver struct {
-	httpClient *http.Client
-	endpoint   string
-	token      string
+	httpClient  *http.Client
+	endpoint    string
+	token       string
+	executionID string
 
 	lines    chan logLine
 	stop     chan struct{}
@@ -99,13 +100,14 @@ type SupabaseLogObserver struct {
 // NewSupabaseLogObserver construye el observer con el endpoint y el bearer
 // token. La goroutine de flush se arranca inmediatamente y se queda esperando
 // líneas; en modo local (sin endpoint) los callers no construyen el observer.
-func NewSupabaseLogObserver(endpoint, token string) *SupabaseLogObserver {
+func NewSupabaseLogObserver(endpoint, token, executionID string) *SupabaseLogObserver {
 	o := &SupabaseLogObserver{
-		httpClient: &http.Client{Timeout: supabaseHTTPTimeout},
-		endpoint:   endpoint,
-		token:      token,
-		lines:      make(chan logLine, supabaseLineChannelCapacity),
-		stop:       make(chan struct{}),
+		httpClient:  &http.Client{Timeout: supabaseHTTPTimeout},
+		endpoint:    endpoint,
+		token:       token,
+		executionID: executionID,
+		lines:       make(chan logLine, supabaseLineChannelCapacity),
+		stop:        make(chan struct{}),
 	}
 	o.wg.Add(1)
 	go o.flushLoop()
@@ -135,7 +137,7 @@ func (o *SupabaseLogObserver) Notify(executionID string, line string) {
 		o.logsLost.Store(true)
 	}
 
-	_ = executionID // el contrato del LogObserver lo recibe; el endpoint lo deduce del payload.
+	_ = executionID // el contrato del LogObserver lo recibe; el observer usa o.executionID almacenado.
 }
 
 // Close marca el observer como cerrado, drena el buffer pendiente con un flush
@@ -264,7 +266,7 @@ func (o *SupabaseLogObserver) buildBatch(batch []logLine, start int) (int, []byt
 		end = start + 1
 	}
 
-	out := batchPayload{Lines: make([]batchLine, 0, end-start)}
+	out := batchPayload{ExecutionID: o.executionID, Lines: make([]batchLine, 0, end-start)}
 	for i := start; i < end; i++ {
 		out.Lines = append(out.Lines, batchLine{
 			Seq:    batch[i].seq,
