@@ -17,9 +17,10 @@ import (
 )
 
 // Exit codes (alineados con la convención unix de los procesos one-shot):
-//   0 → succeeded
-//   1 → execution failed (la pipeline falló)
-//   2 → input error (malformed JSON, schema_version no soportado, etc.)
+//
+//	0 → succeeded
+//	1 → execution failed (la pipeline falló)
+//	2 → input error (malformed JSON, schema_version no soportado, etc.)
 const (
 	ExitSucceeded  = 0
 	ExitFailed     = 1
@@ -111,7 +112,7 @@ func (c *RunCommand) Execute(stdin io.Reader, stdout io.Writer, stderr io.Writer
 
 	createExec := c.createExec.WithObservers(multiLogs, multiStatus)
 
-	output, runErr := createExec.Execute(context.Background(), requestInput)
+	output, runErr := createExec.Execute(context.Background(), requestInput, args.ExecutionID)
 
 	multiLogs.Close()
 
