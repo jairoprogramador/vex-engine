@@ -67,7 +67,7 @@ func (uc *CreateExecutionUseCase) WithObservers(notify domNotify.LogObserver, st
 // notify debe ser no-nil (el caller usualmente provee un MultiObserver vacío);
 // status puede ser nil — los handlers usan ExecutionContext.NotifyStage que
 // tolera nil receiver.
-func (uc *CreateExecutionUseCase) Execute(ctx context.Context, request dto.RequestInput) (CreateExecutionOutput, error) {
+func (uc *CreateExecutionUseCase) Execute(ctx context.Context, request dto.RequestInput, executionIdInput string) (CreateExecutionOutput, error) {
 	if uc.notify == nil {
 		return CreateExecutionOutput{}, fmt.Errorf("use case create execution: notify observer is required (use WithObservers)")
 	}
@@ -109,7 +109,10 @@ func (uc *CreateExecutionUseCase) Execute(ctx context.Context, request dto.Reque
 		return CreateExecutionOutput{}, fmt.Errorf("use case create execution: pipeline url is invalid: %w", err)
 	}
 
+	executionId := command.NewExecutionID(executionIdInput)
+
 	execution := command.NewExecution(
+		executionId,
 		command.NewExecutionProject(request.Project.Id, request.Project.Name, projectUrl.String(), request.Project.Ref, request.Project.Org, request.Project.Team),
 		command.NewExecutionPipeline(pipelineUrl.String(), request.Pipeline.Ref),
 		request.Execution.Step,

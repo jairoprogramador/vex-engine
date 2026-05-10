@@ -19,12 +19,12 @@ type Execution struct {
 	cancelFn    context.CancelFunc
 }
 
-func NewExecution(project ExecutionProject, pipeline ExecutionPipeline,
+func NewExecution(executionId ExecutionID, project ExecutionProject, pipeline ExecutionPipeline,
 	step, environment string,
 	runtime ExecutionRuntime,
 ) *Execution {
 	return &Execution{
-		id:          NewExecutionID(),
+		id:          executionId,
 		status:      StatusQueued,
 		project:     project,
 		pipeline:    pipeline,
