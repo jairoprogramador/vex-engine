@@ -1,6 +1,10 @@
 package status
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 type Policy struct {
 	name  string
@@ -21,14 +25,23 @@ func (p *Policy) Name() string {
 }
 
 func (p *Policy) Evaluate(ctx RuleContext) (Decision, error) {
+	var runReasons []string
+	var errs []error
+
 	for _, rule := range p.rules {
 		result, err := rule.Evaluate(ctx)
 		if err != nil {
-			return DecisionRun(fmt.Sprintf("rule %q failed: %s", rule.Name(), err)), err
+			runReasons = append(runReasons, fmt.Sprintf("[%s] error: %s", rule.Name(), err))
+			errs = append(errs, err)
+			continue
 		}
 		if result.ShouldRun() {
-			return result, nil
+			runReasons = append(runReasons, fmt.Sprintf("[%s] %s", rule.Name(), result.Reason()))
 		}
+	}
+
+	if len(runReasons) > 0 {
+		return DecisionRun(strings.Join(runReasons, "; ")), errors.Join(errs...)
 	}
 	return DecisionSkip("all rules passed"), nil
 }
