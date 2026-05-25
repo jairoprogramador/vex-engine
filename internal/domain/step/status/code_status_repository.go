@@ -1,7 +1,7 @@
 package status
 
 type CodeStatusRepository interface {
-	Get(projectUrl string) (string, error)
-	Set(projectUrl string, fingerprint string) error
-	Delete(projectUrl string) error
+	Get(idProject string) (string, error)
+	Set(idProject string, fingerprint string) error
+	Delete(idProject string) error
 }

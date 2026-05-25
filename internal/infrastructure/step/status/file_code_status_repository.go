@@ -111,31 +111,3 @@ func (r *FileCodeStatusRepository) Delete(projectUrl string) error {
 	}
 	return nil
 }
-
-func (r *FileCodeStatusRepository) add(projectUrl string, fingerprint string) error {
-	fileCodeStatusArray, err := r.getAll(projectUrl)
-	if err != nil {
-		return err
-	}
-	fileCodeStatusArray = append(fileCodeStatusArray, ToFileCodeStatusDTO(fingerprint, time.Now()))
-
-	filePath := r.filePath(projectUrl)
-
-	dirPath := filepath.Dir(filePath)
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return fmt.Errorf("file code status repository: crear directorio %s: %w", dirPath, err)
-	}
-
-	file, err := os.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("file code status repository: crear archivo: %w", err)
-	}
-	defer file.Close()
-
-	encoder := gob.NewEncoder(file)
-	if err := encoder.Encode(fileCodeStatusArray); err != nil {
-		return fmt.Errorf("file code status repository: codificar file code status: %w", err)
-	}
-
-	return nil
-}

@@ -20,13 +20,13 @@ type FileStatusRepository struct {
 
 func NewFileStatusRepository(
 	vars domStepStatus.VariablesStatusRepository,
-	timeStatus domStepStatus.TimeStatusRepository,
+	time domStepStatus.TimeStatusRepository,
 	inst domStepStatus.InstructionsStatusRepository,
 	code domStepStatus.CodeStatusRepository,
 ) domStepStatus.StatusRepository {
 	return &FileStatusRepository{
 		vars: vars,
-		time: timeStatus,
+		time: time,
 		inst: inst,
 		code: code,
 	}

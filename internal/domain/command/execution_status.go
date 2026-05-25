@@ -7,7 +7,7 @@ const (
 	StatusRunning   ExecutionStatus = "running"
 	StatusSucceeded ExecutionStatus = "succeeded"
 	StatusFailed    ExecutionStatus = "failed"
-	StatusCancelled ExecutionStatus = "cancelled"
+	StatusCancelled ExecutionStatus = "canceled"
 )
 
 func (s ExecutionStatus) IsTerminal() bool {

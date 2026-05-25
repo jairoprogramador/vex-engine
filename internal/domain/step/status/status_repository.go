@@ -1,5 +1,5 @@
 package status
 
 type StatusRepository interface {
-	Delete(projectUrl, pipelineUrl, environment, step string) error
+	Delete(idProject, idPipeline, idEnvironment, idStep string) error
 }

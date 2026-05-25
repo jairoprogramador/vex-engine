@@ -110,31 +110,3 @@ func (r *FileTimeStatusRepository) Delete(projectUrl string, environment, step s
 	}
 	return nil
 }
-
-func (r *FileTimeStatusRepository) add(projectUrl, environment, step string, at time.Time) error {
-	rows, err := r.getAll(projectUrl, environment, step)
-	if err != nil {
-		return err
-	}
-	rows = append(rows, ToFileTimeStatusDTO(at, time.Now()))
-
-	filePath := r.filePath(projectUrl, environment, step)
-
-	dirPath := filepath.Dir(filePath)
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return fmt.Errorf("file time status repository: crear directorio %s: %w", dirPath, err)
-	}
-
-	file, err := os.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("file time status repository: crear archivo: %w", err)
-	}
-	defer file.Close()
-
-	encoder := gob.NewEncoder(file)
-	if err := encoder.Encode(rows); err != nil {
-		return fmt.Errorf("file time status repository: codificar time status: %w", err)
-	}
-
-	return nil
-}
