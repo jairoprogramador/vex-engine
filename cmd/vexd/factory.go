@@ -37,9 +37,16 @@ func loadConfig() (vexdConfig, error) {
 // buildRunCommand cablea todas las dependencias y retorna un *cli.RunCommand
 // listo para usar. Lo invoca el subcomando `vexd run` por cada ejecución.
 //
+// Cuando args.StepCodeEndpoint está presente (modo remoto), los repositorios
+// de estado del step se implementan sobre las edge functions de Supabase.
+// Las edge functions resuelven internamente todos los IDs a partir del
+// executionId — vex-engine sólo les pasa executionId y el nombre del step.
+//
+// En caso contrario se usan las implementaciones de archivo locales (modo default).
+//
 // El wiring NO incluye observers: éstos los construye RunCommand.Execute
 // dinámicamente según los flags (--log-endpoint, --status-endpoint, --quiet).
-func buildRunCommand() (*cli.RunCommand, error) {
+func buildRunCommand(args cli.RunArgs) (*cli.RunCommand, error) {
 	cfg, err := loadConfig()
 	if err != nil {
 		return nil, err
@@ -55,14 +62,48 @@ func buildRunCommand() (*cli.RunCommand, error) {
 	projectTagRepo := pippInfra.NewProjectTagRepository()
 	projectFingerprint := pippInfra.NewProjectFingerprint()
 
-	// --- Infrastructure: step (vars, commands, status) ---
+	// --- Infrastructure: step (vars, commands) ---
 	varsStoreRepo := stepInfra.NewFileVarsStoreRepository(projectsBasePath)
 	pipelineVarsRepo := stepInfra.NewPipelineVarsRepository()
 	pipelineCommandRepo := stepInfra.NewPipelineCommandRepository()
-	instStatusRepo := stepStatInfra.NewFileInstStatusRepository(projectsBasePath)
-	varsStatusRepo := stepStatInfra.NewFileVarsStatusRepository(projectsBasePath)
-	codeStatusRepo := stepStatInfra.NewFileCodeStatusRepository(projectsBasePath)
-	timeStatusRepo := stepStatInfra.NewFileTimeStatusRepository(projectsBasePath)
+
+	// --- Infrastructure: step status (local o remoto según flag) ---
+	var (
+		instStatusRepo stepStat.InstructionsStatusRepository
+		varsStatusRepo stepStat.VariablesStatusRepository
+		codeStatusRepo stepStat.CodeStatusRepository
+		timeStatusRepo stepStat.TimeStatusRepository
+		statusRepo     stepStat.StatusRepository
+	)
+
+	if args.StepCodeEndpoint != "" {
+		// Modo remoto: repos Supabase.
+		// Sólo necesitan endpoint + token + executionID.
+		// Las edge functions resuelven internamente project_id, pipeline_id,
+		// environment_id y step_id a partir del executionId y del nombre del step.
+		codeStatusRepo = stepStatInfra.NewSupabaseCodeStatusRepository(
+			args.StepCodeEndpoint, args.LogToken, args.ExecutionID,
+		)
+		instStatusRepo = stepStatInfra.NewSupabaseInstStatusRepository(
+			args.StepInstEndpoint, args.LogToken, args.ExecutionID,
+		)
+		timeStatusRepo = stepStatInfra.NewSupabaseTimeStatusRepository(
+			args.StepTimeEndpoint, args.LogToken, args.ExecutionID,
+		)
+		varsStatusRepo = stepStatInfra.NewSupabaseVarsStatusRepository(
+			args.StepVarsEndpoint, args.LogToken, args.ExecutionID,
+		)
+		statusRepo = stepStatInfra.NewSupabaseStatusRepository(
+			args.StepDeleteEndpoint, args.LogToken, args.ExecutionID,
+		)
+	} else {
+		// Modo local: repos de archivo (sin cambios respecto al comportamiento anterior).
+		instStatusRepo = stepStatInfra.NewFileInstStatusRepository(projectsBasePath)
+		varsStatusRepo = stepStatInfra.NewFileVarsStatusRepository(projectsBasePath)
+		codeStatusRepo = stepStatInfra.NewFileCodeStatusRepository(projectsBasePath)
+		timeStatusRepo = stepStatInfra.NewFileTimeStatusRepository(projectsBasePath)
+		statusRepo = stepStatInfra.NewFileStatusRepository(varsStatusRepo, timeStatusRepo, instStatusRepo, codeStatusRepo)
+	}
 
 	// --- Infrastructure: command (shell, filesystem) ---
 	fileSystem := cmdInfra.NewFileSystemManager()
@@ -97,7 +138,6 @@ func buildRunCommand() (*cli.RunCommand, error) {
 		stepDom.NewVarsHandler(pipelineVarsRepo),
 		stepDom.NewStepRunnerHandler(pipelineCommandRepo, policyBuilder),
 	)
-	statusRepo := stepStatInfra.NewFileStatusRepository(varsStatusRepo, timeStatusRepo, instStatusRepo, codeStatusRepo)
 	executableStep := stepDom.NewStepExecutable(stepHead, varsStoreRepo, statusRepo)
 
 	// --- Domain: command handler chain ---
