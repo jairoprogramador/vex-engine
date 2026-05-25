@@ -28,7 +28,7 @@ Exit codes:
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			runCmd, err := buildRunCommand()
+			runCmd, err := buildRunCommand(args)
 			if err != nil {
 				return err
 			}
@@ -44,6 +44,11 @@ Exit codes:
 	cmd.Flags().StringVar(&args.InputEnv, "input-env", "VEX_REQUEST_INPUT", "nombre de la env var con el RequestInput (raw JSON o base64)")
 	cmd.Flags().StringVar(&args.LogEndpoint, "log-endpoint", "", "URL de la edge function log-ingest")
 	cmd.Flags().StringVar(&args.StatusEndpoint, "status-endpoint", "", "URL de la edge function execution-status")
+	cmd.Flags().StringVar(&args.StepCodeEndpoint, "step-code-endpoint", "", "URL del endpoint de estado de código de proyecto (modo remoto)")
+	cmd.Flags().StringVar(&args.StepInstEndpoint, "step-inst-endpoint", "", "URL del endpoint de estado de instrucciones (modo remoto)")
+	cmd.Flags().StringVar(&args.StepTimeEndpoint, "step-time-endpoint", "", "URL del endpoint de estado de tiempo (modo remoto)")
+	cmd.Flags().StringVar(&args.StepVarsEndpoint, "step-vars-endpoint", "", "URL del endpoint de estado de variables (modo remoto)")
+	cmd.Flags().StringVar(&args.StepDeleteEndpoint, "step-delete-endpoint", "", "URL del endpoint de borrado de estado de paso (modo remoto)")
 	cmd.Flags().StringVar(&args.LogToken, "log-token", "", "bearer token para los endpoints supabase")
 	cmd.Flags().StringVar(&args.ExecutionID, "execution-id", "", "UUID asignado externamente para la ejecución (lo usa el reporter)")
 	cmd.Flags().BoolVar(&args.Quiet, "quiet", false, "suprime stdout local (no afecta a los endpoints supabase)")

@@ -1,7 +1,7 @@
 package status
 
 type VariablesStatusRepository interface {
-	Get(projectUrl, pipelineUrl, environment, step string) (string, error)
-	Set(projectUrl, pipelineUrl, environment, step string, fingerprint string) error
-	Delete(projectUrl, pipelineUrl, environment, step string) error
+	Get(idProject, idPipeline, idEnvironment, idStep string) (string, error)
+	Set(idProject, idPipeline, idEnvironment, idStep string, fingerprint string) error
+	Delete(idProject, idPipeline, idEnvironment, idStep string) error
 }

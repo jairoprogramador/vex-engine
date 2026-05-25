@@ -111,31 +111,3 @@ func (r *FileInstStatusRepository) Delete(projectUrl, pipelineUrl, step string) 
 	}
 	return nil
 }
-
-func (r *FileInstStatusRepository) add(projectUrl, pipelineUrl, step, fingerprint string) error {
-	fileInstStatusArray, err := r.getAll(projectUrl, pipelineUrl, step)
-	if err != nil {
-		return err
-	}
-	fileInstStatusArray = append(fileInstStatusArray, ToFileInstStatusDTO(fingerprint, time.Now()))
-
-	filePath := r.filePath(projectUrl, pipelineUrl, step)
-
-	dirPath := filepath.Dir(filePath)
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return fmt.Errorf("file inst status repository: crear directorio %s: %w", dirPath, err)
-	}
-
-	file, err := os.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("file inst status repository: crear archivo: %w", err)
-	}
-	defer file.Close()
-
-	encoder := gob.NewEncoder(file)
-	if err := encoder.Encode(fileInstStatusArray); err != nil {
-		return fmt.Errorf("file inst status repository: codificar inst status: %w", err)
-	}
-
-	return nil
-}
