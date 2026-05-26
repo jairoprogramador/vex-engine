@@ -52,6 +52,8 @@ Exit codes:
 	cmd.Flags().StringVar(&args.LogToken, "log-token", "", "bearer token para los endpoints supabase")
 	cmd.Flags().StringVar(&args.ExecutionID, "execution-id", "", "UUID asignado externamente para la ejecución (lo usa el reporter)")
 	cmd.Flags().BoolVar(&args.Quiet, "quiet", false, "suprime stdout local (no afecta a los endpoints supabase)")
+	cmd.Flags().StringVar(&args.Mode, "mode", "remote",
+		`modo de ejecución: "remote" usa recursos de vex; "local" usa recursos de la maquina local`)
 
 	return cmd
 }

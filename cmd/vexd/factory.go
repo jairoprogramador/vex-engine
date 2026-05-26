@@ -37,16 +37,20 @@ func loadConfig() (vexdConfig, error) {
 // buildRunCommand cablea todas las dependencias y retorna un *cli.RunCommand
 // listo para usar. Lo invoca el subcomando `vexd run` por cada ejecución.
 //
-// Cuando args.StepCodeEndpoint está presente (modo remoto), los repositorios
-// de estado del step se implementan sobre las edge functions de Supabase.
-// Las edge functions resuelven internamente todos los IDs a partir del
-// executionId — vex-engine sólo les pasa executionId y el nombre del step.
+// Cuando args.Mode == "remote", los repositorios de estado del step se
+// implementan sobre las edge functions de Supabase. Las edge functions
+// resuelven internamente todos los IDs a partir del executionId — vex-engine
+// sólo les pasa executionId y el nombre del step.
 //
-// En caso contrario se usan las implementaciones de archivo locales (modo default).
+// Cuando args.Mode == "local" se usan las implementaciones de archivo en disco.
 //
 // El wiring NO incluye observers: éstos los construye RunCommand.Execute
 // dinámicamente según los flags (--log-endpoint, --status-endpoint, --quiet).
 func buildRunCommand(args cli.RunArgs) (*cli.RunCommand, error) {
+	if args.Mode != "remote" && args.Mode != "local" {
+		return nil, fmt.Errorf("vexd run: --mode %q inválido: debe ser \"remote\" o \"local\"", args.Mode)
+	}
+
 	cfg, err := loadConfig()
 	if err != nil {
 		return nil, err
@@ -76,7 +80,7 @@ func buildRunCommand(args cli.RunArgs) (*cli.RunCommand, error) {
 		statusRepo     stepStat.StatusRepository
 	)
 
-	if args.StepCodeEndpoint != "" {
+	if args.Mode != "local" {
 		// Modo remoto: repos Supabase.
 		// Sólo necesitan endpoint + token + executionID.
 		// Las edge functions resuelven internamente project_id, pipeline_id,
@@ -97,7 +101,7 @@ func buildRunCommand(args cli.RunArgs) (*cli.RunCommand, error) {
 			args.StepDeleteEndpoint, args.LogToken, args.ExecutionID,
 		)
 	} else {
-		// Modo local: repos de archivo (sin cambios respecto al comportamiento anterior).
+		// Modo local: repos de archivo en disco.
 		instStatusRepo = stepStatInfra.NewFileInstStatusRepository(projectsBasePath)
 		varsStatusRepo = stepStatInfra.NewFileVarsStatusRepository(projectsBasePath)
 		codeStatusRepo = stepStatInfra.NewFileCodeStatusRepository(projectsBasePath)
