@@ -45,6 +45,7 @@ type RunArgs struct {
 	LogToken           string
 	ExecutionID        string
 	Quiet              bool
+	Mode               string
 }
 
 // RunCommand orquesta la ejecución one-shot del engine. Es la única superficie
