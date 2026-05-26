@@ -80,7 +80,11 @@ func buildRunCommand(args cli.RunArgs) (*cli.RunCommand, error) {
 		statusRepo     stepStat.StatusRepository
 	)
 
+<<<<<<< HEAD
 	if args.Mode != "local" {
+=======
+	if args.StepCodeEndpoint != "" {
+>>>>>>> origin
 		// Modo remoto: repos Supabase.
 		// Sólo necesitan endpoint + token + executionID.
 		// Las edge functions resuelven internamente project_id, pipeline_id,
