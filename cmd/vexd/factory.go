@@ -17,37 +17,25 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
 )
 
-// vexdConfig agrupa la configuración mínima del binario one-shot.
+const vexHomeMountPoint = "/vexHome"
+const vexHomeDirName = ".vex"
+const modeLocal = "local"
+const modeRemote = "remote"
+
 type vexdConfig struct {
 	rootVexPath string
 }
 
 func loadConfig() (vexdConfig, error) {
-	root := os.Getenv("VEXD_ROOT_PATH")
-	if root == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return vexdConfig{}, fmt.Errorf("resolve user home: %w", err)
-		}
-		root = home
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return vexdConfig{}, fmt.Errorf("resolve user home: %w", err)
 	}
-	return vexdConfig{rootVexPath: root}, nil
+	return vexdConfig{rootVexPath: home}, nil
 }
 
-// buildRunCommand cablea todas las dependencias y retorna un *cli.RunCommand
-// listo para usar. Lo invoca el subcomando `vexd run` por cada ejecución.
-//
-// Cuando args.Mode == "remote", los repositorios de estado del step se
-// implementan sobre las edge functions de Supabase. Las edge functions
-// resuelven internamente todos los IDs a partir del executionId — vex-engine
-// sólo les pasa executionId y el nombre del step.
-//
-// Cuando args.Mode == "local" se usan las implementaciones de archivo en disco.
-//
-// El wiring NO incluye observers: éstos los construye RunCommand.Execute
-// dinámicamente según los flags (--log-endpoint, --status-endpoint, --quiet).
 func buildRunCommand(args cli.RunArgs) (*cli.RunCommand, error) {
-	if args.Mode != "remote" && args.Mode != "local" {
+	if args.Mode != modeRemote && args.Mode != modeLocal {
 		return nil, fmt.Errorf("vexd run: --mode %q inválido: debe ser \"remote\" o \"local\"", args.Mode)
 	}
 
@@ -55,10 +43,24 @@ func buildRunCommand(args cli.RunArgs) (*cli.RunCommand, error) {
 	if err != nil {
 		return nil, err
 	}
-	projectsBasePath := filepath.Join(cfg.rootVexPath, ".vex", "projects")
+
+	if args.Mode == modeLocal {
+		if err := linkVexHome(cfg.rootVexPath); err != nil {
+			return nil, err
+		}
+	}
+
+	projectsBasePath := filepath.Join(cfg.rootVexPath, vexHomeDirName, "projects")
 
 	// --- Infrastructure: pipeline ---
-	projectClonerRepo := pippInfra.NewProjectClonerRepository(projectsBasePath)
+	// Modo local: en lugar de clonar, crea un symlink hacia /appProject (volumen
+	// montado por el CLI con el CWD del host). Modo remoto: clonación git normal.
+	var projectClonerRepo pipDom.ProjectClonerRepository
+	if args.Mode == modeLocal {
+		projectClonerRepo = pippInfra.NewLocalProjectClonerRepository(projectsBasePath)
+	} else {
+		projectClonerRepo = pippInfra.NewProjectClonerRepository(projectsBasePath)
+	}
 	pipelineClonerRepo := pippInfra.NewPipelineClonerRepository(projectsBasePath)
 	pipelineEnvRepo := pippInfra.NewPipelineEnvironmentRepository()
 	pipelineStepRepo := pippInfra.NewPipelineStepRepository()
@@ -80,11 +82,7 @@ func buildRunCommand(args cli.RunArgs) (*cli.RunCommand, error) {
 		statusRepo     stepStat.StatusRepository
 	)
 
-	if args.Mode != "local" {
-		// Modo remoto: repos Supabase.
-		// Sólo necesitan endpoint + token + executionID.
-		// Las edge functions resuelven internamente project_id, pipeline_id,
-		// environment_id y step_id a partir del executionId y del nombre del step.
+	if args.Mode != modeLocal {
 		codeStatusRepo = stepStatInfra.NewSupabaseCodeStatusRepository(
 			args.StepCodeEndpoint, args.LogToken, args.ExecutionID,
 		)
@@ -193,4 +191,18 @@ func chainCommandHandlers(handlers ...command.CommandHandler) command.CommandHan
 		handlers[i].SetNext(handlers[i+1])
 	}
 	return handlers[0]
+}
+
+func linkVexHome(homeDir string) error {
+	vexDir := filepath.Join(homeDir, vexHomeDirName)
+
+	if err := os.RemoveAll(vexDir); err != nil {
+		return fmt.Errorf("link vex home: eliminar %q: %w", vexDir, err)
+	}
+
+	if err := os.Symlink(vexHomeMountPoint, vexDir); err != nil {
+		return fmt.Errorf("link vex home: crear symlink %q → %q: %w", vexDir, vexHomeMountPoint, err)
+	}
+
+	return nil
 }
