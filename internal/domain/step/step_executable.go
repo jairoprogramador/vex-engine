@@ -35,7 +35,7 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 	return s.Run(
 		executionContext,
 		func() error {
-			executionContext.NotifyStage("running_step:" + executionContext.StepName())
+			executionContext.Emit("Step " + executionContext.StepName() + " en ejecución")
 			executionContext.ResetFileSessions()
 			stepWorkdir := filepath.Join(executionContext.Workdir(), "steps", executionContext.StepFullName())
 			stepWorkdirVariable, err := command.NewVariable(command.VarStepWorkdir, stepWorkdir, false)
@@ -60,6 +60,8 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 				}
 				// step es "deploy" crear tag en repo git con la version actual
 			} else {
+				executionContext.Emit("Step " + executionContext.StepName() + " ejecución fallida:")
+				executionContext.Emit(err.Error())
 				s.statusRepository.Delete(executionContext.ProjectUrl(), executionContext.PipelineUrl(), executionContext.Environment(), executionContext.StepName())
 			}
 			return err

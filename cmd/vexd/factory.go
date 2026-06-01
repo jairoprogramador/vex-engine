@@ -51,6 +51,7 @@ func buildRunCommand(args cli.RunArgs) (*cli.RunCommand, error) {
 	}
 
 	projectsBasePath := filepath.Join(cfg.rootVexPath, vexHomeDirName, "projects")
+	pipelinesBasePath := filepath.Join(cfg.rootVexPath, vexHomeDirName, "pipelines")
 
 	// --- Infrastructure: pipeline ---
 	// Modo local: en lugar de clonar, crea un symlink hacia /appProject (volumen
@@ -61,7 +62,7 @@ func buildRunCommand(args cli.RunArgs) (*cli.RunCommand, error) {
 	} else {
 		projectClonerRepo = pippInfra.NewProjectClonerRepository(projectsBasePath)
 	}
-	pipelineClonerRepo := pippInfra.NewPipelineClonerRepository(projectsBasePath)
+	pipelineClonerRepo := pippInfra.NewPipelineClonerRepository(pipelinesBasePath)
 	pipelineEnvRepo := pippInfra.NewPipelineEnvironmentRepository()
 	pipelineStepRepo := pippInfra.NewPipelineStepRepository()
 	pipelineWorkdirRepo := pippInfra.NewPipelineWorkdirRepository(projectsBasePath)

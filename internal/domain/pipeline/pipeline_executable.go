@@ -21,6 +21,7 @@ func (s *PipelineExecutable) Execute(executionContext *command.ExecutionContext)
 	return s.Run(
 		executionContext,
 		func() error {
+			executionContext.Emit("Pipeline iniciado")
 			executionContext.ResetFileSessions()
 			return nil
 		},

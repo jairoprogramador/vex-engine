@@ -17,6 +17,7 @@ func (c *CommandExecutable) Execute(executionContext *ExecutionContext) error {
 	return c.Run(
 		executionContext,
 		func() error {
+			executionContext.Emit("Comando " + executionContext.Command().name + " en ejecución")
 			return nil
 		},
 		func() error {
@@ -24,6 +25,9 @@ func (c *CommandExecutable) Execute(executionContext *ExecutionContext) error {
 			err := c.handler.Handle(executionContext.Ctx(), request)
 			if err == nil {
 				request.MarkCommandSuccess()
+			} else {
+				executionContext.Emit("Comando " + executionContext.Command().name + " ejecución fallida")
+				executionContext.Emit(err.Error())
 			}
 			return err
 		},

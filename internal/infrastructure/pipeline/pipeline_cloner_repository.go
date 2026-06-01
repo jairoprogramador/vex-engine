@@ -25,12 +25,10 @@ func NewPipelineClonerRepository(repositoryBasePath string) domPipeline.Pipeline
 	return &PipelineClonerRepository{repositoryBasePath: repositoryBasePath}
 }
 
-func (r *PipelineClonerRepository) Clone(ctx *context.Context, urlProject, urlPipeline, refPipeline string) (string, error) {
-
-	projectName := utils.GetDirNameFromUrl(urlProject)
+func (r *PipelineClonerRepository) Clone(ctx *context.Context, urlPipeline, refPipeline string) (string, error) {
 	pipelineName := utils.GetDirNameFromUrl(urlPipeline)
 
-	localPath := filepath.Join(r.repositoryBasePath, projectName, "pipelines", pipelineName)
+	localPath := filepath.Join(r.repositoryBasePath, pipelineName)
 
 	if err := os.RemoveAll(localPath); err != nil {
 		return "", fmt.Errorf("pipeline cloner repository: eliminar ruta previa '%s': %w", localPath, err)

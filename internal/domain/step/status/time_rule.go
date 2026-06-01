@@ -49,7 +49,7 @@ func (e TimeRule) Evaluate(ctx RuleContext) (Decision, error) {
 
 	expiration := previousTime.Add(defaultTTLDuration)
 	if currentTime.Before(expiration) {
-		return DecisionSkip("el tiempo a expirado, se vuelve a ejecutar"), nil
+		return DecisionSkip("el tiempo de codigo a expirado"), nil
 	} else {
 		err = e.repository.Set(projectUrl, environment, step, currentTime)
 		if err != nil {

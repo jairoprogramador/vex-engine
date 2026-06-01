@@ -112,10 +112,6 @@ func (c *RunCommand) Execute(stdin io.Reader, stdout io.Writer, stderr io.Writer
 	multiLogs := notify.NewMultiObserver(logObservers...)
 	multiStatus := notify.NewMultiStatusObserver(statusObservers...)
 
-	// "initializing" es el primer stage del ciclo de vida. Se emite antes de
-	// invocar al use case porque el ExecutionContext aún no existe.
-	multiStatus.Notify(args.ExecutionID, "initializing")
-
 	createExec := c.createExec.WithObservers(multiLogs, multiStatus)
 
 	output, runErr := createExec.Execute(context.Background(), requestInput, args.ExecutionID)

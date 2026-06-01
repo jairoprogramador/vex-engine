@@ -5,5 +5,5 @@ import (
 )
 
 type PipelineClonerRepository interface {
-	Clone(ctx *context.Context, urlProject, urlPipeline, refPipeline string) (string, error)
+	Clone(ctx *context.Context, urlPipeline, refPipeline string) (string, error)
 }
