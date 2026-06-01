@@ -36,7 +36,7 @@ func (p *Policy) Evaluate(ctx RuleContext) (Decision, error) {
 			continue
 		}
 		if result.ShouldRun() {
-			runReasons = append(runReasons, fmt.Sprintf("[%s] %s", rule.Name(), result.Reason()))
+			runReasons = append(runReasons, fmt.Sprintf("%s", result.Reason()))
 		}
 	}
 
