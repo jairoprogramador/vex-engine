@@ -39,7 +39,7 @@ func (cr CommandResult) ExitCode() int {
 	return cr.exitCode
 }
 
-func (cr CommandResult) SetExitCode(exitCode int) {
+func (cr *CommandResult) SetExitCode(exitCode int) {
 	cr.exitCode = exitCode
 }
 
@@ -47,6 +47,6 @@ func (cr CommandResult) Error() error {
 	return cr.err
 }
 
-func (cr CommandResult) SetError(error error) {
+func (cr *CommandResult) SetError(error error) {
 	cr.err = error
 }

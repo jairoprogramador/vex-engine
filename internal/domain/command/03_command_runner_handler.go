@@ -29,7 +29,14 @@ func (h *CommandRunnerHandler) Handle(ctx *context.Context, request *CommandRequ
 		return fmt.Errorf("variable de step workdir no encontrada")
 	}
 
-	runWorkdir := filepath.Join(localStepWorkdirPath.Value(), request.CommandWorkdir())
+	commandWorkdir := request.CommandWorkdir()
+
+	var runWorkdir string
+	if commandWorkdir == "" || commandWorkdir == "." {
+		runWorkdir = request.ProjectLocalPath()
+	} else {
+		runWorkdir = filepath.Join(localStepWorkdirPath.Value(), commandWorkdir)
+	}
 
 	result, err := h.runner.Run(ctx, request.CommandInterpolatedCmd(), runWorkdir)
 	if err != nil {
@@ -37,14 +44,17 @@ func (h *CommandRunnerHandler) Handle(ctx *context.Context, request *CommandRequ
 	}
 	if result.ExitCode() != 0 {
 		return fmt.Errorf("comando '%s' falló con exit code %d:\n%s",
-			request.CommandName(), result.ExitCode(), result.NormalizedStderr())
-	}
-
-	if result.NormalizedStdout() == "" {
-		return fmt.Errorf("salida normalizada del comando '%s' vacía", request.CommandName())
+			request.CommandName(), result.ExitCode(), result.CombinedOutput())
 	}
 
 	request.SetCommandResult(result)
+
+	if request.CommandShow() {
+		if out := request.CommandNormalizedStdout(); out != "" {
+			request.Emit(fmt.Sprintf("[%s] %s", request.CommandName(), out))
+		}
+	}
+
 	if h.Next != nil {
 		return h.Next.Handle(ctx, request)
 	}

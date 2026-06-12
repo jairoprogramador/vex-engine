@@ -67,8 +67,16 @@ func (rh *CommandRequestHandler) CommandName() string {
 	return rh.command.Name()
 }
 
+func (rh *CommandRequestHandler) CommandShow() bool {
+	return rh.command.Show()
+}
+
 func (rh *CommandRequestHandler) CommandWorkdir() string {
 	return rh.command.Workdir().String()
+}
+
+func (rh *CommandRequestHandler) ProjectLocalPath() string {
+	return rh.executionContext.ProjectLocalPath()
 }
 
 func (rh *CommandRequestHandler) ExecutionID() ExecutionID {

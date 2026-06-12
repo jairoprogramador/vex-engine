@@ -10,6 +10,7 @@ type Command struct {
 	workdir       CommandWorkdir
 	templatePaths []CommandTemplatePath
 	outputs       []CommandOutput
+	show          bool
 }
 
 type CommandOption func(*Command)
@@ -52,6 +53,12 @@ func WithTemplateFiles(templateFiles []CommandTemplatePath) CommandOption {
 		c.templatePaths = templateFiles
 	}
 }
+
+func WithShow(show bool) CommandOption {
+	return func(c *Command) {
+		c.show = show
+	}
+}
 func (cd Command) Name() string {
 	return cd.name
 }
@@ -74,4 +81,8 @@ func (cd Command) Outputs() []CommandOutput {
 	outputsCopy := make([]CommandOutput, len(cd.outputs))
 	copy(outputsCopy, cd.outputs)
 	return outputsCopy
+}
+
+func (cd Command) Show() bool {
+	return cd.show
 }
