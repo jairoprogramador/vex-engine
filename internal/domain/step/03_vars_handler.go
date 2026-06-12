@@ -47,7 +47,7 @@ func (h *VarsHandler) Handle(ctx *context.Context, request *StepRequestHandler) 
 func (h *VarsHandler) Resolve(initialVars *command.ExecutionVariableMap, variablesToResolve []command.Variable) (*command.ExecutionVariableMap, error) {
 	varsToResolve := command.NewExecutionVariableMap()
 
-	for _, v := range *varsToResolve {
+	for _, v := range variablesToResolve {
 		variable, err := command.NewVariable(v.Name(), v.Value(), false)
 		if err != nil {
 			return nil, fmt.Errorf("crear variable de ejecución(pipeline): %w", err)

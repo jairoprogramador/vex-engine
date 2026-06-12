@@ -39,5 +39,10 @@ func (r *LocalProjectClonerRepository) Clone(_ *context.Context, urlProject, _ s
 			localPath, localProjectMountPoint, err)
 	}
 
-	return localPath, nil
+	realPath, err := filepath.EvalSymlinks(localPath)
+	if err != nil {
+		return "", fmt.Errorf("local project cloner: resolver symlink '%s': %w", localPath, err)
+	}
+
+	return realPath, nil
 }

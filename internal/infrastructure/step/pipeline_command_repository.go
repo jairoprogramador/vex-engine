@@ -57,6 +57,7 @@ func (r *pipelineCommandRepository) readCommandsFromFile(_ context.Context, file
 			command.WithWorkdir(cmdDTO.Workdir),
 			command.WithTemplateFiles(templates),
 			command.WithOutputs(outputs),
+			command.WithShow(cmdDTO.Show),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("comando inválido '%s': %w", cmdDTO.Name, err)

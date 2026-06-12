@@ -58,6 +58,8 @@ func (s VariablesRuleRule) Evaluate(ctx RuleContext) (Decision, error) {
 	variablesClone.Remove(command.VarProjectRevision)
 	variablesClone.Remove(command.VarProjectRevisionFull)
 	variablesClone.Remove(command.VarToolName)
+	variablesClone.Remove(command.VarProjectWorkdir)
+	variablesClone.Remove(command.VarStepWorkdir)
 
 	varsCurrentFingerprint, err := s.calculateFingerprint(variablesClone)
 	if err != nil {
