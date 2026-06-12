@@ -22,7 +22,7 @@ func (e *StdoutLogObserver) Notify(executionID string, line string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	executionID = executionID[:4] + "..." + executionID[len(executionID)-4:]
-	fmt.Fprintf(os.Stdout, "[request %s] %s\n", executionID, line)
+	fmt.Fprintf(os.Stdout, "[deploy %s] %s\n", executionID, line)
 }
 
 var _ domNotify.LogObserver = (*StdoutLogObserver)(nil)

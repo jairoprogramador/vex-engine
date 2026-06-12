@@ -92,7 +92,9 @@ func (s *StepExecutable) saveScopeVars(
 				variable.Name() != command.VarProjectVersion &&
 				variable.Name() != command.VarProjectRevision &&
 				variable.Name() != command.VarProjectRevisionFull &&
-				variable.Name() != command.VarToolName
+				variable.Name() != command.VarToolName &&
+				variable.Name() != command.VarProjectWorkdir &&
+				variable.Name() != command.VarStepWorkdir
 		}).ToSlice()
 
 	accumulatedScopeVars = sortedExecutionVarsByName(accumulatedScopeVars)

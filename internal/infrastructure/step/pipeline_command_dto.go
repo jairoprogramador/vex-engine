@@ -6,6 +6,7 @@ type PipelineCommandDTO struct {
 	Cmd           string   `yaml:"cmd"`
 	Workdir       string   `yaml:"workdir,omitempty"`
 	TemplateFiles []string `yaml:"templates,omitempty"`
+	Show          bool     `yaml:"show,omitempty"`
 	Outputs       []struct {
 		Name        string `yaml:"name"`
 		Description string `yaml:"description,omitempty"`
