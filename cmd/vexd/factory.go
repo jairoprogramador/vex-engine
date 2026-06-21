@@ -69,8 +69,14 @@ func buildRunCommand(args cli.RunArgs) (*cli.RunCommand, error) {
 	projectTagRepo := pippInfra.NewProjectTagRepository()
 	projectFingerprint := pippInfra.NewProjectFingerprint()
 
-	// --- Infrastructure: step (vars, commands) ---
-	varsStoreRepo := stepInfra.NewFileVarsStoreRepository(projectsBasePath)
+	var varsStoreRepo stepDom.VarsStoreRepository
+	if args.Mode != modeLocal {
+		varsStoreRepo = stepInfra.NewSupabaseVarsStoreRepository(
+			args.StepStoreVarsEndpoint, args.LogToken, args.ExecutionID,
+		)
+	} else {
+		varsStoreRepo = stepInfra.NewFileVarsStoreRepository(projectsBasePath)
+	}
 	pipelineVarsRepo := stepInfra.NewPipelineVarsRepository()
 	pipelineCommandRepo := stepInfra.NewPipelineCommandRepository()
 
