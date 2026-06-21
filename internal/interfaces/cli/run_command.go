@@ -33,19 +33,20 @@ const supportedSchemaVersion = 1
 
 // RunArgs son los flags de `vexd run` mapeados desde Cobra.
 type RunArgs struct {
-	InputFile          string
-	InputEnv           string
-	LogEndpoint        string
-	StatusEndpoint     string
-	StepCodeEndpoint   string // endpoint de la edge fn status-code (o equivalente)
-	StepInstEndpoint   string // endpoint de la edge fn status-instructions
-	StepTimeEndpoint   string // endpoint de la edge fn status-time
-	StepVarsEndpoint   string // endpoint de la edge fn status-vars
-	StepDeleteEndpoint string // endpoint de la edge fn status-delete-step
-	LogToken           string
-	ExecutionID        string
-	Quiet              bool
-	Mode               string
+	InputFile             string
+	InputEnv              string
+	LogEndpoint           string
+	StatusEndpoint        string
+	StepCodeEndpoint      string // endpoint de la edge fn status-code (o equivalente)
+	StepInstEndpoint      string // endpoint de la edge fn status-instructions
+	StepTimeEndpoint      string // endpoint de la edge fn status-time
+	StepVarsEndpoint      string // endpoint de la edge fn status-vars
+	StepDeleteEndpoint    string // endpoint de la edge fn status-delete-step
+	StepStoreVarsEndpoint string // endpoint de la edge fn store-vars (almacén de variables)
+	LogToken              string
+	ExecutionID           string
+	Quiet                 bool
+	Mode                  string
 }
 
 // RunCommand orquesta la ejecución one-shot del engine. Es la única superficie
