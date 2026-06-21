@@ -49,6 +49,7 @@ Exit codes:
 	cmd.Flags().StringVar(&args.StepTimeEndpoint, "step-time-endpoint", "", "URL del endpoint de estado de tiempo (modo remoto)")
 	cmd.Flags().StringVar(&args.StepVarsEndpoint, "step-vars-endpoint", "", "URL del endpoint de estado de variables (modo remoto)")
 	cmd.Flags().StringVar(&args.StepDeleteEndpoint, "step-delete-endpoint", "", "URL del endpoint de borrado de estado de paso (modo remoto)")
+	cmd.Flags().StringVar(&args.StepStoreVarsEndpoint, "step-store-vars-endpoint", "", "URL del endpoint de almacén de variables (modo remoto)")
 	cmd.Flags().StringVar(&args.LogToken, "log-token", "", "bearer token para los endpoints supabase")
 	cmd.Flags().StringVar(&args.ExecutionID, "execution-id", "", "UUID asignado externamente para la ejecución (lo usa el reporter)")
 	cmd.Flags().BoolVar(&args.Quiet, "quiet", false, "suprime stdout local (no afecta a los endpoints supabase)")
