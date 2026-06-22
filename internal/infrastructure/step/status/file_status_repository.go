@@ -44,7 +44,7 @@ func (r *FileStatusRepository) Delete(projectUrl, pipelineUrl, environment, step
 	if err := r.inst.Delete(projectUrl, pipelineUrl, step); err != nil {
 		errs = append(errs, fmt.Errorf("instructions status: %w", err))
 	}
-	if err := r.code.Delete(projectUrl); err != nil {
+	if err := r.code.Delete(projectUrl, pipelineUrl, step); err != nil {
 		errs = append(errs, fmt.Errorf("code status: %w", err))
 	}
 

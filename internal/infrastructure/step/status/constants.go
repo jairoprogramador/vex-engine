@@ -7,19 +7,13 @@ import "time"
 const (
 	statusDirName      = "status"
 	varsStatusFileName = "vars.status"
-	codeStatusFileName = "code.status"
 )
 
 // ── Constantes para los repositorios de estado remotos (Supabase) ────────────
 
 const (
-	// supabaseStatusHTTPTimeout limita el tiempo de cada POST a las edge functions.
-	supabaseStatusHTTPTimeout = 10 * time.Second
-
-	// supabaseStatusGetRetries es el número máximo de intentos para operaciones Get.
-	supabaseStatusGetRetries = 2
-
-	// supabaseStatusWriteRetries es el número máximo de intentos para Set y Delete.
+	supabaseStatusHTTPTimeout  = 10 * time.Second
+	supabaseStatusGetRetries   = 2
 	supabaseStatusWriteRetries = 3
 )
 
