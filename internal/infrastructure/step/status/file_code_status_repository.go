@@ -25,13 +25,15 @@ func NewFileCodeStatusRepository(statusBaseAbsolutePath string) domStepStatus.Co
 	return &FileCodeStatusRepository{statusBaseAbsolutePath: statusBaseAbsolutePath}
 }
 
-func (r *FileCodeStatusRepository) filePath(projectUrl string) string {
+func (r *FileCodeStatusRepository) filePath(projectUrl, pipelineUrl, step string) string {
 	projectName := utils.GetDirNameFromUrl(projectUrl)
-	return filepath.Join(r.statusBaseAbsolutePath, projectName, statusDirName, codeStatusFileName)
+	pipelineName := utils.GetDirNameFromUrl(pipelineUrl)
+	codeFileName := fmt.Sprintf("code%s.status", step)
+	return filepath.Join(r.statusBaseAbsolutePath, projectName, statusDirName, pipelineName, codeFileName)
 }
 
-func (r *FileCodeStatusRepository) getAll(projectUrl string) ([]FileCodeStatusDTO, error) {
-	filePath := r.filePath(projectUrl)
+func (r *FileCodeStatusRepository) getAll(projectUrl, pipelineUrl, step string) ([]FileCodeStatusDTO, error) {
+	filePath := r.filePath(projectUrl, pipelineUrl, step)
 
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -58,8 +60,8 @@ func (r *FileCodeStatusRepository) getAll(projectUrl string) ([]FileCodeStatusDT
 	return fileCodeStatusArray, nil
 }
 
-func (r *FileCodeStatusRepository) Get(projectUrl string) (string, error) {
-	fileCodeStatusArray, err := r.getAll(projectUrl)
+func (r *FileCodeStatusRepository) Get(projectUrl, pipelineUrl, step string) (string, error) {
+	fileCodeStatusArray, err := r.getAll(projectUrl, pipelineUrl, step)
 	if err != nil {
 		return "", err
 	}
@@ -76,8 +78,8 @@ func (r *FileCodeStatusRepository) Get(projectUrl string) (string, error) {
 	return lastFileCodeStatus.Fingerprint, nil
 }
 
-func (r *FileCodeStatusRepository) Set(projectUrl string, fingerprint string) error {
-	filePath := r.filePath(projectUrl)
+func (r *FileCodeStatusRepository) Set(projectUrl, pipelineUrl, step, fingerprint string) error {
+	filePath := r.filePath(projectUrl, pipelineUrl, step)
 
 	dirPath := filepath.Dir(filePath)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
@@ -101,8 +103,8 @@ func (r *FileCodeStatusRepository) Set(projectUrl string, fingerprint string) er
 	return nil
 }
 
-func (r *FileCodeStatusRepository) Delete(projectUrl string) error {
-	filePath := r.filePath(projectUrl)
+func (r *FileCodeStatusRepository) Delete(projectUrl, pipelineUrl, step string) error {
+	filePath := r.filePath(projectUrl, pipelineUrl, step)
 	if err := os.Remove(filePath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil

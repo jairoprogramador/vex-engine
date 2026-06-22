@@ -26,7 +26,17 @@ func (s CodeProjectRuleRule) Evaluate(ctx RuleContext) (Decision, error) {
 		return DecisionRun("error al obtener la url del projecto"), err
 	}
 
-	fingerprintPrevious, err := s.repository.Get(projectUrl)
+	pipelineUrl, err := GetParam[string](ctx, PipelineUrlParam)
+	if err != nil {
+		return DecisionRun("error al obtener la url del pipeline"), err
+	}
+
+	step, err := GetParam[string](ctx, StepParam)
+	if err != nil {
+		return DecisionRun("error al obtener el paso de ejecucion"), err
+	}
+
+	fingerprintPrevious, err := s.repository.Get(projectUrl, pipelineUrl, step)
 	if err != nil {
 		return DecisionRun("error al obtener el estado anterior del proyecto"), err
 	}
@@ -34,7 +44,7 @@ func (s CodeProjectRuleRule) Evaluate(ctx RuleContext) (Decision, error) {
 	if fingerprintCurrent == fingerprintPrevious {
 		return DecisionSkip("el código del proyecto no ha cambiado"), nil
 	} else {
-		err = s.repository.Set(projectUrl, fingerprintCurrent)
+		err = s.repository.Set(projectUrl, pipelineUrl, step, fingerprintCurrent)
 		if err != nil {
 			return DecisionRun("no se ha podido guardar el estado del proyecto"), err
 		}

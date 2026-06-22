@@ -14,8 +14,9 @@ var _ domStepStatus.CodeStatusRepository = (*SupabaseCodeStatusRepository)(nil)
 // el fingerprint de código de proyecto en step_status_code vía edge function.
 // Se usa en modo remoto (Fly Machine); el modo local usa FileCodeStatusRepository.
 //
-// La edge function resuelve internamente project_id a partir del executionId.
-// El parámetro idProject que reciben Get/Set/Delete es ignorado.
+// La edge function resuelve internamente project_id, pipeline_id y step_id a
+// partir del executionId y del nombre del step (parámetro idStep de la interfaz).
+// Los parámetros idProject e idPipeline se ignoran.
 type SupabaseCodeStatusRepository struct {
 	endpoint    string
 	token       string
@@ -34,9 +35,10 @@ func NewSupabaseCodeStatusRepository(
 	}
 }
 
-func (r *SupabaseCodeStatusRepository) Get(_ string) (string, error) {
+func (r *SupabaseCodeStatusRepository) Get(_, _, idStep string) (string, error) {
 	payload, err := json.Marshal(map[string]any{
 		"execution_id": r.executionID,
+		"step_name":    idStep,
 		"operation":    "get",
 	})
 	if err != nil {
@@ -58,9 +60,10 @@ func (r *SupabaseCodeStatusRepository) Get(_ string) (string, error) {
 	return *result.Fingerprint, nil
 }
 
-func (r *SupabaseCodeStatusRepository) Set(_ string, fingerprint string) error {
+func (r *SupabaseCodeStatusRepository) Set(_, _, idStep, fingerprint string) error {
 	payload, err := json.Marshal(map[string]any{
 		"execution_id": r.executionID,
+		"step_name":    idStep,
 		"operation":    "set",
 		"fingerprint":  fingerprint,
 	})
@@ -73,9 +76,10 @@ func (r *SupabaseCodeStatusRepository) Set(_ string, fingerprint string) error {
 	return nil
 }
 
-func (r *SupabaseCodeStatusRepository) Delete(_ string) error {
+func (r *SupabaseCodeStatusRepository) Delete(_, _, idStep string) error {
 	payload, err := json.Marshal(map[string]any{
 		"execution_id": r.executionID,
+		"step_name":    idStep,
 		"operation":    "delete",
 	})
 	if err != nil {
