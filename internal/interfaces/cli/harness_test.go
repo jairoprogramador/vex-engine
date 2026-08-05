@@ -48,6 +48,7 @@ import (
 
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
 	stepInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step"
+	stepStatInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step/status"
 	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
 )
 
@@ -482,6 +483,50 @@ func (h *harness) commitPipelineFile(relPath, content string) {
 func (h *harness) writeProjectFile(relPath, content string) {
 	h.t.Helper()
 	writeFile(h.t, filepath.Join(h.projectDir, relPath), content)
+}
+
+// chmodProjectFile cambia los permisos de un archivo del árbol de trabajo. Es
+// lo que la spec 08 corrige: antes, quitar o poner el bit de ejecución a un
+// script de despliegue cambiaba lo que pasa al desplegar y NO cambiaba la
+// huella, así que el motor concluía «el código no cambió» y saltaba el step.
+func (h *harness) chmodProjectFile(relPath string, mode os.FileMode) {
+	h.t.Helper()
+	require.NoError(h.t, os.Chmod(filepath.Join(h.projectDir, relPath), mode))
+}
+
+// symlinkProjectFile crea —o reemplaza— un enlace simbólico en el árbol de
+// trabajo del proyecto.
+func (h *harness) symlinkProjectFile(relPath, target string) {
+	h.t.Helper()
+	link := filepath.Join(h.projectDir, relPath)
+	require.NoError(h.t, os.MkdirAll(filepath.Dir(link), 0o755))
+	if err := os.Remove(link); err != nil {
+		require.True(h.t, os.IsNotExist(err), "eliminar el enlace previo: %v", err)
+	}
+	require.NoError(h.t, os.Symlink(target, link))
+}
+
+// storedCodeFingerprint lee la huella de código que la policy persistió para un
+// step. Se decodifica el gob a mano, como en assertNingunaVariableAnonima: lo
+// que se quiere observar es la cadena tal cual quedó en disco.
+func (h *harness) storedCodeFingerprint(step string) string {
+	h.t.Helper()
+
+	projects := filepath.Join(h.root, cli.VexHomeDirName, "projects")
+	patron := filepath.Join(projects, "*", "status", "*", "code"+step+".status")
+	matches, err := filepath.Glob(patron)
+	require.NoError(h.t, err)
+	require.Len(h.t, matches, 1, "se esperaba exactamente un code%s.status", step)
+
+	file, err := os.Open(matches[0])
+	require.NoError(h.t, err)
+	defer file.Close()
+
+	var stored []stepStatInfra.FileCodeStatusDTO
+	require.NoError(h.t, gob.NewDecoder(file).Decode(&stored))
+	require.NotEmpty(h.t, stored)
+
+	return stored[len(stored)-1].Fingerprint
 }
 
 // ── Utilidades de disco y git ───────────────────────────────────────────────

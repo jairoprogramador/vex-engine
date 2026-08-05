@@ -127,6 +127,59 @@ func TestRunCommand_CambioEnElCodigoDelProyecto(t *testing.T) {
 	assert.Empty(t, h.ranSteps())
 }
 
+// ── Huella de contenido (spec 08) ───────────────────────────────────────────
+
+// Un `chmod +x` cambia lo que pasa al desplegar. Antes de la spec 08 no cambiaba
+// la huella: el motor concluía «el código no cambió» y saltaba el step. Era un
+// falso negativo del caché con efecto en producción.
+func TestRunCommand_UnChmodEnElProyectoReejecutaElStep(t *testing.T) {
+	h := newHarness(t)
+	h.writeProjectFile("scripts/deploy.sh", "#!/bin/sh\necho desplegando\n")
+	correHastaEstable(t, h)
+
+	h.chmodProjectFile("scripts/deploy.sh", 0o755)
+
+	h.resetLog()
+	result := h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	// `test` es el step con la regla de código; `supply` no la tiene.
+	assert.Equal(t, []string{"01-test"}, h.ranSteps())
+
+	h.resetLog()
+	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+	assert.Empty(t, h.ranSteps(), "el permiso ya está en la huella persistida")
+}
+
+// Un enlace dentro del proyecto era invisible a la identidad. Ahora su destino
+// es material de identidad, sin que el enlace se siga.
+func TestRunCommand_CambiarElDestinoDeUnEnlaceReejecutaElStep(t *testing.T) {
+	h := newHarness(t)
+	h.writeProjectFile("src/a.txt", "a\n")
+	h.writeProjectFile("src/b.txt", "b\n")
+	h.symlinkProjectFile("src/actual.txt", "a.txt")
+	correHastaEstable(t, h)
+
+	h.symlinkProjectFile("src/actual.txt", "b.txt")
+
+	h.resetLog()
+	result := h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	assert.Equal(t, []string{"01-test"}, h.ranSteps())
+}
+
+// La huella que se persiste y se compara lleva el prefijo de la regla. Sin él,
+// corregir una divergencia congelada en una v2 sería indistinguible de un bug.
+func TestRunCommand_LaHuellaPersistidaLlevaLaVersionDeLaRegla(t *testing.T) {
+	h := newHarness(t)
+	correHastaEstable(t, h)
+
+	huella := h.storedCodeFingerprint("test")
+
+	assert.Regexp(t, `^v1:[0-9a-f]{64}$`, huella)
+}
+
 // ── Aislamiento de ambiente (regresión de R-22) ─────────────────────────────
 
 func TestRunCommand_AmbientesAislados(t *testing.T) {

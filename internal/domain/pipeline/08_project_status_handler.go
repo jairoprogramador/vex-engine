@@ -7,12 +7,12 @@ import (
 
 type ProjectStatusHandler struct {
 	PipelineBaseHandler
-	fingerprint ProjectFingerprint
+	fingerprint ContentFingerprint
 }
 
 var _ PipelineHandler = (*ProjectStatusHandler)(nil)
 
-func NewProjectStatusHandler(fingerprint ProjectFingerprint) PipelineHandler {
+func NewProjectStatusHandler(fingerprint ContentFingerprint) PipelineHandler {
 	return &ProjectStatusHandler{
 		PipelineBaseHandler: PipelineBaseHandler{Next: nil},
 		fingerprint:         fingerprint,
@@ -26,7 +26,9 @@ func (h *ProjectStatusHandler) Handle(ctx *context.Context, request *PipelineReq
 		return fmt.Errorf("obtener fingerprint de estado del proyecto: %w", err)
 	}
 
-	request.SetProjectStatus(statusFingerprint)
+	// La forma canónica lleva el prefijo de versión de la regla ("v1:"): lo que
+	// se compara y se persiste aguas abajo es esa cadena, no el hash pelado.
+	request.SetProjectStatus(statusFingerprint.String())
 
 	if h.Next != nil {
 		return h.Next.Handle(ctx, request)

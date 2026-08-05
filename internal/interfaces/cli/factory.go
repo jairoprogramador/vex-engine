@@ -85,7 +85,7 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	pipelineStructureValidator := pipDom.NewPipelineStructureValidator()
 	pipelineWorkdirRepo := pippInfra.NewPipelineWorkdirRepository(projectsBasePath)
 	projectTagRepo := pippInfra.NewProjectTagRepository()
-	projectFingerprint := pippInfra.NewProjectFingerprint()
+	contentFingerprint := pippInfra.NewContentFingerprint()
 
 	// El reloj del proceso es la ÚNICA fuente de instantes del dominio: la usan
 	// el agregado (startedAt/finishedAt) y el cálculo de versión (spec 07 §5.1).
@@ -149,7 +149,7 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		pipDom.NewCopyWorkdirHandler(pipelineWorkdirRepo),
 		pipDom.NewVersionCalculatorHandler(projectTagRepo, clock),
 		pipDom.NewInitVarsHandler(),
-		pipDom.NewProjectStatusHandler(projectFingerprint),
+		pipDom.NewProjectStatusHandler(contentFingerprint),
 		pipDom.NewPipelineRunnerHandler(),
 	)
 	executablePipeline := pipDom.NewPipelineExecutable(pipelineHead)

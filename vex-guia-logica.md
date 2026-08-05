@@ -277,7 +277,10 @@ comando.
 6. **Calcular la versión** del proyecto y el hash de HEAD.
 7. **Inyectar las variables iniciales** (sección 3.1).
 8. **Calcular la huella del código** del proyecto — recorrido del árbol respetando
-   `.gitignore`, sha256 por archivo y sha256 del conjunto.
+   `.gitignore`, sha256 por archivo y sha256 del conjunto. La regla está congelada y
+   especificada desde la spec 08: `internal/domain/fingerprint/SPEC-v1.md`. Entran el
+   bit de ejecución de cada archivo y el destino de cada enlace simbólico; la huella
+   lleva el prefijo `v1:` en todo lo que persiste y compara.
 9. **Ejecutar los steps** en orden, entrando en la cadena de step por cada uno.
 
 ### 5.2 Cadena de step — una vez por step
@@ -373,7 +376,7 @@ en que nada cambió.
 |---|---|
 | **instrucciones** | el `commands.yaml` del step canonicalizado: por comando, su `name`, `cmd`, `workdir`, lista de `templates` y lista de outputs (`name` + `probe`). **No** entran `description` ni `show` |
 | **variables** | el mapa acumulado ordenado por nombre (nombre + valor + si es compartida), menos las seis volátiles de la sección 5.2 |
-| **código** | la huella del árbol del proyecto calculada en el paso 8 de la cadena de pipeline |
+| **código** | la huella del árbol del proyecto calculada en el paso 8 de la cadena de pipeline, en su forma canónica `v1:<sha256>` |
 | **tiempo** | TTL fijo de **30 días** desde la última ejecución del step |
 
 ### 7.2 Qué comprobaciones aplica cada step
@@ -727,6 +730,16 @@ cualquier divergencia silenciosa produce huellas distintas para lo que un humano
 «el mismo código». La solución no es sacrificar precisión por reproducibilidad: es
 especificar. **Regla versión 1, congelada, con vectores de prueba** que permitan a una
 implementación independiente validarse.
+
+> **Hecho (spec 08).** La regla vive en `internal/domain/fingerprint/SPEC-v1.md`, con 16
+> vectores que se ejecutan en memoria. La regla canónica se separó del recorrido de disco
+> —`Compute` sobre el puerto `TreeSource`—, lo que es exactamente lo que permite que los
+> vectores sean verificables sin replicar un árbol de archivos. Se corrigieron tres
+> defectos que producían falsos negativos del caché (permisos, enlaces, escapes del
+> parser) y se congelaron dos divergencias respecto de git que no los producen
+> (precedencia de reglas y anclado por prefijo), documentadas. Lo que queda de P9 es
+> aplicar la misma huella al repo de pipeline (spec 18) y sustituir el commit por ella en
+> el registro.
 
 **P10 — El estado de re-ejecución pasa a estar direccionado por contenido.**
 Las cuatro huellas sueltas con cuatro claves distintas (sección 7.3) se unifican en **una
