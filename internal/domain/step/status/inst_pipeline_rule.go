@@ -28,47 +28,59 @@ func NewInstructionsPipelineRule(
 
 func (r InstructionsPipelineRule) Name() string { return InstPipelineRuleName }
 
-func (r InstructionsPipelineRule) Evaluate(ctx RuleContext) (Decision, error) {
+// Evaluate compara la huella de las instrucciones y NO escribe: devuelve lo
+// observado para que `StepExecutable` lo persista tras el éxito (spec 09 §5.1).
+func (r InstructionsPipelineRule) Evaluate(ctx RuleContext) (Decision, []Evidence, error) {
 	commands, err := GetParam[[]command.Command](ctx, InstCurrentParam)
 	if err != nil {
-		return DecisionRun("error al obtener el estado actual de las instructiones"), err
+		return r.sinObservar("no se pudo obtener el estado actual de las instrucciones", err)
 	}
 
 	step, err := GetParam[string](ctx, StepParam)
 	if err != nil {
-		return DecisionRun("error al obtener el paso de ejecucion"), err
+		return r.sinObservar("no se pudo obtener el paso de ejecución", err)
 	}
 
 	projectUrl, err := GetParam[string](ctx, ProjectUrlParam)
 	if err != nil {
-		return DecisionRun("error al obtener la url del projecto"), err
+		return r.sinObservar("no se pudo obtener la url del proyecto", err)
 	}
 
 	pipelineUrl, err := GetParam[string](ctx, PipelineUrlParam)
 	if err != nil {
-		return DecisionRun("error al obtener la url del pipeline"), err
+		return r.sinObservar("no se pudo obtener la url del pipeline", err)
 	}
 
 	instCurrentFingerprint, err := r.calculateFingerprint(commands)
 	if err != nil {
-		return DecisionRun("error al calcular el estado actual de las instructions"), err
+		return r.sinObservar("no se pudo calcular el estado actual de las instrucciones", err)
 	}
 
 	instPreviousFingerprint, err := r.repository.Get(projectUrl, pipelineUrl, step)
 	if err != nil {
-		return DecisionRun("error al obtener el estado anterior de las instructions"), err
+		// La huella actual SÍ se observó: viaja en la evidencia para que, si el
+		// step termina bien, quede escrita. Lo que no se pudo leer es la
+		// anterior, y por eso la decisión es «no se sabe», no «cambió».
+		return DecisionUndetermined("no se pudo leer el estado anterior de las instrucciones"),
+			[]Evidence{NewEvidence(InstPipelineRuleName, instCurrentFingerprint, "", false)},
+			err
 	}
+
+	evidence := []Evidence{NewEvidence(
+		InstPipelineRuleName,
+		instCurrentFingerprint,
+		instPreviousFingerprint,
+		instCurrentFingerprint != instPreviousFingerprint,
+	)}
 
 	if instCurrentFingerprint == instPreviousFingerprint {
-		return DecisionSkip("las instrucciones del pipeline no ha cambiado"), nil
-	} else {
-		err = r.repository.Set(projectUrl, pipelineUrl, step, instCurrentFingerprint)
-		if err != nil {
-			return DecisionRun("no se ha podido guardar el estado de las instrucciones"), err
-		}
+		return DecisionSkip("las instrucciones del pipeline no han cambiado"), evidence, nil
 	}
+	return DecisionRun("las instrucciones del pipeline han cambiado"), evidence, nil
+}
 
-	return DecisionRun("las instrucciones an cambiado"), nil
+func (r InstructionsPipelineRule) sinObservar(reason string, err error) (Decision, []Evidence, error) {
+	return DecisionUndetermined(reason), []Evidence{NoEvidence(InstPipelineRuleName)}, err
 }
 
 func (r InstructionsPipelineRule) canonicalCommandMaterial(c command.Command) string {

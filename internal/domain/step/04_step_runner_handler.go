@@ -66,12 +66,35 @@ func (h *StepRunnerHandler) Handle(ctx *context.Context, request *StepRequestHan
 		status.StepParam:                 request.StepNameExe(),
 	}
 
-	decision, err := policy.Evaluate(ctxRule)
+	// Evaluar ya no escribe nada: la policy responde y devuelve lo que observó
+	// (spec 09 §5.1). Quien persiste esa observación es el camino de éxito de
+	// `StepExecutable`, después del último comando.
+	decision, evidences, err := policy.Evaluate(ctxRule)
 	if err != nil {
-		request.Emit(fmt.Sprintf("error al evaluar policy: %v", err))
+		// ADVERTENCIA VISIBLE, no razón de negocio (spec 09 §5.3). Un fallo de
+		// infraestructura no es «el código cambió», y hasta la spec 09 este error
+		// se emitía con el mismo tono que cualquier otra línea y se seguía.
+		//
+		// La asimetría con el `return` de `Build`, veinte líneas más arriba, es
+		// deliberada y hay que conservarla: `Build` falla cuando el motor no sabe
+		// QUÉ comprobar —pipelinecode inválido, se aborta— y `Evaluate` cuando no
+		// pudo AVERIGUAR si algo cambió —fallo de infraestructura, se ejecuta y se
+		// dice—. Fundir las dos convertiría un pipelinecode inválido en un
+		// despliegue que se ejecuta igual.
+		request.Emit(fmt.Sprintf("advertencia: no se pudo determinar el estado de re-ejecución de %s: %v",
+			request.StepNameExe(), err))
 	}
 	if decision.ShouldRun() {
-		request.Emit(fmt.Sprintf("Ejecutando %s: %s", request.StepNameExe(), decision.Reason()))
+		// La evidencia queda anotada ANTES de ejecutar, pero solo se escribe si
+		// se llega al final. Anotar no persiste nada.
+		request.RecordStatusEvidence(ctxRule, evidences)
+
+		if decision.IsUndetermined() {
+			request.Emit(fmt.Sprintf("Ejecutando %s sin poder determinar si cambió: %s",
+				request.StepNameExe(), decision.Reason()))
+		} else {
+			request.Emit(fmt.Sprintf("Ejecutando %s: %s", request.StepNameExe(), decision.Reason()))
+		}
 		for _, command := range commands {
 			request.AddCommand(command)
 			if err := request.Execute(); err != nil {

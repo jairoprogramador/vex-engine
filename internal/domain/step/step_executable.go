@@ -1,7 +1,6 @@
 package step
 
 import (
-	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -13,9 +12,9 @@ import (
 
 type StepExecutable struct {
 	command.BaseExecutable
-	handler          StepHandler
-	varsRepository   VarsStoreRepository
-	statusRepository domStepStatus.StatusRepository
+	handler        StepHandler
+	varsRepository VarsStoreRepository
+	statusWriter   *domStepStatus.StatusWriter
 }
 
 var _ command.Executable = (*StepExecutable)(nil)
@@ -23,12 +22,12 @@ var _ command.Executable = (*StepExecutable)(nil)
 func NewStepExecutable(
 	handler StepHandler,
 	varsRepository VarsStoreRepository,
-	statusRepository domStepStatus.StatusRepository) *StepExecutable {
+	statusWriter *domStepStatus.StatusWriter) *StepExecutable {
 
 	return &StepExecutable{
-		handler:          handler,
-		varsRepository:   varsRepository,
-		statusRepository: statusRepository,
+		handler:        handler,
+		varsRepository: varsRepository,
+		statusWriter:   statusWriter,
 	}
 }
 
@@ -60,6 +59,31 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 
 			case err == nil:
 				request.MarkStepSuccess()
+
+				// AQUÍ, y solo aquí, se escribe el estado de re-ejecución: después
+				// de que el último comando del step terminó bien (spec 09 §5.2).
+				//
+				// Antes lo escribía cada regla dentro de su `Evaluate`, antes de
+				// ejecutar nada, y el borrado compensatorio del camino de error
+				// intentaba revertirlo. El compensador no podía cubrir la muerte
+				// dura —es código que corre después—, así que un SIGKILL o un OOM
+				// a mitad dejaba escrito «sin cambios» para un step que nunca
+				// terminó y la corrida siguiente lo saltaba. Con la escritura
+				// aquí no hay nada que compensar, y el `Delete` desapareció junto
+				// con su causa.
+				if writeErr := s.statusWriter.Write(
+					request.StatusContext(), request.StatusEvidences()); writeErr != nil {
+					// Fail-open y VISIBLE: no haber podido guardar el caché no
+					// invalida el despliegue que sí ocurrió, así que el step no
+					// falla por esto. Lo que sí pasa es que la corrida siguiente
+					// volverá a ejecutarlo, y el usuario merece saber que su
+					// caché está roto en vez de creer que su código cambió
+					// (spec 09 §2).
+					executionContext.Emit(fmt.Sprintf(
+						"advertencia: no se pudo guardar el estado de re-ejecución del step %s: %v",
+						executionContext.StepName(), writeErr))
+				}
+
 				err := s.saveScopeVars(executionContext.Environment(), executionContext.StepName(), executionContext)
 				if err != nil {
 					executionContext.Emit(fmt.Sprintf("error al guardar vars scope %s: %v", executionContext.Environment(), err))
@@ -71,24 +95,18 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 				// step es "deploy" crear tag en repo git con la version actual
 
 			default:
+				// Un step fallido no borra nada porque no había escrito nada: la
+				// evidencia que la policy le anotó muere aquí con la cadena
+				// (spec 09 §5.2).
+				//
+				// Aquí vivía el borrado compensatorio, y con él el descarte de
+				// error que la spec 02 §5.4 tuvo que parchear para que dejara de
+				// mentir. La 02 hizo que dijera la verdad; esta lo elimina, que es
+				// mejor que arreglarlo: un compensador solo revierte lo que el
+				// programa alcanza a ejecutar, y la muerte dura —la que de verdad
+				// dejaba un `deploy` saltado— nunca pasa por él.
 				executionContext.Emit("Step " + executionContext.StepName() + " ejecución fallida:")
 				executionContext.Emit(err.Error())
-
-				// El borrado es compensatorio: revierte el estado que el step
-				// alcanzó a marcar antes de fallar. Si falla, el step queda
-				// marcado como exitoso habiendo fallado y la siguiente ejecución
-				// lo salta, así que el error se suma en vez de descartarse
-				// (spec 02 §5.4).
-				if delErr := s.statusRepository.Delete(
-					executionContext.ProjectUrl(),
-					executionContext.PipelineUrl(),
-					executionContext.Environment(),
-					executionContext.StepName(),
-				); delErr != nil {
-					delErr = fmt.Errorf("revertir el estado del step %s: %w", executionContext.StepName(), delErr)
-					executionContext.Emit(delErr.Error())
-					err = errors.Join(err, delErr)
-				}
 			}
 			return err
 		},

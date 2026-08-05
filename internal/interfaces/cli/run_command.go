@@ -39,15 +39,20 @@ const supportedSchemaVersion = 1
 
 // RunArgs son los flags de `vexd run` mapeados desde Cobra.
 type RunArgs struct {
-	InputFile             string
-	InputEnv              string
-	LogEndpoint           string
-	StatusEndpoint        string
-	StepCodeEndpoint      string // endpoint de la edge fn status-code (o equivalente)
-	StepInstEndpoint      string // endpoint de la edge fn status-instructions
-	StepTimeEndpoint      string // endpoint de la edge fn status-time
-	StepVarsEndpoint      string // endpoint de la edge fn status-vars
-	StepDeleteEndpoint    string // endpoint de la edge fn status-delete-step
+	InputFile        string
+	InputEnv         string
+	LogEndpoint      string
+	StatusEndpoint   string
+	StepCodeEndpoint string // endpoint de la edge fn status-code (o equivalente)
+	StepInstEndpoint string // endpoint de la edge fn status-instructions
+	StepTimeEndpoint string // endpoint de la edge fn status-time
+	StepVarsEndpoint string // endpoint de la edge fn status-vars
+	// StepDeleteEndpoint ya NO se cablea a nada. Servía al borrado compensatorio
+	// del estado de re-ejecución, que desapareció con la spec 09 §5.2 al mover la
+	// escritura al camino de éxito: no queda nada que compensar. El flag sigue
+	// aceptándose para no romper a quien lo pase; la spec 16 lo elimina junto con
+	// los otros cinco `--step-*-endpoint`.
+	StepDeleteEndpoint    string
 	StepStoreVarsEndpoint string // endpoint de la edge fn store-vars (almacén de variables)
 	LogToken              string
 	ExecutionID           string

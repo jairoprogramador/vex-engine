@@ -471,6 +471,58 @@ func TestRunCommand_StepSinComandosNiSeEjecutaNiPersisteEstado(t *testing.T) {
 	assert.Empty(t, h.persistedStepState("supply"))
 }
 
+// ── Evaluar no escribe: el estado se persiste tras el éxito (spec 09) ───────
+
+// Hasta la spec 09 las reglas escribían la huella nueva dentro de `Evaluate`,
+// antes del primer comando del step, y el borrado compensatorio la quitaba si el
+// step fallaba. Este caso —un fallo ordinario, que sí pasa por el camino de error
+// de Go— ya estaba cubierto por aquel compensador y por tanto ya era verde.
+//
+// Lo que fija ahora es que sigue siéndolo SIN compensador: no hay estado que
+// revertir porque no se escribió ninguno. Es la red que impide que la escritura
+// anticipada vuelva por otra vía, y el único observable de disco que el harness
+// puede dar sobre esto: la muerte dura —SIGKILL, OOM, un corte de luz— no se
+// puede montar aquí, y es justo el caso que ningún compensador podía cubrir.
+func TestRunCommand_UnStepQueNoTerminaNoDejaEstadoDeReejecucion(t *testing.T) {
+	const supplyCmd = "steps/02-supply/commands.yaml"
+	const supplyRoto = `
+- name: provision
+  cmd: echo "02-supply INTENTO" | tee -a "$VEX_TEST_LOG"
+- name: reventar
+  cmd: exit 1
+`
+
+	h := newHarness(t, withPipelineFile(supplyCmd, supplyRoto))
+
+	result := h.run()
+
+	require.Equal(t, cli.ExitFailed, result.exitCode, result.stderr)
+	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
+
+	assert.NotEmpty(t, h.persistedStepState("test"),
+		"control: el step que SÍ terminó deja su estado, así que la ausencia de abajo se ve")
+	assert.Empty(t, h.persistedStepState("supply"),
+		"el step que empezó y no terminó no deja nada escrito")
+
+	// Y no es cosa de una corrida: la siguiente vuelve a intentarlo en vez de
+	// encontrar una huella escrita y saltárselo.
+	h.resetLog()
+	segunda := h.run()
+	assert.Equal(t, cli.ExitFailed, segunda.exitCode)
+	assert.Contains(t, h.ranSteps(), "02-supply",
+		"sin estado persistido, el step roto se reintenta")
+}
+
+// El otro lado del mismo hecho: el estado aparece DESPUÉS del éxito, no antes.
+func TestRunCommand_ElEstadoAparecTrasElExitoDelStep(t *testing.T) {
+	h := newHarness(t)
+
+	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+
+	assert.NotEmpty(t, h.persistedStepState("test"))
+	assert.NotEmpty(t, h.persistedStepState("supply"))
+}
+
 // ── Step con nombre desconocido (spec 05) ───────────────────────────────────
 
 func TestRunCommand_StepDesconocidoFallaEnVezDeSaltarse(t *testing.T) {

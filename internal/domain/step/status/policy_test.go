@@ -13,6 +13,14 @@ package status_test
 //   - un step desconocido ⇒ `Build` devuelve error nombrándolo.
 //   - los cuatro steps conocidos siguen recibiendo exactamente las mismas
 //     reglas, en el mismo orden.
+//
+// La spec 09 añade el tercer estado. Lo que se afirma de él aquí:
+//   - una regla que no pudo averiguar si algo cambió produce `Undetermined`, y
+//     su motivo es DISTINGUIBLE del de un cambio real;
+//   - `Undetermined` sigue ejecutando —fail-open— pero deja de ser silencioso;
+//   - la guarda de cero reglas NO cae en el tercer estado: sigue siendo `Run`
+//     con `ReasonNoRules`. «No hay nada que averiguar» es una respuesta
+//     determinada, no un repositorio caído.
 
 import (
 	"errors"
@@ -28,6 +36,7 @@ import (
 type stubRule struct {
 	name     string
 	decision status.Decision
+	evidence []status.Evidence
 	err      error
 	calls    *int
 	orden    *[]string // registra el nombre de cada regla evaluada, en orden
@@ -35,26 +44,41 @@ type stubRule struct {
 
 func (s stubRule) Name() string { return s.name }
 
-func (s stubRule) Evaluate(_ status.RuleContext) (status.Decision, error) {
+func (s stubRule) Evaluate(_ status.RuleContext) (status.Decision, []status.Evidence, error) {
 	if s.calls != nil {
 		*s.calls++
 	}
 	if s.orden != nil {
 		*s.orden = append(*s.orden, s.name)
 	}
-	return s.decision, s.err
+	return s.decision, s.evidence, s.err
 }
 
 func ruleRun(name, reason string) stubRule {
-	return stubRule{name: name, decision: status.DecisionRun(reason)}
+	return stubRule{
+		name:     name,
+		decision: status.DecisionRun(reason),
+		evidence: []status.Evidence{status.NewEvidence(name, "ahora", "antes", true)},
+	}
 }
 
 func ruleSkip(name, reason string) stubRule {
-	return stubRule{name: name, decision: status.DecisionSkip(reason)}
+	return stubRule{
+		name:     name,
+		decision: status.DecisionSkip(reason),
+		evidence: []status.Evidence{status.NewEvidence(name, "ahora", "ahora", false)},
+	}
 }
 
-func ruleErr(name string, err error) stubRule {
-	return stubRule{name: name, decision: status.DecisionRun("fallback"), err: err}
+// ruleUndetermined es la regla que no pudo averiguarlo: devuelve el tercer
+// estado y el error de infraestructura que lo causó.
+func ruleUndetermined(name, reason string, err error) stubRule {
+	return stubRule{
+		name:     name,
+		decision: status.DecisionUndetermined(reason),
+		evidence: []status.Evidence{status.NoEvidence(name)},
+		err:      err,
+	}
 }
 
 // --- Policy.Evaluate -------------------------------------------------------
@@ -67,7 +91,7 @@ func TestPolicy_Evaluate(t *testing.T) {
 		// el builder— para que no reaparezca por otra vía de construcción.
 		policy := status.NewPolicy("notify")
 
-		decision, err := policy.Evaluate(status.RuleContext{})
+		decision, _, err := policy.Evaluate(status.RuleContext{})
 
 		require.NoError(t, err)
 		assert.True(t, decision.ShouldRun(),
@@ -82,7 +106,7 @@ func TestPolicy_Evaluate(t *testing.T) {
 			ruleSkip("b", "sin cambios en b"),
 		)
 
-		decision, err := policy.Evaluate(status.RuleContext{})
+		decision, _, err := policy.Evaluate(status.RuleContext{})
 
 		require.NoError(t, err)
 		assert.False(t, decision.ShouldRun())
@@ -95,7 +119,7 @@ func TestPolicy_Evaluate(t *testing.T) {
 			ruleRun("b", "cambió b"),
 		)
 
-		decision, err := policy.Evaluate(status.RuleContext{})
+		decision, _, err := policy.Evaluate(status.RuleContext{})
 
 		require.NoError(t, err)
 		assert.True(t, decision.ShouldRun())
@@ -109,7 +133,7 @@ func TestPolicy_Evaluate(t *testing.T) {
 			ruleRun("c", "cambió c"),
 		)
 
-		decision, err := policy.Evaluate(status.RuleContext{})
+		decision, _, err := policy.Evaluate(status.RuleContext{})
 
 		require.NoError(t, err)
 		assert.Equal(t, "cambió a; cambió c", decision.Reason())
@@ -121,38 +145,115 @@ func TestPolicy_Evaluate(t *testing.T) {
 		siguiente.calls = &llamadas
 
 		policy := status.NewPolicy("test",
-			ruleErr("a", errors.New("repositorio caído")),
+			ruleUndetermined("a", "no se pudo leer el estado anterior", errors.New("repositorio caído")),
 			siguiente,
 		)
 
-		decision, err := policy.Evaluate(status.RuleContext{})
+		decision, _, err := policy.Evaluate(status.RuleContext{})
 
 		require.Error(t, err, "el error se propaga junto a la decisión")
-		assert.True(t, decision.ShouldRun(), "un fallo fuerza ejecutar")
-		assert.Equal(t, "[a] error: repositorio caído", decision.Reason())
+		assert.True(t, decision.ShouldRun(), "fail-open: ante la duda, ejecutar")
 		assert.Equal(t, 1, llamadas, "la regla siguiente se evalúa igualmente")
 	})
 
-	t.Run("la decisión de una regla que falla se DESCARTA", func(t *testing.T) {
-		// La rama de error hace `continue`: `result` nunca se consulta, ni
-		// siquiera para leer su Reason. Sólo llega el texto del error.
-		fallo := stubRule{
-			name:     "a",
-			decision: status.DecisionSkip("este motivo no se usa jamás"),
-			err:      errors.New("boom"),
-		}
-		policy := status.NewPolicy("test", fallo)
+	// --- el tercer estado (spec 09 §5.3) -----------------------------------
 
-		decision, _ := policy.Evaluate(status.RuleContext{})
+	t.Run("solo indeterminadas ⇒ Undetermined, y lo dice con esas palabras", func(t *testing.T) {
+		// (c) de la spec 09 §1: hasta ahora «no pude leer el estado anterior» y
+		// «el código cambió» producían la misma decisión con la misma forma de
+		// razón. El fail-open se conserva; lo que deja de ser es silencioso.
+		policy := status.NewPolicy("test",
+			ruleSkip("a", "sin cambios en a"),
+			ruleUndetermined("b", "no se pudo leer el estado anterior", errors.New("repositorio caído")),
+		)
 
-		assert.Equal(t, "[a] error: boom", decision.Reason())
+		decision, _, err := policy.Evaluate(status.RuleContext{})
+
+		require.Error(t, err, "el error de infraestructura se propaga, no se traga")
+		assert.True(t, decision.ShouldRun(), "fail-open")
+		assert.True(t, decision.IsUndetermined(),
+			"y es un estado propio: ni «sé que cambió» ni «sé que no»")
+		assert.Contains(t, decision.Reason(), status.ReasonUndetermined)
+		assert.Contains(t, decision.Reason(), "[b]", "el motivo nombra a la regla que no pudo")
+	})
+
+	t.Run("un cambio REAL gana al indeterminado, que igual se reporta", func(t *testing.T) {
+		policy := status.NewPolicy("test",
+			ruleRun("a", "cambió a"),
+			ruleUndetermined("b", "no se pudo leer el estado anterior", errors.New("repositorio caído")),
+		)
+
+		decision, _, _ := policy.Evaluate(status.RuleContext{})
+
+		assert.False(t, decision.IsUndetermined(),
+			"si alguna comprobación SABE que algo cambió, ese es el motivo del step")
+		assert.Contains(t, decision.Reason(), "cambió a")
+		assert.Contains(t, decision.Reason(), status.ReasonUndetermined,
+			"pero el caché roto sigue siendo visible")
+	})
+
+	t.Run("un cambio real y un indeterminado son distinguibles entre sí", func(t *testing.T) {
+		// La aserción de (c): las dos razones no pueden tener la misma forma.
+		cambio, _, _ := status.NewPolicy("test", ruleRun("a", "cambió a")).
+			Evaluate(status.RuleContext{})
+		duda, _, _ := status.NewPolicy("test",
+			ruleUndetermined("a", "no se pudo leer el estado anterior", errors.New("boom"))).
+			Evaluate(status.RuleContext{})
+
+		require.True(t, cambio.ShouldRun())
+		require.True(t, duda.ShouldRun())
+		assert.NotEqual(t, cambio.Action(), duda.Action())
+		assert.NotContains(t, cambio.Reason(), status.ReasonUndetermined)
+	})
+
+	t.Run("CERO reglas NO es Undetermined", func(t *testing.T) {
+		// Spec 09 §5.3: la guarda de la 05 sobrevive al tercer estado. «No hay
+		// nada que averiguar» es una respuesta determinada; meterla en el tercer
+		// estado la haría indistinguible de un repositorio caído.
+		decision, _, err := status.NewPolicy("notify").Evaluate(status.RuleContext{})
+
+		require.NoError(t, err)
+		assert.False(t, decision.IsUndetermined())
+		assert.Equal(t, status.ReasonNoRules, decision.Reason())
+	})
+
+	// --- la consulta no escribe (spec 09 §3) --------------------------------
+
+	t.Run("Evaluate devuelve la evidencia de TODAS las reglas", func(t *testing.T) {
+		// La evidencia es lo que permite que otro —el camino de éxito del step—
+		// decida cuándo persistir la observación.
+		policy := status.NewPolicy("test",
+			ruleSkip("a", "sin cambios en a"),
+			ruleRun("b", "cambió b"),
+		)
+
+		_, evidencias, err := policy.Evaluate(status.RuleContext{})
+
+		require.NoError(t, err)
+		require.Len(t, evidencias, 2)
+		assert.Equal(t, "a", evidencias[0].RuleName)
+		assert.False(t, evidencias[0].Changed)
+		assert.Equal(t, "b", evidencias[1].RuleName)
+		assert.True(t, evidencias[1].Changed)
+	})
+
+	t.Run("la evidencia de una regla que no observó nada no es persistible", func(t *testing.T) {
+		policy := status.NewPolicy("test",
+			ruleUndetermined("a", "no se pudo leer el estado anterior", errors.New("boom")),
+		)
+
+		_, evidencias, _ := policy.Evaluate(status.RuleContext{})
+
+		require.Len(t, evidencias, 1)
+		assert.False(t, evidencias[0].Persistable(),
+			"sin valor observado no hay nada que guardar, y guardar el vacío sería peor")
 	})
 
 	t.Run("Policy es a su vez una Rule y se puede anidar", func(t *testing.T) {
 		var anidada status.Rule = status.NewPolicy("interna", ruleRun("a", "cambió a"))
 		externa := status.NewPolicy("externa", anidada)
 
-		decision, err := externa.Evaluate(status.RuleContext{})
+		decision, _, err := externa.Evaluate(status.RuleContext{})
 
 		require.NoError(t, err)
 		assert.True(t, decision.ShouldRun())
@@ -163,7 +264,7 @@ func TestPolicy_Evaluate(t *testing.T) {
 		policy := status.NewPolicy("test", ruleRun("a", "cambió a"))
 		policy.AddRule(ruleRun("b", "cambió b"))
 
-		decision, err := policy.Evaluate(status.RuleContext{})
+		decision, _, err := policy.Evaluate(status.RuleContext{})
 
 		require.NoError(t, err)
 		assert.Equal(t, "cambió a; cambió b", decision.Reason())
@@ -212,7 +313,7 @@ func TestPolicyBuilder_Build(t *testing.T) {
 			require.NotNil(t, policy)
 			assert.Equal(t, tc.step, policy.Name())
 
-			decision, err := policy.Evaluate(status.RuleContext{})
+			decision, _, err := policy.Evaluate(status.RuleContext{})
 			require.NoError(t, err)
 
 			assert.Equal(t, tc.want, evaluadas,

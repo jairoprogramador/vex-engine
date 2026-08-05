@@ -27,30 +27,32 @@ func NewVariablesRuleRule(repository VariablesStatusRepository) VariablesRuleRul
 
 func (s VariablesRuleRule) Name() string { return VariablesRuleName }
 
-func (s VariablesRuleRule) Evaluate(ctx RuleContext) (Decision, error) {
+// Evaluate compara la huella de las variables y NO escribe: devuelve lo
+// observado para que `StepExecutable` lo persista tras el éxito (spec 09 §5.1).
+func (s VariablesRuleRule) Evaluate(ctx RuleContext) (Decision, []Evidence, error) {
 	variablesCurrentOriginal, err := GetParam[*command.ExecutionVariableMap](ctx, VariablesCurrentParam)
 	if err != nil {
-		return DecisionRun("error al obtener el estado actual de las variables"), err
+		return s.sinObservar("no se pudo obtener el estado actual de las variables", err)
 	}
 
 	projectUrl, err := GetParam[string](ctx, ProjectUrlParam)
 	if err != nil {
-		return DecisionRun("error al obtener la url del projecto"), err
+		return s.sinObservar("no se pudo obtener la url del proyecto", err)
 	}
 
 	pipelineUrl, err := GetParam[string](ctx, PipelineUrlParam)
 	if err != nil {
-		return DecisionRun("error al obtener la url del pipeline"), err
+		return s.sinObservar("no se pudo obtener la url del pipeline", err)
 	}
 
 	environment, err := GetParam[string](ctx, EnvironmentParam)
 	if err != nil {
-		return DecisionRun("error al obtener el ambiente de ejecucion"), err
+		return s.sinObservar("no se pudo obtener el ambiente de ejecución", err)
 	}
 
 	step, err := GetParam[string](ctx, StepParam)
 	if err != nil {
-		return DecisionRun("error al obtener el paso de ejecucion"), err
+		return s.sinObservar("no se pudo obtener el paso de ejecución", err)
 	}
 
 	variablesClone := variablesCurrentOriginal.Clone()
@@ -63,24 +65,31 @@ func (s VariablesRuleRule) Evaluate(ctx RuleContext) (Decision, error) {
 
 	varsCurrentFingerprint, err := s.calculateFingerprint(variablesClone)
 	if err != nil {
-		return DecisionRun("error al calcular el estado actual de las variables"), err
+		return s.sinObservar("no se pudo calcular el estado actual de las variables", err)
 	}
 
 	varsPreviousFingerprint, err := s.repository.Get(projectUrl, pipelineUrl, environment, step)
 	if err != nil {
-		return DecisionRun("error al obtener es estado anterior de las variables"), err
+		return DecisionUndetermined("no se pudo leer el estado anterior de las variables"),
+			[]Evidence{NewEvidence(VariablesRuleName, varsCurrentFingerprint, "", false)},
+			err
 	}
+
+	evidence := []Evidence{NewEvidence(
+		VariablesRuleName,
+		varsCurrentFingerprint,
+		varsPreviousFingerprint,
+		varsCurrentFingerprint != varsPreviousFingerprint,
+	)}
 
 	if varsCurrentFingerprint == varsPreviousFingerprint {
-		return DecisionSkip("las variables no han cambiado"), nil
-	} else {
-		err = s.repository.Set(projectUrl, pipelineUrl, environment, step, varsCurrentFingerprint)
-		if err != nil {
-			return DecisionRun("error al guardar el estado de las variables"), err
-		}
+		return DecisionSkip("las variables no han cambiado"), evidence, nil
 	}
+	return DecisionRun("las variables han cambiado"), evidence, nil
+}
 
-	return DecisionRun("las variables an cambiado"), nil
+func (s VariablesRuleRule) sinObservar(reason string, err error) (Decision, []Evidence, error) {
+	return DecisionUndetermined(reason), []Evidence{NoEvidence(VariablesRuleName)}, err
 }
 
 func (s VariablesRuleRule) canonicalVariableMaterial(variable command.Variable) string {

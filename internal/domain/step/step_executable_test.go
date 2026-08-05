@@ -1,65 +1,110 @@
 package step_test
 
-// El borrado de estado tras un step fallido es COMPENSATORIO: revierte lo que
-// el step alcanzó a marcar antes de fallar. Descartar su error dejaba el step
-// marcado como exitoso habiendo fallado, y la siguiente ejecución lo saltaba
-// (spec 02 §5.4).
+// El estado de re-ejecución se escribe UNA sola vez, desde aquí, y solo si el
+// step terminó bien (spec 09 §5.2).
+//
+// Aquí vivía el borrado compensatorio: las reglas escribían la huella nueva
+// dentro de `Evaluate` —antes del primer comando— y este `Delete` la revertía si
+// el step fallaba. La spec 02 §5.4 hizo que su error dejara de descartarse; la
+// spec 09 lo elimina junto con su causa, porque un compensador solo revierte lo
+// que el programa alcanza a ejecutar, y la muerte dura —la que de verdad dejaba
+// un `deploy` saltado— nunca pasa por él.
 
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	domNotify "github.com/jairoprogramador/vex-engine/internal/domain/notify"
 	"github.com/jairoprogramador/vex-engine/internal/domain/shared"
 	domStep "github.com/jairoprogramador/vex-engine/internal/domain/step"
 	domStepStatus "github.com/jairoprogramador/vex-engine/internal/domain/step/status"
 )
 
 var (
-	errDelHandler = errors.New("el comando salió con 1")
-	errDelBorrado = errors.New("permiso denegado al borrar el estado")
+	errDelHandler  = errors.New("el comando salió con 1")
+	errDeEscritura = errors.New("permiso denegado al escribir el estado")
 )
 
-func TestStepExecutable_ElFalloDelBorradoCompensatorioSePropaga(t *testing.T) {
-	status := &statusRepositorySpy{err: errDelBorrado}
-	ejecutable := domStep.NewStepExecutable(
-		handlerQueFalla{err: errDelHandler},
-		&varsStoreSpy{},
-		status,
-	)
+func TestStepExecutable_ElEstadoSeEscribeSoloTrasElExito(t *testing.T) {
+	t.Run("un step exitoso escribe lo que la policy observó", func(t *testing.T) {
+		almacen := &statusSpy{}
+		ejecutable := domStep.NewStepExecutable(
+			handlerQueEvalua{}, &varsStoreSpy{}, almacen.writer())
 
-	err := ejecutable.Execute(contextoDePrueba(t))
+		require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
 
-	require.ErrorIs(t, err, errDelHandler, "el error original del step no se puede perder")
-	require.ErrorIs(t, err, errDelBorrado, "el fallo al revertir el estado tiene que hacer fallar el step")
-	require.Equal(t, 1, status.llamadas)
+		require.Equal(t, []string{"huella-inst"}, almacen.inst.escritas)
+	})
+
+	// Una muerte dura es, vista desde el código, «se evaluó la policy y no se
+	// llegó al camino de éxito». Antes la huella ya estaba escrita para entonces
+	// —la escribía `Evaluate`— y solo el borrado compensatorio la quitaba, que es
+	// código que corre después y que un SIGKILL no ejecuta.
+	//
+	// Lo que este test fija es la propiedad ESTRUCTURAL que sustituye a aquel
+	// compensador: por este camino no se escribe nada, así que no hay nada que
+	// revertir. El test que sí cambia de color con la spec 09 es el de
+	// idempotencia de `Evaluate` (rules_test.go), donde la escritura anticipada
+	// era directamente observable.
+	t.Run("un step que evalúa y NO termina no deja estado escrito", func(t *testing.T) {
+		almacen := &statusSpy{}
+		ejecutable := domStep.NewStepExecutable(
+			handlerQueEvaluaYFalla{err: errDelHandler}, &varsStoreSpy{}, almacen.writer())
+
+		require.ErrorIs(t, ejecutable.Execute(contextoDePrueba(t)), errDelHandler)
+		require.Empty(t, almacen.inst.escritas,
+			"la evidencia anotada muere con la cadena; nada llegó al disco")
+	})
+
+	t.Run("un step saltado no escribe estado", func(t *testing.T) {
+		almacen := &statusSpy{}
+		ejecutable := domStep.NewStepExecutable(
+			handlerQueSalta{}, &varsStoreSpy{}, almacen.writer())
+
+		require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
+		require.Empty(t, almacen.inst.escritas)
+	})
 }
 
-func TestStepExecutable_StepFallidoConBorradoCorrectoSoloReportaElFalloDelStep(t *testing.T) {
-	status := &statusRepositorySpy{}
+// La escritura ocurre DESPUÉS del último comando, no antes ni durante. Es la
+// ventana de la spec 09 §1(a) medida por orden, no supuesta.
+func TestStepExecutable_ElEstadoSeEscribeDespuesDelUltimoComando(t *testing.T) {
+	almacen := &statusSpy{}
+	escritor := almacen.writer()
 	ejecutable := domStep.NewStepExecutable(
-		handlerQueFalla{err: errDelHandler},
-		&varsStoreSpy{},
-		status,
-	)
-
-	err := ejecutable.Execute(contextoDePrueba(t))
-
-	require.ErrorIs(t, err, errDelHandler)
-	require.Equal(t, 1, status.llamadas)
-}
-
-func TestStepExecutable_StepExitosoNoBorraElEstado(t *testing.T) {
-	status := &statusRepositorySpy{err: errDelBorrado}
-	almacen := &varsStoreSpy{}
-	ejecutable := domStep.NewStepExecutable(handlerQueFalla{}, almacen, status)
+		handlerQueEvalua{orden: &almacen.orden}, &varsStoreSpy{}, escritor)
 
 	require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
-	require.Zero(t, status.llamadas)
+
+	require.Equal(t, []string{"comando", "escritura"}, almacen.orden)
+}
+
+// (b) de la spec 09 §1: si la escritura falla, el step no falla —el despliegue
+// ocurrió— pero el usuario se entera. Antes el fallo del `Set` se convertía en
+// una razón para ejecutar dentro de la propia decisión, y era indistinguible de
+// «el código cambió».
+func TestStepExecutable_UnFalloAlEscribirElEstadoNoTumbaElStepPeroSeDice(t *testing.T) {
+	almacen := &statusSpy{}
+	almacen.inst.err = errDeEscritura
+	emisor := &emisorEspia{}
+	contexto := contextoDePruebaCon(t, emisor)
+
+	ejecutable := domStep.NewStepExecutable(
+		handlerQueEvalua{}, &varsStoreSpy{}, almacen.writer())
+
+	require.NoError(t, ejecutable.Execute(contexto),
+		"no haber podido guardar el caché no invalida el despliegue que sí ocurrió")
+	assert.True(t, emisor.contiene("no se pudo guardar el estado de re-ejecución"),
+		"pero deja de ser silencioso: el usuario merece saber que su caché está roto")
+	assert.False(t, emisor.contiene("cambió"),
+		"y no se disfraza de cambio de contenido")
 }
 
 // Un step saltado por falta de comandos no persiste estado (spec 04 §5.3).
@@ -71,7 +116,7 @@ func TestStepExecutable_StepSaltadoNoPersisteEstado(t *testing.T) {
 	t.Run("control: un step exitoso SÍ guarda lo que produjo", func(t *testing.T) {
 		almacen := &varsStoreSpy{}
 		ejecutable := domStep.NewStepExecutable(
-			handlerQueProduceVariable{}, almacen, &statusRepositorySpy{})
+			handlerQueProduceVariable{}, almacen, (&statusSpy{}).writer())
 
 		require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
 		require.NotZero(t, almacen.guardados)
@@ -79,14 +124,14 @@ func TestStepExecutable_StepSaltadoNoPersisteEstado(t *testing.T) {
 
 	t.Run("un step saltado no guarda nada", func(t *testing.T) {
 		almacen := &varsStoreSpy{}
-		status := &statusRepositorySpy{err: errDelBorrado}
-		ejecutable := domStep.NewStepExecutable(handlerQueSalta{}, almacen, status)
+		estado := &statusSpy{}
+		ejecutable := domStep.NewStepExecutable(handlerQueSalta{}, almacen, estado.writer())
 
 		require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
 		require.Zero(t, almacen.guardados,
 			"las variables declaradas estaban en el mapa acumulado, pero ningún comando las consumió")
-		require.Zero(t, status.llamadas,
-			"un skip no es un fallo: no hay estado marcado que revertir")
+		require.Empty(t, estado.inst.escritas,
+			"ni el estado de re-ejecución: no se ejecutó nada que justifique escribirlo")
 	})
 }
 
@@ -101,7 +146,7 @@ func TestStepExecutable_UnStepFallidoNoDejaSuWorkdirEnElMapaAcumulado(t *testing
 	t.Run("control: el step exitoso tampoco lo deja", func(t *testing.T) {
 		contexto := contextoDePrueba(t)
 		ejecutable := domStep.NewStepExecutable(
-			handlerQueFalla{}, &varsStoreSpy{}, &statusRepositorySpy{})
+			handlerQueFalla{}, &varsStoreSpy{}, (&statusSpy{}).writer())
 
 		require.NoError(t, ejecutable.Execute(contexto))
 
@@ -112,7 +157,7 @@ func TestStepExecutable_UnStepFallidoNoDejaSuWorkdirEnElMapaAcumulado(t *testing
 	t.Run("el step fallido tampoco", func(t *testing.T) {
 		contexto := contextoDePrueba(t)
 		ejecutable := domStep.NewStepExecutable(
-			handlerQueFalla{err: errDelHandler}, &varsStoreSpy{}, &statusRepositorySpy{})
+			handlerQueFalla{err: errDelHandler}, &varsStoreSpy{}, (&statusSpy{}).writer())
 
 		require.ErrorIs(t, ejecutable.Execute(contexto), errDelHandler)
 
@@ -163,17 +208,110 @@ func (handlerQueSalta) Handle(_ *context.Context, request *domStep.StepRequestHa
 
 func (handlerQueSalta) SetNext(domStep.StepHandler) {}
 
-type statusRepositorySpy struct {
+// handlerQueEvalua reproduce lo que hace el handler 04 cuando la policy manda
+// ejecutar: anota la evidencia y corre los comandos. Anotar no persiste nada
+// —eso lo hace el camino de éxito de StepExecutable—, que es justo lo que estos
+// tests miden.
+type handlerQueEvalua struct{ orden *[]string }
+
+func (h handlerQueEvalua) Handle(_ *context.Context, request *domStep.StepRequestHandler) error {
+	request.RecordStatusEvidence(contextoDeReglas(request), evidenciaDePrueba())
+	if h.orden != nil {
+		*h.orden = append(*h.orden, "comando")
+	}
+	return nil
+}
+
+func (handlerQueEvalua) SetNext(domStep.StepHandler) {}
+
+// handlerQueEvaluaYFalla es la muerte a mitad: la policy ya se evaluó, los
+// comandos empezaron y el step no llegó al final.
+type handlerQueEvaluaYFalla struct{ err error }
+
+func (h handlerQueEvaluaYFalla) Handle(_ *context.Context, request *domStep.StepRequestHandler) error {
+	request.RecordStatusEvidence(contextoDeReglas(request), evidenciaDePrueba())
+	return h.err
+}
+
+func (handlerQueEvaluaYFalla) SetNext(domStep.StepHandler) {}
+
+func contextoDeReglas(request *domStep.StepRequestHandler) domStepStatus.RuleContext {
+	return domStepStatus.RuleContext{
+		domStepStatus.ProjectUrlParam:  request.ProjectUrl(),
+		domStepStatus.PipelineUrlParam: request.PipelineUrl(),
+		domStepStatus.EnvironmentParam: request.Environment(),
+		domStepStatus.StepParam:        request.StepName(),
+	}
+}
+
+func evidenciaDePrueba() []domStepStatus.Evidence {
+	return []domStepStatus.Evidence{
+		domStepStatus.NewEvidence(domStepStatus.InstPipelineRuleName, "huella-inst", "", true),
+	}
+}
+
+// ── Espía del almacén de estado ─────────────────────────────────────────────
+//
+// Cuenta escrituras y su orden respecto de los comandos. La spec 09 §7 pide
+// exactamente eso: cero `Set` al consultar, y uno por regla después de que el
+// último comando terminó.
+
+type statusSpy struct {
+	inst  instRepoEspia
+	orden []string
+}
+
+func (s *statusSpy) writer() *domStepStatus.StatusWriter {
+	s.inst.orden = &s.orden
+	return domStepStatus.NewStatusWriter(&s.inst, varsRepoMudo{}, codeRepoMudo{}, timeRepoMudo{})
+}
+
+type instRepoEspia struct {
+	escritas []string
 	err      error
-	llamadas int
+	orden    *[]string
 }
 
-var _ domStepStatus.StatusRepository = (*statusRepositorySpy)(nil)
+var _ domStepStatus.InstructionsStatusRepository = (*instRepoEspia)(nil)
 
-func (s *statusRepositorySpy) Delete(_, _, _, _ string) error {
-	s.llamadas++
-	return s.err
+func (r *instRepoEspia) Get(_, _, _ string) (string, error) { return "", nil }
+
+func (r *instRepoEspia) Set(_, _, _, fingerprint string) error {
+	if r.orden != nil {
+		*r.orden = append(*r.orden, "escritura")
+	}
+	if r.err != nil {
+		return r.err
+	}
+	r.escritas = append(r.escritas, fingerprint)
+	return nil
 }
+
+func (r *instRepoEspia) Delete(_, _, _ string) error { return nil }
+
+type varsRepoMudo struct{}
+
+var _ domStepStatus.VariablesStatusRepository = varsRepoMudo{}
+
+func (varsRepoMudo) Get(_, _, _, _ string) (string, error) { return "", nil }
+func (varsRepoMudo) Set(_, _, _, _, _ string) error        { return nil }
+func (varsRepoMudo) Delete(_, _, _, _ string) error        { return nil }
+
+type codeRepoMudo struct{}
+
+var _ domStepStatus.CodeStatusRepository = codeRepoMudo{}
+
+func (codeRepoMudo) Get(_, _, _ string) (string, error) { return "", nil }
+func (codeRepoMudo) Set(_, _, _, _ string) error        { return nil }
+func (codeRepoMudo) Delete(_, _, _ string) error        { return nil }
+
+type timeRepoMudo struct{}
+
+var _ domStepStatus.TimeStatusRepository = timeRepoMudo{}
+
+func (timeRepoMudo) Get(_, _, _ string) (time.Time, error) { return time.Time{}, nil }
+func (timeRepoMudo) Set(_, _, _ string, _ time.Time) error { return nil }
+func (timeRepoMudo) Delete(_, _, _ string) error           { return nil }
 
 type varsStoreSpy struct{ guardados int }
 
@@ -194,7 +332,26 @@ type emisorMudo struct{}
 
 func (emisorMudo) Notify(string, string) {}
 
+// emisorEspia guarda las líneas para poder afirmar qué se le dijo al usuario.
+type emisorEspia struct{ lineas []string }
+
+func (e *emisorEspia) Notify(_, line string) { e.lineas = append(e.lineas, line) }
+
+func (e *emisorEspia) contiene(fragmento string) bool {
+	for _, linea := range e.lineas {
+		if strings.Contains(linea, fragmento) {
+			return true
+		}
+	}
+	return false
+}
+
 func contextoDePrueba(t *testing.T) *command.ExecutionContext {
+	t.Helper()
+	return contextoDePruebaCon(t, emisorMudo{})
+}
+
+func contextoDePruebaCon(t *testing.T, emisor domNotify.LogObserver) *command.ExecutionContext {
 	t.Helper()
 
 	ctx := context.Background()
@@ -208,7 +365,7 @@ func contextoDePrueba(t *testing.T) *command.ExecutionContext {
 		shared.NewFixedClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
 	)
 
-	executionContext := command.NewExecutionContext(&ctx, ejecucion, nil, nil, emisorMudo{}, nil)
+	executionContext := command.NewExecutionContext(&ctx, ejecucion, nil, nil, emisor, nil)
 
 	stepName, err := command.NewStepName("02-supply")
 	require.NoError(t, err)

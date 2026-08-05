@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	"github.com/jairoprogramador/vex-engine/internal/domain/step/status"
 )
 
 type StepRequestHandler struct {
@@ -12,6 +13,12 @@ type StepRequestHandler struct {
 	stepName         string
 	stepStatus       command.StepStatus
 	skipReason       SkipReason
+
+	// Lo que la policy observó, esperando a que el step termine bien. Vive aquí
+	// —y no en el ExecutionContext— porque es estado de ESTA cadena y muere con
+	// ella; el ExecutionContext ya es demasiado grande.
+	statusContext   status.RuleContext
+	statusEvidences []status.Evidence
 }
 
 func NewStepRequestHandler(executionContext *command.ExecutionContext, stepName string) *StepRequestHandler {
@@ -80,6 +87,25 @@ func (rh *StepRequestHandler) MarkStepSuccess() {
 func (rh *StepRequestHandler) MarkStepSkipped(reason SkipReason) {
 	rh.stepStatus = command.StepSkipped
 	rh.skipReason = reason
+}
+
+// RecordStatusEvidence anota lo que la policy observó para que se escriba
+// DESPUÉS de que el step termine bien (spec 09 §5.2).
+//
+// Anotar no es escribir: si el step falla —o si el proceso muere a mitad— esto
+// se pierde con la cadena, que es exactamente lo que se quiere. El estado de
+// re-ejecución solo debe existir para steps que terminaron.
+func (rh *StepRequestHandler) RecordStatusEvidence(ctx status.RuleContext, evidences []status.Evidence) {
+	rh.statusContext = ctx
+	rh.statusEvidences = evidences
+}
+
+func (rh *StepRequestHandler) StatusContext() status.RuleContext {
+	return rh.statusContext
+}
+
+func (rh *StepRequestHandler) StatusEvidences() []status.Evidence {
+	return rh.statusEvidences
 }
 
 func (rh *StepRequestHandler) StepStatus() command.StepStatus {

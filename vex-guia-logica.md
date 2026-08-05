@@ -293,12 +293,14 @@ comando.
 
 Al terminar:
 
-- **Si el step tuvo éxito** → se persiste el mapa acumulado, partido en dos: lo marcado
-  como compartido va al ámbito `shared`, el resto al ámbito del ambiente. Quedan excluidas
-  las seis variables volátiles: `project_version`, `project_revision`,
-  `project_revision_full`, `tool_name`, `project_workdir` y `step_workdir`.
-- **Si el step falló** → se borran las huellas de estado de ese step, para que la siguiente
-  ejecución lo vuelva a correr.
+- **Si el step tuvo éxito** → se escriben las huellas de estado de ese step (sección 7.3) y
+  se persiste el mapa acumulado, partido en dos: lo marcado como compartido va al ámbito
+  `shared`, el resto al ámbito del ambiente. Quedan excluidas las seis variables volátiles:
+  `project_version`, `project_revision`, `project_revision_full`, `tool_name`,
+  `project_workdir` y `step_workdir`.
+- **Si el step falló** → no se escribe nada. No hay huellas que borrar porque no llegaron a
+  escribirse: la evaluación de la sección 7 es una consulta y el único momento de escritura
+  es el punto anterior.
 
 El almacén guarda el mapa acumulado **completo** bajo el nombre de cada step, no solo lo
 que ese step produjo. El archivo de `deploy` contiene también lo que produjo `supply`.
@@ -424,10 +426,45 @@ Dos consecuencias de que las claves no sean uniformes:
 - La comprobación de tiempo no lleva pipeline: dos pipelines sobre el mismo proyecto
   comparten su TTL.
 
-La huella nueva **se escribe durante la evaluación**, antes de que el step corra. Si el step
-falla después, el borrado de estado de la sección 5.2 lo compensa.
+La huella nueva **se escribe después de que el step termina bien**, desde un único sitio y
+una sola vez (spec 09 §5.2). Evaluar una comprobación es una consulta: mira el estado
+anterior, responde, y devuelve lo que observó — pero no modifica nada.
 
-### 7.4 Granularidad
+Hasta la spec 09 se escribía **durante** la evaluación, antes del primer comando, y un
+borrado compensatorio en el camino de error intentaba revertirlo. El compensador no podía
+cubrir el caso que importaba: un `SIGKILL`, un OOM o un corte de luz entre «se escribió» y
+«el step terminó» dejaba grabado «sin cambios» para un step que nunca corrió, y la corrida
+siguiente lo saltaba. Al mover la escritura al final, no hay nada que compensar y el
+borrado desapareció con su causa.
+
+### 7.4 Cuando el motor no puede averiguarlo
+
+Una comprobación tiene tres respuestas, no dos:
+
+| Respuesta | Significado | Efecto |
+|---|---|---|
+| `skip` | se sabe que no cambió | no ejecutar |
+| `run` | se sabe que cambió | ejecutar |
+| `undetermined` | **no se pudo averiguar** | ejecutar, y decirlo |
+
+`undetermined` es lo que devuelve una comprobación cuyo repositorio no contestó. Se conserva
+el **fail-open** —ante la duda, ejecutar, porque ejecutar de más nunca produce un despliegue
+que no ocurrió— pero deja de ser silencioso: antes un fallo de I/O producía exactamente la
+misma decisión y la misma forma de razón que «el código cambió», así que el usuario no podía
+distinguir un caché roto de un cambio real.
+
+Dos casos que **no** son `undetermined`:
+
+- **Cero comprobaciones ⇒ `run`**, con su propio motivo. No es «no se sabe»: es que no hay
+  nada que averiguar.
+- **Step desconocido ⇒ error**, y aborta la ejecución. El motor no sabe *qué* comprobar, que
+  es una pregunta distinta de no poder *averiguar* si algo cambió.
+
+Si la escritura del estado falla **después** de un step exitoso, el step no falla —el
+despliegue ocurrió— pero se emite una advertencia: la corrida siguiente volverá a ejecutarlo
+y el usuario tiene que poder saber por qué.
+
+### 7.5 Granularidad
 
 La decisión es **todo o nada por step**: o corren todos sus comandos, o no corre ninguno.
 No existe granularidad menor.
@@ -749,12 +786,14 @@ ambiente (P4) + ámbito (P5). Tres cambios de comportamiento:
 - **Volver atrás acierta.** Hoy, alternando entre dos estados A y B, *cada* cambio
   re-ejecuta, porque lo guardado es siempre lo último escrito. Con la clave derivada del
   contenido, volver a A encuentra la entrada de A.
-- **La entrada se escribe después del éxito, no antes.** Hoy la huella se escribe durante la
-  evaluación y un borrado compensatorio la revierte si el step falla (sección 7.3). Si el
-  proceso muere duro —`SIGKILL`, OOM; ya no un `Ctrl-C`, que desde la spec 07 cancela el
-  contexto y sí pasa por el compensador— ese borrado nunca corre y **la siguiente
-  ejecución salta un step que jamás terminó**. Escribiendo después, el compensador
-  desaparece y la ventana con él.
+- ~~**La entrada se escribe después del éxito, no antes.**~~ **Hecho (spec 09).** La huella
+  se escribía durante la evaluación y un borrado compensatorio la revertía si el step
+  fallaba; si el proceso moría duro —`SIGKILL`, OOM; ya no un `Ctrl-C`, que desde la spec 07
+  cancela el contexto y sí pasaba por el compensador— ese borrado nunca corría y **la
+  siguiente ejecución saltaba un step que jamás terminó**. Ahora `Evaluate` es una consulta
+  que devuelve lo observado, y la escritura ocurre una sola vez desde el camino de éxito del
+  step: el compensador desapareció y la ventana con él (sección 7.3). Lo que la 10 hereda es
+  la clave, no el momento.
 - **El tiempo deja de ser identidad.** El TTL no es una propiedad del contenido, así que no
   entra en la clave: pasa a ser metadato de expiración de la entrada.
 
@@ -840,7 +879,7 @@ de rendimiento, no de correctitud.
 | D2 | ~~Un step sin `commands.yaml` —o con el archivo vacío— se registra como éxito. «Step vacío» y «step ejecutado» son indistinguibles~~ **Corregido (spec 04 §5.3, D-A12): es `skipped{reason: no_commands}`, y además deja de persistir estado de re-ejecución** |
 | D3 | ~~Un directorio de step con prefijo de un solo dígito (`2-supply`) hace que el motor busque `02-supply/commands.yaml`, no lo encuentre, y el step pase sin ejecutar nada (efecto de D2)~~ **Corregido (spec 04 §5.1): el prefijo se valida a exactamente dos dígitos en el validador de estructura y en `NewStepName`, así que ese directorio ya no puede existir sin que la ejecución falle nombrándolo** |
 | D4 | Las escrituras del almacén y del estado no son atómicas. Una interrupción a mitad deja el archivo truncado, y el motor lee un archivo truncado como «no hay nada»: el valor se pierde en silencio |
-| D5 | Si una comprobación no consigue guardar su huella, el step se marca para ejecutar y se ejecuta, pero la huella nunca se escribe — y la corrida siguiente vuelve a encontrar la vieja. Se re-ejecuta indefinidamente, sin señal |
+| D5 | ~~Si una comprobación no consigue guardar su huella, el step se marca para ejecutar y se ejecuta, pero la huella nunca se escribe — y la corrida siguiente vuelve a encontrar la vieja. Se re-ejecuta indefinidamente, sin señal~~ **Corregido (spec 09 §5.1–5.3, R-23/R-20): la comprobación ya no escribe, así que su respuesta no puede quedar contaminada por el fallo de una escritura. Un fallo de infraestructura se responde `undetermined` —«no pude averiguarlo»— en vez de disfrazarse de «cambió», y si falla la escritura posterior al éxito del step se emite una advertencia explícita. La re-ejecución de más se conserva a propósito (fail-open); lo que se elimina es que sea silenciosa** |
 | D6 | La variable `shared_workdir` está declarada en el motor y no se asigna nunca |
 | D7 | ~~**El orden de ejecución de los steps es lexicográfico, no numérico:** `os.ReadDir` ordena por nombre y `StepName.Order()` no se usa jamás para ordenar. Con prefijos de **dos** dígitos ambos órdenes coinciden y no se manifiesta —doce steps `01…12` salen en orden, verificado con test—. Se manifiesta en cuanto entra un prefijo de **un** dígito (D2/D3): `1-test, 10-promote, …, 2-supply`, y basta un directorio mal nombrado entre otros correctos~~ **Corregido (spec 04 §5.2): `NewStepNames` ordena por `Order()`. Con el prefijo validado a dos dígitos no había un orden roto que arreglar; lo que se gana es que el invariante esté enunciado en una línea en vez de deducido de que `os.ReadDir` ordena por nombre y de que `%02d` es de ancho fijo** |
 | D8 | Un campo vacío en los datos del proyecto produce una variable bajo la clave `""`: el error de construcción se ignora y la variable vacía se inserta igual. Esa entrada **entra en la huella de variables**, así que no es un log feo — es material de identidad contaminado. **Corregido al implementar (spec 03 §9.1): el mecanismo era real, el disparador no.** Ningún campo vacío del proyecto llega al handler —`create_execution.go:74-100` los valida antes—, así que la entrada anónima solo la producía un defecto del propio motor. El daño cotidiano era el inverso: un `variables/<env>/<step>.yaml` con `value: ""` **abortaba la ejecución entera** |

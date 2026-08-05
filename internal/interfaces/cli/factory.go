@@ -108,7 +108,6 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		varsStatusRepo stepStat.VariablesStatusRepository
 		codeStatusRepo stepStat.CodeStatusRepository
 		timeStatusRepo stepStat.TimeStatusRepository
-		statusRepo     stepStat.StatusRepository
 	)
 
 	if args.Mode != ModeLocal {
@@ -124,17 +123,20 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		varsStatusRepo = stepStatInfra.NewSupabaseVarsStatusRepository(
 			args.StepVarsEndpoint, args.LogToken, args.ExecutionID,
 		)
-		statusRepo = stepStatInfra.NewSupabaseStatusRepository(
-			args.StepDeleteEndpoint, args.LogToken, args.ExecutionID,
-		)
 	} else {
 		// Modo local: repos de archivo en disco.
 		instStatusRepo = stepStatInfra.NewFileInstStatusRepository(projectsBasePath)
 		varsStatusRepo = stepStatInfra.NewFileVarsStatusRepository(projectsBasePath)
 		codeStatusRepo = stepStatInfra.NewFileCodeStatusRepository(projectsBasePath)
 		timeStatusRepo = stepStatInfra.NewFileTimeStatusRepository(projectsBasePath)
-		statusRepo = stepStatInfra.NewFileStatusRepository(varsStatusRepo, timeStatusRepo, instStatusRepo, codeStatusRepo)
 	}
+
+	// El único escritor del estado de re-ejecución (spec 09 §5.2). Ya no hay
+	// repositorio de borrado compensatorio: desapareció con la escritura
+	// anticipada que intentaba revertir, y con él `args.StepDeleteEndpoint`, que
+	// queda sin uso hasta que la spec 16 borre el flag.
+	statusWriter := stepStat.NewStatusWriter(
+		instStatusRepo, varsStatusRepo, codeStatusRepo, timeStatusRepo)
 
 	// --- Infrastructure: command (shell, filesystem) ---
 	fileSystem := cmdInfra.NewFileSystemManager()
@@ -172,7 +174,7 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		stepDom.NewVarsHandler(pipelineVarsRepo),
 		stepDom.NewStepRunnerHandler(pipelineCommandRepo, policyBuilder),
 	)
-	executableStep := stepDom.NewStepExecutable(stepHead, varsStoreRepo, statusRepo)
+	executableStep := stepDom.NewStepExecutable(stepHead, varsStoreRepo, statusWriter)
 
 	// --- Domain: command handler chain ---
 	fileInterpolator := command.NewFileInterpolator(fileSystem)
