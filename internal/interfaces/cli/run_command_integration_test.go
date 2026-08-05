@@ -376,6 +376,82 @@ func TestRunCommand_StepSinComandosNiSeEjecutaNiPersisteEstado(t *testing.T) {
 	assert.Empty(t, h.persistedStepState("supply"))
 }
 
+// ── Step con nombre desconocido (spec 05) ───────────────────────────────────
+
+func TestRunCommand_StepDesconocidoFallaEnVezDeSaltarse(t *testing.T) {
+	// `05-notify` es estructuralmente impecable —prefijo de dos dígitos, orden
+	// único, comandos declarados— y hasta la spec 05 la ejecución terminaba con
+	// exit code 0 sin haber corrido un solo comando suyo: `PolicyBuilder` le daba
+	// cero reglas, y una policy sin reglas concluía «all rules passed».
+	//
+	// Ahora el motor dice que no sabe evaluarlo, y lo dice fallando.
+	const notifyCmd = "steps/05-notify/commands.yaml"
+	const notifyBody = `
+- name: avisar
+  cmd: echo "05-notify NO-DEBE-CORRER" | tee -a "$VEX_TEST_LOG"
+`
+
+	h := newHarness(t, withPipelineFile(notifyCmd, notifyBody))
+
+	result := h.run(withStep("notify"))
+
+	assert.Equal(t, cli.ExitFailed, result.exitCode)
+	assert.Contains(t, result.stderr, "no tiene comprobaciones definidas")
+	assert.Contains(t, result.stderr, "notify", "el error nombra al step")
+	assert.Contains(t, result.stderr, "test, supply, package, deploy",
+		"y enumera los conocidos, que es lo accionable")
+
+	// El fallo es del step desconocido, no de los anteriores: los dos que el
+	// motor sí sabe evaluar corrieron, y el suyo no ejecutó nada.
+	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
+	assert.Empty(t, h.persistedStepState("notify"),
+		"un step que el motor no sabe evaluar no deja estado de re-ejecución")
+
+	// Y no es un fallo de una sola corrida: la siguiente vuelve a fallar igual,
+	// en vez de encontrar una huella escrita y saltarse el problema.
+	h.resetLog()
+	segunda := h.run(withStep("notify"))
+	assert.Equal(t, cli.ExitFailed, segunda.exitCode)
+	assert.Contains(t, segunda.stderr, "no tiene comprobaciones definidas")
+}
+
+func TestRunCommand_StepDesconocidoPosteriorAlPedidoNoSeDiagnostica(t *testing.T) {
+	// LÍMITE del arreglo, medido y no supuesto. El diagnóstico es PEREZOSO: vive
+	// en la cadena 2, así que solo alcanza a los steps que la corrida toca. La
+	// cadena de pipeline ejecuta `steps[:pedido+1]`, de modo que un `05-notify`
+	// detrás de `02-supply` no se construye, no se evalúa y no se diagnostica.
+	//
+	// El pipelinecode roto sigue existiendo y `vex supply` sigue devolviendo 0. Lo
+	// que cambia es que deja de haber una corrida que *parezca* haber ejecutado el
+	// step: para verlo hay que pedirlo. Adelantar la comprobación al validador de
+	// estructura (spec 04) queda EXPLÍCITAMENTE fuera de la spec 05 §6, y la 10 lo
+	// vuelve innecesario: al borrar el switch, un step desconocido se ejecuta.
+	h := newHarness(t, withPipelineFile("steps/05-notify/commands.yaml",
+		"- name: avisar\n  cmd: echo \"05-notify NO-DEBE-CORRER\" | tee -a \"$VEX_TEST_LOG\"\n"))
+
+	result := h.run(withStep("supply"))
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
+}
+
+func TestRunCommand_StepDesconocidoSinComandosSigueSiendoNoCommands(t *testing.T) {
+	// Frontera entre la spec 04 y la 05, y el orden importa: el handler comprueba
+	// PRIMERO que haya comandos y solo entonces construye la policy. Un
+	// `05-notify` con el archivo vacío es `skipped{no_commands}` —un resultado con
+	// razón, emitido— y no llega a preguntar por sus reglas.
+	//
+	// No es el silencio que corrige la 05: ahí no hay nada que ejecutar ni, por
+	// tanto, nada que decidir.
+	h := newHarness(t, withPipelineFile("steps/05-notify/commands.yaml", ""))
+
+	result := h.run(withStep("notify"))
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
+	assert.Empty(t, h.persistedStepState("notify"))
+}
+
 func TestRunCommand_PasoInexistente(t *testing.T) {
 	h := newHarness(t)
 

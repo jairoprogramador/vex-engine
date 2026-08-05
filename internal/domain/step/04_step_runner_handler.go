@@ -46,6 +46,10 @@ func (h *StepRunnerHandler) Handle(ctx *context.Context, request *StepRequestHan
 		return nil
 	}
 
+	// Un step que el motor no sabe evaluar aborta la ejecución aquí (spec 05
+	// §5.2). Antes `Build` no fallaba nunca: devolvía una policy vacía, y una
+	// policy vacía se saltaba siempre. Este `return` es el que convierte aquel
+	// silencio en un fallo con nombre.
 	policy, err := h.policyBuilder.Build(request.StepName())
 	if err != nil {
 		return fmt.Errorf("construir policy: %w", err)

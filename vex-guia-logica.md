@@ -354,9 +354,19 @@ Hoy están cableadas en el motor por nombre de step:
 | `package` | instrucciones + variables + código |
 | `deploy` | instrucciones + variables + código |
 
-**Un step con cualquier otro nombre no tiene comprobaciones, y el motor lo interpreta como
-«nada cambió»: se salta siempre, sin avisar.** Es lo contrario de lo que debería pasar
-*(ver P1 en la sección 9)*.
+**Un step con cualquier otro nombre hace fallar la ejecución, nombrándolo y enumerando los
+conocidos** (spec 05 §5.2). Hasta entonces el motor lo interpretaba como «nada cambió» y lo
+saltaba siempre, sin avisar y con exit code 0.
+
+Es una **medida de transición**, no el destino: el vocabulario de steps sigue siendo abierto
+para cargarlos y cerrado para decidir si se ejecutan. La brecha se cierra en dos entregas:
+la spec 10 borra esta tabla entera al sustituir las cuatro reglas por una comparación de
+`cache_key` —y ahí un step desconocido pasa a **ejecutarse**—, y la 15 devuelve la
+granularidad, ya declarada por el pipelinecode *(ver P1 en la sección 9)*.
+
+Debajo del cableado hay además una corrección de semántica que vale para cualquier policy,
+la construya quien la construya: **cero comprobaciones evalúa a «ejecutar», no a «nada
+cambió»**. Un conjunto vacío de evidencia no concluye que el step esté al día.
 
 ### 7.3 Cómo se guarda el estado
 
@@ -441,14 +451,23 @@ Cualquier `NN-<nombre>` debe ser un step válido. Lo que hoy está cableado en e
 comprobar para decidir si un step se re-ejecuta— pasa a declararse en el propio
 pipelinecode, por step. **Un step sin declaración se ejecuta siempre.** El nombre del
 concepto («policy») está por confirmar; lo que importa es su finalidad: declarar qué
-comprobar. Hoy el comportamiento es exactamente el inverso —un step no reconocido se salta
-para siempre en silencio— y esa es la corrección más urgente.
+comprobar.
 
 Hay dos tiempos y conviene no confundirlos. **Mientras la declaración no exista**, un step
 sin comprobaciones cableadas debe **fallar ruidosamente**: es el arreglo inmediato del
 silencio, y no exige formato nuevo. **Una vez exista**, un step sin declaración **se
 ejecuta siempre** — que es el destino, y es seguro porque ejecutar de más nunca produce un
 despliegue que no ocurrió, mientras que saltar de menos sí.
+
+**El primer tiempo está implementado** (spec 05): `PolicyBuilder.Build` devuelve error ante
+un step que no conoce, y `Policy.Evaluate` con cero reglas manda ejecutar en vez de saltar.
+
+El segundo tiempo llega repartido, y conviene no confundir las dos mitades. El **vocabulario
+se abre en la spec 10**, por eliminación: al desaparecer `PolicyBuilder` no queda ningún
+nombre que reconocer, y un step desconocido simplemente no tiene entrada de caché, luego se
+ejecuta. La **declaración** —`checks` por step, que es lo que devuelve la granularidad que
+la 10 sacrifica— es la **spec 15**. La medida de transición de la 05 vive solo entre la 05 y
+la 10.
 
 **P2 — La marca `shared` pasa a ser explícita.**
 Un campo `scope: shared` en el comando, junto al `workdir`:

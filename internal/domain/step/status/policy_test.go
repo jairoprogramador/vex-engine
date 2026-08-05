@@ -1,11 +1,18 @@
 package status_test
 
-// Tests de CARACTERIZACIÓN de la Policy y del PolicyBuilder (spec 00 §5.3).
+// Tests de la Policy y del PolicyBuilder (spec 00 §5.3, corregidos por la 05).
 //
-// El caso central es `cero reglas ⇒ DecisionSkip`: un step cuyo nombre no sea
-// test/supply/package/deploy recibe una policy vacía y NUNCA se ejecuta, en
-// silencio. Es el bug que corrige la spec 05; congelarlo aquí hace que la
-// corrección aparezca como un diff rojo en vez de como un cambio de humor.
+// Nacieron como CARACTERIZACIÓN: el caso central era `cero reglas ⇒
+// DecisionSkip`, que es el defecto por el que un step cuyo nombre no fuera
+// test/supply/package/deploy nunca se ejecutaba, en silencio. La spec 05 invierte
+// las dos aserciones que lo congelaban —aquí abajo y en la tabla del builder—,
+// que era exactamente para lo que se escribieron.
+//
+// Lo que afirman ahora:
+//   - cero reglas ⇒ DecisionRun. Sin evidencia no se concluye «nada cambió».
+//   - un step desconocido ⇒ `Build` devuelve error nombrándolo.
+//   - los cuatro steps conocidos siguen recibiendo exactamente las mismas
+//     reglas, en el mismo orden.
 
 import (
 	"errors"
@@ -53,17 +60,20 @@ func ruleErr(name string, err error) stubRule {
 // --- Policy.Evaluate -------------------------------------------------------
 
 func TestPolicy_Evaluate(t *testing.T) {
-	t.Run("CERO reglas ⇒ skip", func(t *testing.T) {
-		// DEFECTO VIVO (spec 05): un step sin reglas se salta para siempre.
-		// Este test afirma el comportamiento ACTUAL, no el deseado.
+	t.Run("CERO reglas ⇒ run", func(t *testing.T) {
+		// Spec 05 §5.1. Este test decía lo contrario hasta la 05: era la
+		// caracterización del defecto. Un conjunto vacío de comprobaciones no es
+		// evidencia de que nada cambió, y la guarda vive en `Policy` —no solo en
+		// el builder— para que no reaparezca por otra vía de construcción.
 		policy := status.NewPolicy("notify")
 
 		decision, err := policy.Evaluate(status.RuleContext{})
 
 		require.NoError(t, err)
-		assert.False(t, decision.ShouldRun(),
-			"hoy un step con nombre desconocido nunca se ejecuta")
-		assert.Equal(t, "all rules passed", decision.Reason())
+		assert.True(t, decision.ShouldRun(),
+			"sin evidencia no se concluye «sin cambios»: ante la duda, ejecutar")
+		assert.Equal(t, status.ReasonNoRules, decision.Reason(),
+			"y el motivo dice por qué, no «all rules passed»")
 	})
 
 	t.Run("todas las reglas dicen skip ⇒ skip", func(t *testing.T) {
@@ -181,34 +191,19 @@ func TestPolicyBuilder_Build(t *testing.T) {
 		registry.Register(rule)
 	}
 
-	cases := []struct {
+	// Los cuatro steps conocidos: la spec 05 no toca qué reglas recibe cada uno,
+	// así que esta tabla es la red que lo demuestra.
+	conocidos := []struct {
 		step string
 		want []string
-		nota string
 	}{
 		{step: "test", want: status.PolicyTestRulesNames},
 		{step: "supply", want: status.PolicySupplyRulesNames},
 		{step: "package", want: status.PolicyPackageRulesNames},
 		{step: "deploy", want: status.PolicyDeployRulesNames},
-		{
-			step: "notify",
-			want: nil,
-			nota: "DEFECTO VIVO (spec 05): cualquier otro nombre recibe CERO reglas " +
-				"y una policy vacía siempre salta, así que el step nunca se ejecuta",
-		},
-		{
-			step: "01-test",
-			want: nil,
-			nota: "el switch compara contra el nombre SIN el prefijo NN-",
-		},
-		{
-			step: "Test",
-			want: nil,
-			nota: "el switch es sensible a mayúsculas",
-		},
 	}
 
-	for _, tc := range cases {
+	for _, tc := range conocidos {
 		t.Run(tc.step, func(t *testing.T) {
 			evaluadas = nil
 
@@ -221,10 +216,52 @@ func TestPolicyBuilder_Build(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, tc.want, evaluadas,
-				"reglas evaluadas por el step %q. %s", tc.step, tc.nota)
+				"reglas evaluadas por el step %q, en orden", tc.step)
 			assert.False(t, decision.ShouldRun(),
-				"con reglas de juguete que siempre pasan, la policy siempre salta")
-			assert.Equal(t, "all rules passed", decision.Reason())
+				"con reglas de juguete que siempre pasan, la policy salta")
+			assert.Equal(t, status.ReasonAllRulesPassed, decision.Reason())
+		})
+	}
+
+	// Un step que el motor no conoce. Hasta la spec 05 los tres casos de abajo
+	// devolvían una policy vacía SIN error, y esa policy se saltaba siempre: el
+	// step no se ejecutaba jamás, con exit code 0.
+	desconocidos := []struct {
+		step string
+		nota string
+	}{
+		{
+			step: "notify",
+			nota: "un quinto step legítimo: el motor no sabe qué comprobar y lo dice",
+		},
+		{
+			step: "01-test",
+			nota: "el switch compara contra el nombre SIN el prefijo NN-",
+		},
+		{
+			step: "Test",
+			nota: "el switch es sensible a mayúsculas",
+		},
+		{
+			step: "",
+			nota: "el nombre vacío tampoco cae en un default silencioso",
+		},
+	}
+
+	for _, tc := range desconocidos {
+		t.Run("desconocido/"+tc.step, func(t *testing.T) {
+			evaluadas = nil
+
+			policy, err := status.NewPolicyBuilder(registry).Build(tc.step)
+
+			require.Error(t, err, "%s", tc.nota)
+			assert.Nil(t, policy, "no se devuelve una policy a medias")
+			assert.Contains(t, err.Error(), tc.step, "el error nombra al step")
+			for _, conocido := range status.KnownSteps {
+				assert.Contains(t, err.Error(), conocido,
+					"y enumera los pasos conocidos, que es lo accionable")
+			}
+			assert.Empty(t, evaluadas, "no se evaluó ninguna regla")
 		})
 	}
 
