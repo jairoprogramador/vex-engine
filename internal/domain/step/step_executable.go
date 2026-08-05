@@ -1,6 +1,7 @@
 package step
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -62,7 +63,22 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 			} else {
 				executionContext.Emit("Step " + executionContext.StepName() + " ejecución fallida:")
 				executionContext.Emit(err.Error())
-				s.statusRepository.Delete(executionContext.ProjectUrl(), executionContext.PipelineUrl(), executionContext.Environment(), executionContext.StepName())
+
+				// El borrado es compensatorio: revierte el estado que el step
+				// alcanzó a marcar antes de fallar. Si falla, el step queda
+				// marcado como exitoso habiendo fallado y la siguiente ejecución
+				// lo salta, así que el error se suma en vez de descartarse
+				// (spec 02 §5.4).
+				if delErr := s.statusRepository.Delete(
+					executionContext.ProjectUrl(),
+					executionContext.PipelineUrl(),
+					executionContext.Environment(),
+					executionContext.StepName(),
+				); delErr != nil {
+					delErr = fmt.Errorf("revertir el estado del step %s: %w", executionContext.StepName(), delErr)
+					executionContext.Emit(delErr.Error())
+					err = errors.Join(err, delErr)
+				}
 			}
 			return err
 		},

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	domStepStatus "github.com/jairoprogramador/vex-engine/internal/domain/step/status"
+	"github.com/jairoprogramador/vex-engine/internal/infrastructure/persistence"
 	"github.com/jairoprogramador/vex-engine/internal/infrastructure/utils"
 )
 
@@ -18,10 +19,14 @@ var _ domStepStatus.InstructionsStatusRepository = (*FileInstStatusRepository)(n
 
 type FileInstStatusRepository struct {
 	statusBaseAbsolutePath string
+	writer                 persistence.AtomicFileWriter
 }
 
 func NewFileInstStatusRepository(statusBaseAbsolutePath string) domStepStatus.InstructionsStatusRepository {
-	return &FileInstStatusRepository{statusBaseAbsolutePath: statusBaseAbsolutePath}
+	return &FileInstStatusRepository{
+		statusBaseAbsolutePath: statusBaseAbsolutePath,
+		writer:                 persistence.NewAtomicFileWriter(),
+	}
 }
 
 func (r *FileInstStatusRepository) filePath(projectUrl, pipelineUrl, step string) string {
@@ -80,22 +85,13 @@ func (r *FileInstStatusRepository) Get(projectUrl, pipelineUrl, step string) (st
 
 func (r *FileInstStatusRepository) Set(projectUrl, pipelineUrl, step, fingerprint string) error {
 	filePath := r.filePath(projectUrl, pipelineUrl, step)
+	rows := []FileInstStatusDTO{ToFileInstStatusDTO(fingerprint, time.Now())}
 
-	dirPath := filepath.Dir(filePath)
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return fmt.Errorf("file inst status repository: crear directorio %s: %w", dirPath, err)
-	}
-
-	file, err := os.Create(filePath)
+	err := r.writer.Write(filePath, func(out io.Writer) error {
+		return gob.NewEncoder(out).Encode(rows)
+	})
 	if err != nil {
-		return fmt.Errorf("file inst status repository: crear archivo: %w", err)
-	}
-	defer file.Close()
-
-	row := ToFileInstStatusDTO(fingerprint, time.Now())
-	encoder := gob.NewEncoder(file)
-	if err := encoder.Encode([]FileInstStatusDTO{row}); err != nil {
-		return fmt.Errorf("file inst status repository: codificar inst status: %w", err)
+		return fmt.Errorf("file inst status repository: escribir %s: %w", filePath, err)
 	}
 
 	return nil

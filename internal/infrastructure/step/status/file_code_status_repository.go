@@ -12,6 +12,7 @@ import (
 	"slices"
 
 	domStepStatus "github.com/jairoprogramador/vex-engine/internal/domain/step/status"
+	"github.com/jairoprogramador/vex-engine/internal/infrastructure/persistence"
 	"github.com/jairoprogramador/vex-engine/internal/infrastructure/utils"
 )
 
@@ -19,10 +20,14 @@ var _ domStepStatus.CodeStatusRepository = (*FileCodeStatusRepository)(nil)
 
 type FileCodeStatusRepository struct {
 	statusBaseAbsolutePath string
+	writer                 persistence.AtomicFileWriter
 }
 
 func NewFileCodeStatusRepository(statusBaseAbsolutePath string) domStepStatus.CodeStatusRepository {
-	return &FileCodeStatusRepository{statusBaseAbsolutePath: statusBaseAbsolutePath}
+	return &FileCodeStatusRepository{
+		statusBaseAbsolutePath: statusBaseAbsolutePath,
+		writer:                 persistence.NewAtomicFileWriter(),
+	}
 }
 
 func (r *FileCodeStatusRepository) filePath(projectUrl, pipelineUrl, step string) string {
@@ -80,24 +85,13 @@ func (r *FileCodeStatusRepository) Get(projectUrl, pipelineUrl, step string) (st
 
 func (r *FileCodeStatusRepository) Set(projectUrl, pipelineUrl, step, fingerprint string) error {
 	filePath := r.filePath(projectUrl, pipelineUrl, step)
+	fileCodeStatusDtoArray := []FileCodeStatusDTO{ToFileCodeStatusDTO(fingerprint, time.Now())}
 
-	dirPath := filepath.Dir(filePath)
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return fmt.Errorf("file code status repository: crear directorio %s: %w", dirPath, err)
-	}
-
-	file, err := os.Create(filePath)
+	err := r.writer.Write(filePath, func(out io.Writer) error {
+		return gob.NewEncoder(out).Encode(fileCodeStatusDtoArray)
+	})
 	if err != nil {
-		return fmt.Errorf("file code status repository: crear archivo: %w", err)
-	}
-	defer file.Close()
-
-	fileCodeStatusDto := ToFileCodeStatusDTO(fingerprint, time.Now())
-	fileCodeStatusDtoArray := []FileCodeStatusDTO{fileCodeStatusDto}
-
-	encoder := gob.NewEncoder(file)
-	if err := encoder.Encode(fileCodeStatusDtoArray); err != nil {
-		return fmt.Errorf("file code status repository: codificar file code status: %w", err)
+		return fmt.Errorf("file code status repository: escribir %s: %w", filePath, err)
 	}
 
 	return nil

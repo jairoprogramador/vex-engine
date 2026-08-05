@@ -11,6 +11,7 @@ import (
 	"time"
 
 	domStepStatus "github.com/jairoprogramador/vex-engine/internal/domain/step/status"
+	"github.com/jairoprogramador/vex-engine/internal/infrastructure/persistence"
 	"github.com/jairoprogramador/vex-engine/internal/infrastructure/utils"
 )
 
@@ -18,10 +19,14 @@ var _ domStepStatus.TimeStatusRepository = (*FileTimeStatusRepository)(nil)
 
 type FileTimeStatusRepository struct {
 	statusBaseAbsolutePath string
+	writer                 persistence.AtomicFileWriter
 }
 
 func NewFileTimeStatusRepository(statusBaseAbsolutePath string) domStepStatus.TimeStatusRepository {
-	return &FileTimeStatusRepository{statusBaseAbsolutePath: statusBaseAbsolutePath}
+	return &FileTimeStatusRepository{
+		statusBaseAbsolutePath: statusBaseAbsolutePath,
+		writer:                 persistence.NewAtomicFileWriter(),
+	}
 }
 
 func (r *FileTimeStatusRepository) filePath(projectUrl, environment, step string) string {
@@ -79,22 +84,13 @@ func (r *FileTimeStatusRepository) Get(projectUrl, environment, step string) (ti
 
 func (r *FileTimeStatusRepository) Set(projectUrl, environment, step string, at time.Time) error {
 	filePath := r.filePath(projectUrl, environment, step)
+	rows := []FileTimeStatusDTO{ToFileTimeStatusDTO(at, time.Now())}
 
-	dirPath := filepath.Dir(filePath)
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return fmt.Errorf("file time status repository: crear directorio %s: %w", dirPath, err)
-	}
-
-	file, err := os.Create(filePath)
+	err := r.writer.Write(filePath, func(out io.Writer) error {
+		return gob.NewEncoder(out).Encode(rows)
+	})
 	if err != nil {
-		return fmt.Errorf("file time status repository: crear archivo: %w", err)
-	}
-	defer file.Close()
-
-	row := ToFileTimeStatusDTO(at, time.Now())
-	encoder := gob.NewEncoder(file)
-	if err := encoder.Encode([]FileTimeStatusDTO{row}); err != nil {
-		return fmt.Errorf("file time status repository: codificar time status: %w", err)
+		return fmt.Errorf("file time status repository: escribir %s: %w", filePath, err)
 	}
 
 	return nil
