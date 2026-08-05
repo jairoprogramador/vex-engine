@@ -60,6 +60,34 @@ func TestStepExecutable_StepExitosoNoBorraElEstado(t *testing.T) {
 	require.Zero(t, status.llamadas)
 }
 
+// Un step saltado por falta de comandos no persiste estado (spec 04 §5.3).
+//
+// El efecto dañino de tratarlo como `success` no era el vocabulario: era que el
+// step guardaba el almacén sobre cero comandos ejecutados, así que quedaba
+// escrito «sin cambios» para siempre.
+func TestStepExecutable_StepSaltadoNoPersisteEstado(t *testing.T) {
+	t.Run("control: un step exitoso SÍ guarda lo que produjo", func(t *testing.T) {
+		almacen := &varsStoreSpy{}
+		ejecutable := domStep.NewStepExecutable(
+			handlerQueProduceVariable{}, almacen, &statusRepositorySpy{})
+
+		require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
+		require.NotZero(t, almacen.guardados)
+	})
+
+	t.Run("un step saltado no guarda nada", func(t *testing.T) {
+		almacen := &varsStoreSpy{}
+		status := &statusRepositorySpy{err: errDelBorrado}
+		ejecutable := domStep.NewStepExecutable(handlerQueSalta{}, almacen, status)
+
+		require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
+		require.Zero(t, almacen.guardados,
+			"las variables declaradas estaban en el mapa acumulado, pero ningún comando las consumió")
+		require.Zero(t, status.llamadas,
+			"un skip no es un fallo: no hay estado marcado que revertir")
+	})
+}
+
 // ── Dobles ──────────────────────────────────────────────────────────────────
 
 type handlerQueFalla struct{ err error }
@@ -69,6 +97,37 @@ func (h handlerQueFalla) Handle(_ *context.Context, _ *domStep.StepRequestHandle
 }
 
 func (h handlerQueFalla) SetNext(domStep.StepHandler) {}
+
+// handlerQueProduceVariable deja una variable en el mapa acumulado, que es lo que
+// el almacén persiste al terminar el step.
+type handlerQueProduceVariable struct{}
+
+func (handlerQueProduceVariable) Handle(_ *context.Context, request *domStep.StepRequestHandler) error {
+	variable, err := command.NewVariable("acr_name", "vexsand-demo-app", false)
+	if err != nil {
+		return err
+	}
+	request.AddAccumulatedVars(variable)
+	return nil
+}
+
+func (handlerQueProduceVariable) SetNext(domStep.StepHandler) {}
+
+// handlerQueSalta reproduce lo que hace el handler 04 con un commands.yaml vacío:
+// las variables declaradas ya están en el mapa, pero ningún comando corrió.
+type handlerQueSalta struct{}
+
+func (handlerQueSalta) Handle(_ *context.Context, request *domStep.StepRequestHandler) error {
+	variable, err := command.NewVariable("acr_name", "vexsand-demo-app", false)
+	if err != nil {
+		return err
+	}
+	request.AddAccumulatedVars(variable)
+	request.MarkStepSkipped(domStep.SkipReasonNoCommands)
+	return nil
+}
+
+func (handlerQueSalta) SetNext(domStep.StepHandler) {}
 
 type statusRepositorySpy struct {
 	err      error

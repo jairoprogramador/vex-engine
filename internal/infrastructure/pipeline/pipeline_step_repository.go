@@ -2,10 +2,10 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	domPipeline "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
 )
 
@@ -17,25 +17,28 @@ func NewPipelineStepRepository() domPipeline.PipelineStepRepository {
 	return &PipelineStepRepository{}
 }
 
-func (r *PipelineStepRepository) Get(_ *context.Context, pipelineLocalPath string) ([]command.StepName, error) {
+// Get devuelve el nombre de cada subdirectorio de `steps/` sin juzgarlo. Antes
+// intentaba construir un StepName y descartaba en silencio el directorio cuyo
+// nombre no casaba, así que un typo hacía desaparecer un step del pipeline sin
+// un mensaje (spec 04 §1 c).
+func (r *PipelineStepRepository) Get(_ *context.Context, pipelineLocalPath string) ([]domPipeline.StepEntry, error) {
 	stepsPath := filepath.Join(pipelineLocalPath, "steps")
 
 	files, err := os.ReadDir(stepsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []command.StepName{}, nil
+			return []domPipeline.StepEntry{}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("leer el directorio de steps '%s': %w", stepsPath, err)
 	}
 
-	stepNames := make([]command.StepName, 0)
+	entries := make([]domPipeline.StepEntry, 0, len(files))
 	for _, file := range files {
+		// Los archivos sueltos no son steps y nunca lo fueron: lo que un
+		// pipelinecode declara es un directorio por step.
 		if file.IsDir() {
-			stepName, err := command.NewStepName(file.Name())
-			if err == nil {
-				stepNames = append(stepNames, stepName)
-			}
+			entries = append(entries, domPipeline.StepEntry(file.Name()))
 		}
 	}
-	return stepNames, nil
+	return entries, nil
 }

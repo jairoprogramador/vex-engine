@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"slices"
+
+	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 )
 
 type EnvironmentLoaderHandler struct {
@@ -29,6 +31,16 @@ func (h *EnvironmentLoaderHandler) Handle(ctx *context.Context, request *Pipelin
 
 	if len(environments) == 0 {
 		return fmt.Errorf("No hay ambientes configurados")
+	}
+
+	// `shared` es el ámbito del almacén compartido, y el nombre del ambiente
+	// ocupa esa misma posición en la ruta `store/<pipeline>/<ámbito>/`. Un
+	// ambiente así declarado pisaría el almacén compartido; la spec 11 lo
+	// convierte además en una colisión de claves de estado (spec 04 §5.4).
+	if slices.Contains(environments, command.SharedScopeName) {
+		return fmt.Errorf(
+			"el ambiente '%s' está reservado: environments.yaml no puede declararlo como value",
+			command.SharedScopeName)
 	}
 
 	if request.Environment() == "" {

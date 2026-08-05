@@ -81,6 +81,7 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	pipelineClonerRepo := pippInfra.NewPipelineClonerRepository(pipelinesBasePath)
 	pipelineEnvRepo := pippInfra.NewPipelineEnvironmentRepository()
 	pipelineStepRepo := pippInfra.NewPipelineStepRepository()
+	pipelineStructureValidator := pipDom.NewPipelineStructureValidator()
 	pipelineWorkdirRepo := pippInfra.NewPipelineWorkdirRepository(projectsBasePath)
 	projectTagRepo := pippInfra.NewProjectTagRepository()
 	projectFingerprint := pippInfra.NewProjectFingerprint()
@@ -139,7 +140,7 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		pipDom.NewProjectClonerHandler(projectClonerRepo),
 		pipDom.NewPipelineClonerHandler(pipelineClonerRepo),
 		pipDom.NewEnvironmentLoaderHandler(pipelineEnvRepo),
-		pipDom.NewStepsLoaderHandler(pipelineStepRepo),
+		pipDom.NewStepsLoaderHandler(pipelineStepRepo, pipelineStructureValidator),
 		pipDom.NewCopyWorkdirHandler(pipelineWorkdirRepo),
 		pipDom.NewVersionCalculatorHandler(projectTagRepo),
 		pipDom.NewInitVarsHandler(),

@@ -32,8 +32,17 @@ func (h *StepRunnerHandler) Handle(ctx *context.Context, request *StepRequestHan
 		return fmt.Errorf("cargar commands: %w", err)
 	}
 
+	// Un step sin comandos no es un éxito: es un skip con razón. La diferencia
+	// no es de vocabulario —el step deja de persistir estado de re-ejecución, que
+	// es lo que hacía que un `commands.yaml` vacío quedara escrito como «sin
+	// cambios» para siempre (spec 04 §5.3, D-A12).
 	if len(commands) == 0 {
-		request.Emit("no hay comandos para ejecutar")
+		request.MarkStepSkipped(SkipReasonNoCommands)
+		request.Emit(fmt.Sprintf("%s se salta: no hay comandos para ejecutar (%s)",
+			request.StepNameExe(), SkipReasonNoCommands))
+		if h.Next != nil {
+			return h.Next.Handle(ctx, request)
+		}
 		return nil
 	}
 

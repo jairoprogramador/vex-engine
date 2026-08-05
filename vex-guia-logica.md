@@ -57,6 +57,9 @@ Lista de ambientes.
 - `value` — **identificador único** del ambiente. Es lo único que el motor lee: es la
   clave real que usa el resto del pipeline (nombre de carpeta en `variables/`, clave del
   estado de re-ejecución, valor de la variable `${var.environment}`).
+- `value` **no puede ser `shared`**: es el nombre del ámbito del almacén compartido y ocupa
+  esa misma posición en la ruta, así que un ambiente así declarado lo pisaría. Declararlo
+  hace fallar la ejecución (spec 04 §5.4).
 - `name` y `description` — documentación. El motor no los usa.
 
 **Sobre el orden.** El motor usa el orden para una sola cosa: si la invocación no indica
@@ -70,12 +73,14 @@ ni cuántos**: lee lo que encuentra.
 
 Reglas que sí impone:
 
-- El nombre del directorio debe seguir el formato `NN-<nombre>`. Un directorio que no
-  encaje se ignora en silencio.
-- **El prefijo debe ser de dos dígitos.** El motor normaliza el nombre a `%02d-<nombre>`
-  para localizar los archivos del step, así que un directorio `2-supply` haría que buscara
-  `steps/02-supply/commands.yaml`, no lo encontrara, y el step *pasara* sin ejecutar nada.
-- El orden de ejecución es el orden numérico determinado por los dos primeros dígitos del nombre del directorio.
+- El nombre del directorio debe seguir el formato `NN-<nombre>`, con **exactamente dos
+  dígitos**. Un directorio que no encaje —`2-supply`, `002-supply`, `4_test`— hace **fallar
+  la ejecución antes del primer step**, con un mensaje que lo nombra. Hasta la spec 04 se
+  ignoraba en silencio, o pasaba sin ejecutar nada.
+- Dos steps no pueden declarar el mismo orden (`02-a` y `02-b`): también es error de
+  validación.
+- El orden de ejecución es el orden **numérico** del prefijo, ordenado explícitamente por el
+  dominio y no heredado del orden en que el sistema de archivos lista el directorio.
 
 ### variables/
 
@@ -766,14 +771,14 @@ de rendimiento, no de correctitud.
 | # | Qué pasa |
 |---|---|
 | D1 | Si un step falla, **las plantillas interpoladas no se restauran**: quedan con los valores sustituidos dentro de la copia de trabajo |
-| D2 | Un step sin `commands.yaml` —o con el archivo vacío— se registra como éxito. «Step vacío» y «step ejecutado» son indistinguibles |
-| D3 | Un directorio de step con prefijo de un solo dígito (`2-supply`) hace que el motor busque `02-supply/commands.yaml`, no lo encuentre, y el step pase sin ejecutar nada (efecto de D2) |
+| D2 | ~~Un step sin `commands.yaml` —o con el archivo vacío— se registra como éxito. «Step vacío» y «step ejecutado» son indistinguibles~~ **Corregido (spec 04 §5.3, D-A12): es `skipped{reason: no_commands}`, y además deja de persistir estado de re-ejecución** |
+| D3 | ~~Un directorio de step con prefijo de un solo dígito (`2-supply`) hace que el motor busque `02-supply/commands.yaml`, no lo encuentre, y el step pase sin ejecutar nada (efecto de D2)~~ **Corregido (spec 04 §5.1): el prefijo se valida a exactamente dos dígitos en el validador de estructura y en `NewStepName`, así que ese directorio ya no puede existir sin que la ejecución falle nombrándolo** |
 | D4 | Las escrituras del almacén y del estado no son atómicas. Una interrupción a mitad deja el archivo truncado, y el motor lee un archivo truncado como «no hay nada»: el valor se pierde en silencio |
 | D5 | Si una comprobación no consigue guardar su huella, el step se marca para ejecutar y se ejecuta, pero la huella nunca se escribe — y la corrida siguiente vuelve a encontrar la vieja. Se re-ejecuta indefinidamente, sin señal |
 | D6 | La variable `shared_workdir` está declarada en el motor y no se asigna nunca |
-| D7 | **El orden de ejecución de los steps es lexicográfico, no numérico:** `os.ReadDir` ordena por nombre y `StepName.Order()` no se usa jamás para ordenar. Con prefijos de **dos** dígitos ambos órdenes coinciden y no se manifiesta —doce steps `01…12` salen en orden, verificado con test—. Se manifiesta en cuanto entra un prefijo de **un** dígito (D2/D3): `1-test, 10-promote, …, 2-supply`, y basta un directorio mal nombrado entre otros correctos. Contradice lo que promete la sección 1 |
+| D7 | ~~**El orden de ejecución de los steps es lexicográfico, no numérico:** `os.ReadDir` ordena por nombre y `StepName.Order()` no se usa jamás para ordenar. Con prefijos de **dos** dígitos ambos órdenes coinciden y no se manifiesta —doce steps `01…12` salen en orden, verificado con test—. Se manifiesta en cuanto entra un prefijo de **un** dígito (D2/D3): `1-test, 10-promote, …, 2-supply`, y basta un directorio mal nombrado entre otros correctos~~ **Corregido (spec 04 §5.2): `NewStepNames` ordena por `Order()`. Con el prefijo validado a dos dígitos no había un orden roto que arreglar; lo que se gana es que el invariante esté enunciado en una línea en vez de deducido de que `os.ReadDir` ordena por nombre y de que `%02d` es de ancho fijo** |
 | D8 | Un campo vacío en los datos del proyecto produce una variable bajo la clave `""`: el error de construcción se ignora y la variable vacía se inserta igual. Esa entrada **entra en la huella de variables**, así que no es un log feo — es material de identidad contaminado. **Corregido al implementar (spec 03 §9.1): el mecanismo era real, el disparador no.** Ningún campo vacío del proyecto llega al handler —`create_execution.go:74-100` los valida antes—, así que la entrada anónima solo la producía un defecto del propio motor. El daño cotidiano era el inverso: un `variables/<env>/<step>.yaml` con `value: ""` **abortaba la ejecución entera** |
-| D9 | Un ambiente llamado `shared` en `environments.yaml` pisa el almacén compartido. El ambiente se valida contra la lista, pero no contra nombres reservados *(lo corrige P4)* |
+| D9 | ~~Un ambiente llamado `shared` en `environments.yaml` pisa el almacén compartido. El ambiente se valida contra la lista, pero no contra nombres reservados~~ **Corregido (spec 04 §5.4): el handler 03 rechaza el `environments.yaml` que declare `value: "shared"`. La spec 15 extiende la reserva al vocabulario de ámbitos cuando `shared` pase a ser una fase** |
 | D10 | Un `Ctrl-C` mata la ejecución sin dejar rastro de cancelación: no hay manejador de señales y el mecanismo de cancelación que el motor declara no se invoca nunca. «Cancelado» e «interrumpido» son indistinguibles |
 | D11 | Si el identificador de ejecución tiene menos de cuatro caracteres, la línea de log que lo abrevia provoca un panic |
 
@@ -790,7 +795,6 @@ leer las entradas que dependen de ellas. El detalle y el estado vivo están en
 | ¿Son legítimos los valores de variable vacíos? Hoy se prohíben, lo que hace inexpresable un parámetro opcional | P7 |
 | Un hash de un parámetro de baja entropía es reversible por fuerza bruta (`REPLICAS=3`), lo que contradice la promesa de «solo hashes, nunca valores». ¿Sal por proyecto? Cambiarlo después invalida las comparaciones previas | P11 |
 | Reglas del enmascarado de valores en los extractos: longitud mínima y orden de sustitución. Sin ellas, una variable con valor `"1"` o `"prod"` destroza cualquier extracto | P11 |
-| ¿Qué resultado lleva un step sin comandos: éxito, o saltado con razón explícita? | D2 |
 | Duración de la ventana del clon viejo, y si es configurable por proyecto | P6 |
 
 ---

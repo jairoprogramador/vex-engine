@@ -11,6 +11,7 @@ type StepRequestHandler struct {
 	executionContext *command.ExecutionContext
 	stepName         string
 	stepStatus       command.StepStatus
+	skipReason       SkipReason
 }
 
 func NewStepRequestHandler(executionContext *command.ExecutionContext, stepName string) *StepRequestHandler {
@@ -18,6 +19,7 @@ func NewStepRequestHandler(executionContext *command.ExecutionContext, stepName 
 	requestHandler := &StepRequestHandler{
 		stepName:         stepName,
 		stepStatus:       command.StepFailure,
+		skipReason:       SkipReasonNone,
 		executionContext: executionContext,
 	}
 	return requestHandler
@@ -71,6 +73,25 @@ func (rh *StepRequestHandler) Ctx() *context.Context {
 
 func (rh *StepRequestHandler) MarkStepSuccess() {
 	rh.stepStatus = command.StepSuccess
+}
+
+// MarkStepSkipped registra que el step no se ejecutó, y por qué. Es un resultado
+// propio: ni SUCCESS —que afirmaría una ejecución que no hubo— ni FAILURE.
+func (rh *StepRequestHandler) MarkStepSkipped(reason SkipReason) {
+	rh.stepStatus = command.StepSkipped
+	rh.skipReason = reason
+}
+
+func (rh *StepRequestHandler) StepStatus() command.StepStatus {
+	return rh.stepStatus
+}
+
+func (rh *StepRequestHandler) SkipReason() SkipReason {
+	return rh.skipReason
+}
+
+func (rh *StepRequestHandler) WasSkipped() bool {
+	return rh.stepStatus == command.StepSkipped
 }
 
 func (rh *StepRequestHandler) StepName() string {

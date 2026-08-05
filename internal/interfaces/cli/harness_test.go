@@ -26,6 +26,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -350,6 +351,44 @@ func (h *harness) storedVars(scope, step string) map[string]string {
 		out[v.Name()] = v.Value()
 	}
 	return out
+}
+
+// persistedStepState devuelve la ruta relativa de todo archivo que el motor haya
+// escrito para un step: las huellas de la policy (`inst<step>.status`,
+// `code<step>.status`, `<step>.status`) y el almacén de variables
+// (`<step>.vars`). Es la observación de «no persiste estado de re-ejecución» de
+// la spec 04 §5.3: un step saltado por falta de comandos no deja rastro, así que
+// la corrida siguiente vuelve a saltarlo por la misma razón y no por caché.
+func (h *harness) persistedStepState(step string) []string {
+	h.t.Helper()
+
+	projects := filepath.Join(h.root, cli.VexHomeDirName, "projects")
+	found := make([]string, 0, 4)
+	err := filepath.WalkDir(projects, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.Contains(d.Name(), step) {
+			return nil
+		}
+		// El pipelinecode copiado al workdir también menciona el step; lo que se
+		// busca aquí es estado persistido, que siempre es .status o .vars.
+		if ext := filepath.Ext(path); ext != ".status" && ext != ".vars" {
+			return nil
+		}
+		rel, err := filepath.Rel(projects, path)
+		if err != nil {
+			return err
+		}
+		found = append(found, rel)
+		return nil
+	})
+	if os.IsNotExist(err) {
+		return found
+	}
+	require.NoError(h.t, err)
+	sort.Strings(found)
+	return found
 }
 
 // assertNingunaVariableAnonima es el invariante GLOBAL de la spec 03: ninguna

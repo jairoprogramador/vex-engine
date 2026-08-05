@@ -281,6 +281,101 @@ func TestRunCommand_OutputConGrupoVacio(t *testing.T) {
 	assert.Empty(t, h.storedVars("sand", "supply"))
 }
 
+// ── Validación del pipelinecode (spec 04) ───────────────────────────────────
+//
+// Los cinco casos de esta sección producían HOY —antes de la spec 04— una
+// ejecución con exit code 0 y un step de menos, o los steps reordenados. Lo que
+// se observa no es solo que fallen: es que fallan ANTES del primer step, así que
+// ningún despliegue queda a medias, y que el mensaje nombra al culpable.
+
+func TestRunCommand_EstructuraDeStepsInvalida(t *testing.T) {
+	casos := []struct {
+		nombre    string
+		archivo   string
+		enElError string
+		nota      string
+	}{
+		{
+			nombre:    "prefijo de un dígito",
+			archivo:   "steps/2-promote/commands.yaml",
+			enElError: "steps/2-promote",
+			nota:      "HOY el step pasa sin ejecutar nada Y reordena los demás",
+		},
+		{
+			nombre:    "separador guion bajo",
+			archivo:   "steps/4_test/commands.yaml",
+			enElError: "steps/4_test",
+			nota:      "HOY desaparece del pipeline en silencio",
+		},
+		{
+			nombre:    "dos steps con el mismo orden",
+			archivo:   "steps/02-otro/commands.yaml",
+			enElError: "orden 02",
+			nota:      "HOY el orden entre los dos es arbitrario y comparten clave de estado",
+		},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nombre, func(t *testing.T) {
+			h := newHarness(t, withPipelineFile(caso.archivo,
+				"- name: ruido\n  cmd: echo 'NO-DEBE-CORRER' | tee -a \"$VEX_TEST_LOG\"\n"))
+
+			result := h.run()
+
+			assert.Equal(t, cli.ExitFailed, result.exitCode, caso.nota)
+			assert.Contains(t, result.stderr, "estructura del pipelinecode inválida")
+			assert.Contains(t, result.stderr, caso.enElError, "el error nombra al culpable")
+			assert.Empty(t, h.ranSteps(),
+				"la validación corre antes del primer step: ningún despliegue queda a medias")
+		})
+	}
+}
+
+func TestRunCommand_AmbienteLlamadoShared(t *testing.T) {
+	// `shared` es el ámbito del almacén compartido y ocupa la misma posición que
+	// el ambiente en la ruta del almacén: declararlo como ambiente lo pisaría
+	// (spec 04 §5.4).
+	h := newHarness(t, withPipelineFile("environments.yaml",
+		"- name: Compartido\n  value: shared\n- name: Sandbox\n  value: sand\n"))
+
+	result := h.run(withEnvironment("sand"))
+
+	assert.Equal(t, cli.ExitFailed, result.exitCode)
+	assert.Contains(t, result.stderr, "'shared' está reservado")
+	assert.Empty(t, h.ranSteps(),
+		"se rechaza el environments.yaml entero, aunque el ambiente pedido sea otro")
+}
+
+func TestRunCommand_StepSinComandosNiSeEjecutaNiPersisteEstado(t *testing.T) {
+	// D-A12: un `commands.yaml` vacío es `skipped{no_commands}`, no `success`.
+	// El efecto dañino real no era el vocabulario sino que el step persistía
+	// estado, dejando escrito «sin cambios» sobre cero comandos ejecutados.
+	// Control de que la aserción de abajo observa algo: un step con comandos sí
+	// deja estado, así que su ausencia en el caso vacío es la diferencia.
+	control := newHarness(t)
+	require.Equal(t, cli.ExitSucceeded, control.run().exitCode)
+	require.NotEmpty(t, control.persistedStepState("supply"))
+
+	h := newHarness(t, withPipelineFile("steps/02-supply/commands.yaml", ""))
+
+	result := h.run()
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Equal(t, []string{"01-test"}, h.ranSteps(),
+		"02-supply no ejecutó ningún comando")
+	assert.Empty(t, h.persistedStepState("supply"),
+		"un step saltado por falta de comandos no deja estado de re-ejecución")
+	assert.Empty(t, h.storedVars("sand", "supply"),
+		"tampoco el almacén: registry_prefix estaba declarado, pero nada lo consumió")
+
+	// Segunda corrida: vuelve a saltarse por la MISMA razón. Si hubiera
+	// persistido estado, se saltaría por caché y las dos serían indistinguibles.
+	h.resetLog()
+	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+	assert.NotContains(t, h.ranSteps(), "02-supply")
+	assert.Empty(t, h.persistedStepState("supply"))
+}
+
 func TestRunCommand_PasoInexistente(t *testing.T) {
 	h := newHarness(t)
 

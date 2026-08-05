@@ -49,7 +49,16 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 		func() error {
 			request := NewStepRequestHandler(executionContext, executionContext.StepName())
 			err := s.handler.Handle(request.Ctx(), request)
-			if err == nil {
+			switch {
+			case err == nil && request.WasSkipped():
+				// El step no ejecutó nada, así que no hay estado que persistir: el
+				// almacén dejaría escrito «sin cambios» sobre cero evidencia, y eso
+				// es lo que hacía que un `commands.yaml` vacío no se pudiera volver
+				// a intentar nunca (spec 04 §5.3).
+				executionContext.Emit(fmt.Sprintf("Step %s saltado: %s",
+					executionContext.StepName(), request.SkipReason()))
+
+			case err == nil:
 				request.MarkStepSuccess()
 				err := s.saveScopeVars(executionContext.Environment(), executionContext.StepName(), executionContext)
 				if err != nil {
@@ -60,7 +69,8 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 					executionContext.Emit(fmt.Sprintf("error al guardar vars scope %s: %v", command.SharedScopeName, err))
 				}
 				// step es "deploy" crear tag en repo git con la version actual
-			} else {
+
+			default:
 				executionContext.Emit("Step " + executionContext.StepName() + " ejecución fallida:")
 				executionContext.Emit(err.Error())
 
