@@ -25,17 +25,30 @@ func (h *InitVarsHandler) Handle(ctx *context.Context, request *PipelineRequestH
 		shortHash = shortHash[:8]
 	}
 
-	h.addInitVariable(request, command.VarProjectID, request.ProjectId(), false)
-	h.addInitVariable(request, command.VarProjectName, request.ProjectName(), false)
-	h.addInitVariable(request, command.VarProjectOrg, request.ProjectOrg(), false)
-	h.addInitVariable(request, command.VarProjectTeam, request.ProjectTeam(), false)
-	h.addInitVariable(request, command.VarProjectWorkdir, request.ProjectLocalPath(), false)
+	// Este handler es la capa anticorrupción entre el RequestInput externo y el
+	// dominio: el invariante de Variable no se sostiene en el constructor —en Go
+	// el valor cero siempre es construible— sino aquí, no dejando pasar lo que
+	// no se pudo construir (spec 03 §5.1').
+	for _, initVar := range []struct {
+		name  string
+		value string
+	}{
+		{command.VarProjectID, request.ProjectId()},
+		{command.VarProjectName, request.ProjectName()},
+		{command.VarProjectOrg, request.ProjectOrg()},
+		{command.VarProjectTeam, request.ProjectTeam()},
+		{command.VarProjectWorkdir, request.ProjectLocalPath()},
 
-	h.addInitVariable(request, command.VarProjectVersion, request.ProjectVersion(), false)
-	h.addInitVariable(request, command.VarProjectRevision, shortHash, false)
-	h.addInitVariable(request, command.VarProjectRevisionFull, request.ProjectHeadHash(), false)
-	h.addInitVariable(request, command.VarEnvironment, request.Environment(), false)
-	h.addInitVariable(request, command.VarToolName, "vex", false)
+		{command.VarProjectVersion, request.ProjectVersion()},
+		{command.VarProjectRevision, shortHash},
+		{command.VarProjectRevisionFull, request.ProjectHeadHash()},
+		{command.VarEnvironment, request.Environment()},
+		{command.VarToolName, "vex"},
+	} {
+		if err := h.addInitVariable(request, initVar.name, initVar.value, false); err != nil {
+			return err
+		}
+	}
 
 	if h.Next != nil {
 		return h.Next.Handle(ctx, request)
@@ -43,10 +56,16 @@ func (h *InitVarsHandler) Handle(ctx *context.Context, request *PipelineRequestH
 	return nil
 }
 
-func (h *InitVarsHandler) addInitVariable(request *PipelineRequestHandler, name, value string, isShared bool) {
+// addInitVariable construye y delega, nada más. Antes construía, reportaba el
+// error por el log y acumulaba el valor cero de todas formas, lo que metía una
+// entrada bajo la clave "" en el mapa acumulado —y de ahí a la huella de
+// variables y al material de identidad—. Ahora el error sube: con el invariante
+// partido el único error posible es nombre vacío, o sea un defecto del motor.
+func (h *InitVarsHandler) addInitVariable(request *PipelineRequestHandler, name, value string, isShared bool) error {
 	variable, err := command.NewVariable(name, value, isShared)
 	if err != nil {
-		request.Emit(fmt.Sprintf("error al crear variable de ejecución: %s", err.Error()))
+		return fmt.Errorf("crear variable de ejecución %q: %w", name, err)
 	}
 	request.AddAccumulatedVars(variable)
+	return nil
 }

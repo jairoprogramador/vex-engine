@@ -35,6 +35,9 @@ func (r *pipelineVarsRepository) readVariablesFromFile(_ context.Context, filePa
 		return nil, fmt.Errorf("parsear YAML de variables '%s': %w", filePath, err)
 	}
 
+	// Desde la spec 03 una entrada con `value:` vacío es legítima —un parámetro
+	// declarado sin valor—, así que el único rechazo que queda aquí es la
+	// entrada sin `name:`, que es un pipelinecode mal escrito.
 	variables := make([]command.Variable, 0, len(variablesDTO))
 	for _, vDTO := range variablesDTO {
 		variable, err := command.NewVariable(vDTO.Name, vDTO.Value, false)

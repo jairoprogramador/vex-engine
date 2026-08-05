@@ -23,12 +23,23 @@ type Variable struct {
 	isShared bool
 }
 
+// ErrVariableNameEmpty es el único invariante que le queda a Variable. Un
+// nombre vacío no puede venir de datos: las diez variables iniciales llevan
+// nombres literales del propio motor y las declaradas llevan el `name:` del
+// pipelinecode, así que un nombre vacío es siempre un defecto del llamador y
+// debe abortar la ejecución (spec 03 §5.1).
+var ErrVariableNameEmpty = errors.New("el nombre de la variable generada no puede estar vacío")
+
+// NewVariable ya NO rechaza el valor vacío. Un campo del proyecto sin rellenar
+// —una organización sin valor, un equipo sin asignar— o un parámetro declarado
+// sin valor son información legítima, no un error (spec 03 §5.1, cierra D-A8).
+//
+// «Declarada y vacía» y «no declarada» siguen siendo estados distintos: el
+// material canónico de la huella serializa Quote(name) y Quote(value), y
+// Quote("") es `""`, no ausencia.
 func NewVariable(name, value string, isShared bool) (Variable, error) {
 	if name == "" {
-		return Variable{}, errors.New("el nombre de la variable generada no puede estar vacío")
-	}
-	if value == "" {
-		return Variable{}, errors.New("el valor de la variable generada no puede estar vacío")
+		return Variable{}, ErrVariableNameEmpty
 	}
 
 	return Variable{

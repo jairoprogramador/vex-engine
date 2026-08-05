@@ -168,6 +168,61 @@ func TestRunCommand_PrecedenciaDeclaradoSobreAlmacenado(t *testing.T) {
 	assert.Equal(t, "vexsand2-demo-app", h.storedVars("sand", "supply")["acr_name"])
 }
 
+// ── Invariante de variable (spec 03) ────────────────────────────────────────
+
+func TestRunCommand_VariableDeclaradaSinValor(t *testing.T) {
+	// El pipelinecode declara un parámetro sin valor. Hasta la spec 03 la
+	// ejecución entera fallaba: `NewVariable` rechazaba el valor vacío y el
+	// repositorio de variables propagaba el error. Con el invariante partido
+	// (§5.1) «declarada y vacía» es un dato legítimo, y `${var.instance_count}`
+	// interpola a cadena vacía en vez de ser inexpresable (§5.4).
+	h := newHarness(t,
+		withPipelineFile("variables/sand/supply.yaml",
+			"- name: registry_prefix\n  value: vexsand\n- name: instance_count\n  value: \"\"\n"),
+		withPipelineFile("steps/02-supply/commands.yaml", `
+- name: provision
+  cmd: echo '02-supply acr_name = "${var.registry_prefix}-${var.artifact_name}"' | tee -a "$VEX_TEST_LOG"
+  outputs:
+    - name: acr_name
+      probe: acr_name = "([^"]+)"
+- name: escalar
+  cmd: echo '02-supply instancias=[${var.instance_count}]' | tee -a "$VEX_TEST_LOG"
+`))
+
+	result := h.run()
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Equal(t, "02-supply instancias=[]", h.logLines()[2],
+		"la variable declarada y vacía interpola a cadena vacía")
+
+	// El almacén distingue «declarada y vacía» de «no declarada»: la clave
+	// existe con valor vacío. Y no aparece la entrada anónima —eso lo comprueba
+	// además `assertNingunaVariableAnonima` tras cada ejecución del harness.
+	stored := h.storedVars("sand", "supply")
+	assert.NotContains(t, stored, "")
+	require.Contains(t, stored, "instance_count")
+	assert.Equal(t, "", stored["instance_count"])
+}
+
+func TestRunCommand_CampoObligatorioDelProyectoSigueSiendoObligatorio(t *testing.T) {
+	// DIVERGENCIA con la spec 03 §1 y §7: el disparador que describe —«un equipo
+	// sin asignar» llegando a `07_init_vars` y produciendo la entrada anónima—
+	// no es alcanzable desde el input, porque `create_execution.go:74-100`
+	// rechaza antes los nueve campos del RequestInput. La entrada anónima que la
+	// spec corrige solo era alcanzable por un defecto del propio motor.
+	//
+	// Aflojar esa validación es lo que habilitará el parámetro opcional de D-A8,
+	// y no está en el alcance de esta spec (§6). Este test fija el borde actual:
+	// cuando se afloje, se pone en rojo y la decisión se hace visible.
+	h := newHarness(t)
+
+	result := h.run(withProjectTeam(""))
+
+	assert.Equal(t, cli.ExitFailed, result.exitCode)
+	assert.Contains(t, result.stderr, "project team is required")
+	assert.Empty(t, h.ranSteps())
+}
+
 // ── Fallos dentro de la cadena de comando ───────────────────────────────────
 
 func TestRunCommand_ComandoConExitCodeDistintoDeCero(t *testing.T) {

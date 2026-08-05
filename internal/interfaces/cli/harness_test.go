@@ -19,6 +19,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -222,6 +223,12 @@ func withSchemaVersion(version int) requestOption {
 	return func(r *dto.RequestInput) { r.SchemaVersion = version }
 }
 
+// withProjectTeam permite el campo vacío, que es el disparador cotidiano de la
+// spec 03: un proyecto sin equipo asignado.
+func withProjectTeam(team string) requestOption {
+	return func(r *dto.RequestInput) { r.Project.Team = team }
+}
+
 func (h *harness) request(opts ...requestOption) dto.RequestInput {
 	request := dto.RequestInput{
 		SchemaVersion: 1,
@@ -287,6 +294,7 @@ func (h *harness) execute(args cli.RunArgs, stdin io.Reader) runResult {
 
 	var stdout, stderr bytes.Buffer
 	code := runCmd.Execute(stdin, &stdout, &stderr, args)
+	h.assertNingunaVariableAnonima()
 	return runResult{exitCode: code, stdout: stdout.String(), stderr: stderr.String()}
 }
 
@@ -342,6 +350,51 @@ func (h *harness) storedVars(scope, step string) map[string]string {
 		out[v.Name()] = v.Value()
 	}
 	return out
+}
+
+// assertNingunaVariableAnonima es el invariante GLOBAL de la spec 03: ninguna
+// variable acumulada tiene nombre vacío. Se comprueba tras CADA ejecución del
+// harness, no en un caso suelto, porque lo que se afirma no es que un input
+// concreto esté limpio sino que ninguna ejecución puede producir la entrada
+// anónima.
+//
+// El almacén es el único sitio donde el mapa acumulado sobrevive a la
+// ejecución, así que es donde se observa. Se lee decodificando el gob a mano en
+// vez de por el repositorio: `NewVariable` rechaza el nombre vacío, así que
+// pasar por él convertiría la entrada anónima en un error de lectura en vez de
+// en la aserción que se quiere leer al fallar.
+func (h *harness) assertNingunaVariableAnonima() {
+	h.t.Helper()
+
+	projects := filepath.Join(h.root, cli.VexHomeDirName, "projects")
+	err := filepath.WalkDir(projects, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || filepath.Ext(path) != ".vars" {
+			return nil
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		var stored []stepInfra.FileVarStoreDTO
+		if err := gob.NewDecoder(file).Decode(&stored); err != nil {
+			return fmt.Errorf("decodificar %s: %w", path, err)
+		}
+		for _, variable := range stored {
+			require.NotEmpty(h.t, variable.Name,
+				"variable con nombre vacío en %s (valor %q): un campo vacío del proyecto se coló como entrada anónima", path, variable.Value)
+		}
+		return nil
+	})
+	if os.IsNotExist(err) {
+		return // la ejecución no llegó a escribir nada
+	}
+	require.NoError(h.t, err)
 }
 
 // ── Mutación del fixture entre ejecuciones ──────────────────────────────────

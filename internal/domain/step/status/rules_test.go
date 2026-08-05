@@ -365,6 +365,13 @@ func TestVariablesRule_MaterialDeLaHuella(t *testing.T) {
 		assert.NotEqual(t, base, evaluar(t, añadir("region", "us-east-1", true)))
 	})
 
+	t.Run("declarada y vacía no es lo mismo que no declarada", func(t *testing.T) {
+		// Spec 03 §5.3: desde que el valor vacío es legítimo, la huella tiene
+		// que separar los dos estados. Lo consigue el material canónico, que
+		// serializa Quote(value) — y Quote("") es `""`, no ausencia.
+		assert.NotEqual(t, base, evaluar(t, añadir("instance_count", "", false)))
+	})
+
 	t.Run("el orden de inserción no cambia la huella", func(t *testing.T) {
 		repo := &fakeVarsRepo{}
 		rule := status.NewVariablesRuleRule(repo)
