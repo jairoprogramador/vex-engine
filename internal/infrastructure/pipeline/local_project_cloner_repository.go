@@ -10,16 +10,21 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/infrastructure/utils"
 )
 
-const localProjectMountPoint = "/appProject"
-
 var _ domPipeline.ProjectClonerRepository = (*LocalProjectClonerRepository)(nil)
 
+// LocalProjectClonerRepository no clona: enlaza el directorio del proyecto ya
+// presente en la máquina. `mountPoint` es ese directorio — en producción el
+// volumen que monta el CLI (`/appProject`); el caller lo decide.
 type LocalProjectClonerRepository struct {
 	repositoryBasePath string
+	mountPoint         string
 }
 
-func NewLocalProjectClonerRepository(repositoryBasePath string) domPipeline.ProjectClonerRepository {
-	return &LocalProjectClonerRepository{repositoryBasePath: repositoryBasePath}
+func NewLocalProjectClonerRepository(repositoryBasePath, mountPoint string) domPipeline.ProjectClonerRepository {
+	return &LocalProjectClonerRepository{
+		repositoryBasePath: repositoryBasePath,
+		mountPoint:         mountPoint,
+	}
 }
 
 func (r *LocalProjectClonerRepository) Clone(_ *context.Context, urlProject, _ string) (string, error) {
@@ -34,9 +39,9 @@ func (r *LocalProjectClonerRepository) Clone(_ *context.Context, urlProject, _ s
 		return "", fmt.Errorf("local project cloner: crear directorio padre: %w", err)
 	}
 
-	if err := os.Symlink(localProjectMountPoint, localPath); err != nil {
+	if err := os.Symlink(r.mountPoint, localPath); err != nil {
 		return "", fmt.Errorf("local project cloner: crear symlink '%s' → '%s': %w",
-			localPath, localProjectMountPoint, err)
+			localPath, r.mountPoint, err)
 	}
 
 	realPath, err := filepath.EvalSymlinks(localPath)

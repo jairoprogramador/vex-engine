@@ -1,0 +1,4 @@
+- name: Sandbox
+  value: sand
+- name: Production
+  value: prod

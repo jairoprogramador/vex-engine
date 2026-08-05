@@ -1,0 +1,10 @@
+# `${var.artifact_name}` lo produjo 01-test y `${var.registry_prefix}` viene de
+# variables/<ambiente>/supply.yaml: el comando falla si el mapa acumulado no
+# cruza los steps o si el ambiente no se aísla.
+- name: provision
+  description: aprovisiona el registro de contenedores y publica su nombre
+  cmd: echo '02-supply acr_name = "${var.registry_prefix}-${var.artifact_name}"' | tee -a "$VEX_TEST_LOG"
+  outputs:
+    - name: acr_name
+      description: nombre del registro aprovisionado
+      probe: acr_name = "([^"]+)"
