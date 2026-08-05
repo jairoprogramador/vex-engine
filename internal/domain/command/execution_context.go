@@ -104,6 +104,26 @@ func (ec *ExecutionContext) ProjectLocalPath() string {
 	return ec.execution.ProjectLocalPath()
 }
 
+// SetProjectVersion / ProjectVersion / SetProjectHeadHash / ProjectHeadHash
+// delegan en el agregado. Estos dos hechos vivían en PipelineRequestHandler
+// (spec 07 §5.3); el contexto sólo los deja alcanzables desde las tres cadenas,
+// como el resto de los datos de la ejecución.
+func (ec *ExecutionContext) SetProjectVersion(projectVersion string) {
+	ec.execution.SetProjectVersion(projectVersion)
+}
+
+func (ec *ExecutionContext) ProjectVersion() string {
+	return ec.execution.ProjectVersion()
+}
+
+func (ec *ExecutionContext) SetProjectHeadHash(projectHeadHash string) {
+	ec.execution.SetProjectHeadHash(projectHeadHash)
+}
+
+func (ec *ExecutionContext) ProjectHeadHash() string {
+	return ec.execution.ProjectHeadHash()
+}
+
 func (ec *ExecutionContext) PipelineUrl() string {
 	return ec.execution.PipelineURL()
 }

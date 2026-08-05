@@ -9,10 +9,12 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	"github.com/jairoprogramador/vex-engine/internal/domain/shared"
 	domStep "github.com/jairoprogramador/vex-engine/internal/domain/step"
 	domStepStatus "github.com/jairoprogramador/vex-engine/internal/domain/step/status"
 )
@@ -203,6 +205,7 @@ func contextoDePrueba(t *testing.T) *command.ExecutionContext {
 		"supply",
 		"prod",
 		command.NewExecutionRuntime("", ""),
+		shared.NewFixedClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
 	)
 
 	executionContext := command.NewExecutionContext(&ctx, ejecucion, nil, nil, emisorMudo{}, nil)

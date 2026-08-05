@@ -11,6 +11,7 @@ import (
 	stepStat "github.com/jairoprogramador/vex-engine/internal/domain/step/status"
 	cmdInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/command"
 	pippInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
+	sharedInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/shared"
 	stepInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step"
 	stepStatInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step/status"
 )
@@ -86,6 +87,10 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	projectTagRepo := pippInfra.NewProjectTagRepository()
 	projectFingerprint := pippInfra.NewProjectFingerprint()
 
+	// El reloj del proceso es la ÚNICA fuente de instantes del dominio: la usan
+	// el agregado (startedAt/finishedAt) y el cálculo de versión (spec 07 §5.1).
+	clock := sharedInfra.NewSystemClock()
+
 	var varsStoreRepo stepDom.VarsStoreRepository
 	if args.Mode != ModeLocal {
 		varsStoreRepo = stepInfra.NewSupabaseVarsStoreRepository(
@@ -142,7 +147,7 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		pipDom.NewEnvironmentLoaderHandler(pipelineEnvRepo),
 		pipDom.NewStepsLoaderHandler(pipelineStepRepo, pipelineStructureValidator),
 		pipDom.NewCopyWorkdirHandler(pipelineWorkdirRepo),
-		pipDom.NewVersionCalculatorHandler(projectTagRepo),
+		pipDom.NewVersionCalculatorHandler(projectTagRepo, clock),
 		pipDom.NewInitVarsHandler(),
 		pipDom.NewProjectStatusHandler(projectFingerprint),
 		pipDom.NewPipelineRunnerHandler(),
@@ -185,6 +190,7 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		executablePipeline,
 		executableCommand,
 		executableStep,
+		clock,
 	)
 
 	return NewRunCommand(createExec), nil

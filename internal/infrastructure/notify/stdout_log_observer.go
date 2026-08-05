@@ -18,11 +18,23 @@ func NewStdoutLogObserver() domNotify.LogObserver {
 	return &StdoutLogObserver{}
 }
 
+// idAbreviableMinimo es la longitud a partir de la cual abreviar un id dice
+// algo: por debajo, las dos mitades se solapan —y con menos de 4 caracteres el
+// recorte panicaba directamente, en el camino del log, o sea en el camino feliz
+// (spec 07 §5.5).
+const idAbreviableMinimo = 8
+
 func (e *StdoutLogObserver) Notify(executionID string, line string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	executionID = executionID[:4] + "..." + executionID[len(executionID)-4:]
-	fmt.Fprintf(os.Stdout, "[deploy %s] %s\n", executionID, line)
+	fmt.Fprintf(os.Stdout, "[deploy %s] %s\n", abreviar(executionID), line)
+}
+
+func abreviar(executionID string) string {
+	if len(executionID) < idAbreviableMinimo {
+		return executionID
+	}
+	return executionID[:4] + "..." + executionID[len(executionID)-4:]
 }
 
 var _ domNotify.LogObserver = (*StdoutLogObserver)(nil)

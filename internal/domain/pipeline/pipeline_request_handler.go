@@ -2,16 +2,17 @@ package pipeline
 
 import (
 	"context"
-	"time"
 
 	command "github.com/jairoprogramador/vex-engine/internal/domain/command"
 )
 
+// PipelineRequestHandler es el estado de la CADENA de pipeline, no el de la
+// ejecución. `projectVersion` y `projectHeadHash` colgaban de aquí y se
+// mudaron al agregado, que es de quien son (spec 07 §5.3): lo que queda es la
+// lista de steps a recorrer, que sí muere con la cadena.
 type PipelineRequestHandler struct {
 	executionContext *command.ExecutionContext
 	steps            []command.StepName
-	projectVersion   string
-	projectHeadHash  string
 }
 
 func NewPipelineRequestHandler(executionContext *command.ExecutionContext) *PipelineRequestHandler {
@@ -59,10 +60,6 @@ func (r *PipelineRequestHandler) StepName() string {
 
 func (r *PipelineRequestHandler) StepFullName() string {
 	return r.executionContext.StepFullName()
-}
-
-func (r *PipelineRequestHandler) startedAt() time.Time {
-	return r.executionContext.StartedAt()
 }
 
 func (r *PipelineRequestHandler) Environment() string {
@@ -118,19 +115,19 @@ func (r *PipelineRequestHandler) SetSteps(steps []command.StepName) {
 }
 
 func (r *PipelineRequestHandler) SetProjectVersion(projectVersion string) {
-	r.projectVersion = projectVersion
+	r.executionContext.SetProjectVersion(projectVersion)
 }
 
 func (r *PipelineRequestHandler) ProjectVersion() string {
-	return r.projectVersion
+	return r.executionContext.ProjectVersion()
 }
 
 func (r *PipelineRequestHandler) SetProjectHeadHash(projectHeadHash string) {
-	r.projectHeadHash = projectHeadHash
+	r.executionContext.SetProjectHeadHash(projectHeadHash)
 }
 
 func (r *PipelineRequestHandler) ProjectHeadHash() string {
-	return r.projectHeadHash
+	return r.executionContext.ProjectHeadHash()
 }
 
 func (r *PipelineRequestHandler) Emit(line string) {

@@ -309,6 +309,39 @@ que ese step produjo. El archivo de `deploy` contiene también lo que produjo `s
 4. **Verificar los `probe`** contra el stdout normalizado.
 5. **Extraer las variables runtime** e incorporarlas al mapa acumulado.
 
+### 5.4 Estado de la ejecución
+
+La ejecución **conoce y publica su propio estado**. Nace `queued`, pasa a `running` al
+empezar el trabajo y termina en uno de tres estados terminales: `succeeded`, `failed` o
+`canceled`. Cada estado terminal lleva el instante en que se alcanzó —de ahí sale la
+duración— y los dos primeros, además, un exit code: el del comando que falló, o el genérico
+si lo que falló no fue un comando (un clone, la validación del pipelinecode).
+
+Quien registra el resultado es **la capa que lo ve**, y solo ella: el use case, que es la
+única que observa tanto el éxito como el fallo de la cadena. Las transiciones ilegales
+—terminar sin haber empezado, dar por fallida una ejecución ya cancelada— se rechazan en vez
+de pisar el estado en silencio.
+
+Todos los instantes salen de **una sola fuente inyectable**, no de `time.Now()` disperso por
+el dominio. Es lo que hace que la versión por fecha del proyecto sea reproducible y que el
+registro que se construya encima pueda probarse.
+
+El exit code del proceso:
+
+| Código | Significado |
+|---|---|
+| `0` | ejecución exitosa |
+| `1` | la pipeline falló |
+| `2` | input inválido (JSON malformado, `schema_version` no soportado, fuente vacía) |
+| `130` | ejecución cancelada por señal (`SIGINT`/`SIGTERM`) |
+
+**La cancelación es best-effort.** `SIGINT` y `SIGTERM` cancelan el contexto de la ejecución:
+el comando en curso muere, la cadena se desenreda —restaurando plantillas y revirtiendo el
+estado del step— y la ejecución queda registrada como `canceled`, que es una decisión, no
+una desgracia. Hay un plazo breve para ese desenredo; pasado el plazo el proceso sale igual.
+Un `SIGKILL` o un OOM siguen sin dejar rastro, y eso es correcto: son interrupciones, no
+cancelaciones.
+
 ---
 
 ## 6. El pipeline como plantilla reutilizable
@@ -705,7 +738,8 @@ ambiente (P4) + ámbito (P5). Tres cambios de comportamiento:
   contenido, volver a A encuentra la entrada de A.
 - **La entrada se escribe después del éxito, no antes.** Hoy la huella se escribe durante la
   evaluación y un borrado compensatorio la revierte si el step falla (sección 7.3). Si el
-  proceso muere duro —Ctrl-C, timeout, OOM— ese borrado nunca corre y **la siguiente
+  proceso muere duro —`SIGKILL`, OOM; ya no un `Ctrl-C`, que desde la spec 07 cancela el
+  contexto y sí pasa por el compensador— ese borrado nunca corre y **la siguiente
   ejecución salta un step que jamás terminó**. Escribiendo después, el compensador
   desaparece y la ventana con él.
 - **El tiempo deja de ser identidad.** El TTL no es una propiedad del contenido, así que no
@@ -789,7 +823,7 @@ de rendimiento, no de correctitud.
 
 | # | Qué pasa |
 |---|---|
-| D1 | ~~Si un step falla, **las plantillas interpoladas no se restauran**: quedan con los valores sustituidos dentro de la copia de trabajo~~ **Corregido (spec 06 §5.1): la limpieza del Template Method está en `defer`, así que corre falle o no la ejecución. El error de `exec` sigue siendo el que manda —el de la restauración se acompaña con `errors.Join` en vez de descartarse— y `step_workdir` deja de quedar huérfano en el mapa acumulado tras un step fallido. No cubre la muerte dura del proceso (`Ctrl-C`, D10): eso es la opción D de la spec, diferida** |
+| D1 | ~~Si un step falla, **las plantillas interpoladas no se restauran**: quedan con los valores sustituidos dentro de la copia de trabajo~~ **Corregido (spec 06 §5.1): la limpieza del Template Method está en `defer`, así que corre falle o no la ejecución. El error de `exec` sigue siendo el que manda —el de la restauración se acompaña con `errors.Join` en vez de descartarse— y `step_workdir` deja de quedar huérfano en el mapa acumulado tras un step fallido. No cubría la muerte dura del proceso; desde la spec 07 un `Ctrl-C` ya no lo es —cancela el contexto y sale por ese mismo `defer`—, así que lo que queda fuera es `SIGKILL` y OOM (opción D de la spec 06, diferida)** |
 | D2 | ~~Un step sin `commands.yaml` —o con el archivo vacío— se registra como éxito. «Step vacío» y «step ejecutado» son indistinguibles~~ **Corregido (spec 04 §5.3, D-A12): es `skipped{reason: no_commands}`, y además deja de persistir estado de re-ejecución** |
 | D3 | ~~Un directorio de step con prefijo de un solo dígito (`2-supply`) hace que el motor busque `02-supply/commands.yaml`, no lo encuentre, y el step pase sin ejecutar nada (efecto de D2)~~ **Corregido (spec 04 §5.1): el prefijo se valida a exactamente dos dígitos en el validador de estructura y en `NewStepName`, así que ese directorio ya no puede existir sin que la ejecución falle nombrándolo** |
 | D4 | Las escrituras del almacén y del estado no son atómicas. Una interrupción a mitad deja el archivo truncado, y el motor lee un archivo truncado como «no hay nada»: el valor se pierde en silencio |
@@ -798,8 +832,10 @@ de rendimiento, no de correctitud.
 | D7 | ~~**El orden de ejecución de los steps es lexicográfico, no numérico:** `os.ReadDir` ordena por nombre y `StepName.Order()` no se usa jamás para ordenar. Con prefijos de **dos** dígitos ambos órdenes coinciden y no se manifiesta —doce steps `01…12` salen en orden, verificado con test—. Se manifiesta en cuanto entra un prefijo de **un** dígito (D2/D3): `1-test, 10-promote, …, 2-supply`, y basta un directorio mal nombrado entre otros correctos~~ **Corregido (spec 04 §5.2): `NewStepNames` ordena por `Order()`. Con el prefijo validado a dos dígitos no había un orden roto que arreglar; lo que se gana es que el invariante esté enunciado en una línea en vez de deducido de que `os.ReadDir` ordena por nombre y de que `%02d` es de ancho fijo** |
 | D8 | Un campo vacío en los datos del proyecto produce una variable bajo la clave `""`: el error de construcción se ignora y la variable vacía se inserta igual. Esa entrada **entra en la huella de variables**, así que no es un log feo — es material de identidad contaminado. **Corregido al implementar (spec 03 §9.1): el mecanismo era real, el disparador no.** Ningún campo vacío del proyecto llega al handler —`create_execution.go:74-100` los valida antes—, así que la entrada anónima solo la producía un defecto del propio motor. El daño cotidiano era el inverso: un `variables/<env>/<step>.yaml` con `value: ""` **abortaba la ejecución entera** |
 | D9 | ~~Un ambiente llamado `shared` en `environments.yaml` pisa el almacén compartido. El ambiente se valida contra la lista, pero no contra nombres reservados~~ **Corregido (spec 04 §5.4): el handler 03 rechaza el `environments.yaml` que declare `value: "shared"`. La spec 15 extiende la reserva al vocabulario de ámbitos cuando `shared` pase a ser una fase** |
-| D10 | Un `Ctrl-C` mata la ejecución sin dejar rastro de cancelación: no hay manejador de señales y el mecanismo de cancelación que el motor declara no se invoca nunca. «Cancelado» e «interrumpido» son indistinguibles |
-| D11 | Si el identificador de ejecución tiene menos de cuatro caracteres, la línea de log que lo abrevia provoca un panic |
+| D10 | ~~Un `Ctrl-C` mata la ejecución sin dejar rastro de cancelación: no hay manejador de señales y el mecanismo de cancelación que el motor declara no se invoca nunca. «Cancelado» e «interrumpido» son indistinguibles~~ **Corregido (spec 07 §5.4): `cmd/vexd` maneja `SIGINT`/`SIGTERM` cancelando el contexto de la ejecución, que queda registrada como `canceled` y sale con exit code 130. Es best-effort y así se documenta (sección 5.4): `SIGKILL` y OOM siguen plegando a «interrumpido», que es la respuesta honesta. De paso, el `cancelFn` que se guardaba sin llamar nunca obtuvo su `defer`** |
+| D11 | ~~Si el identificador de ejecución tiene menos de cuatro caracteres, la línea de log que lo abrevia provoca un panic~~ **Corregido (spec 07 §5.5): se abrevia solo a partir de ocho caracteres. El plan lo describía como «menos de 8»; el código panicaba con menos de 4 y solapaba las dos mitades entre 4 y 7** |
+| D12 | ~~El estado de la ejecución no se usa: `status` se queda en `queued` de principio a fin, `finishedAt` y `exitCode` son siempre `nil`, y el estado terminal lo deduce la CLI a partir del error devuelto~~ **Corregido (spec 07 §5.2): el use case invoca las transiciones y el agregado publica su estado terminal con sus instantes. Ver sección 5.4** |
+| D13 | ~~Dos relojes en la misma función: el cálculo de versión tomaba el instante de `time.Now()` en una rama y del `startedAt` de la ejecución en la otra, para la misma decisión~~ **Corregido (spec 07 §5.1, R-25): el puerto `Clock` es la única fuente de instantes del dominio, y las dos ramas la comparten** |
 
 ### 9.3 Decisiones abiertas
 

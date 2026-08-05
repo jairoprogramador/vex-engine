@@ -2,7 +2,9 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
@@ -10,13 +12,19 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/domain/shared"
 )
 
-// CreateExecutionOutput transporta el resultado inmediato de una ejecución.
-// En el modo one-shot (M3+) el use case bloquea hasta que la pipeline termina,
-// por lo que el Status reflejado aquí es el inicial ("queued"); el status terminal
-// se reporta vía el StatusObserver/StatusReporter.
+// CreateExecutionOutput transporta el resultado de una ejecución.
+//
+// En el modo one-shot el use case bloquea hasta que la pipeline termina, así
+// que el Status que sale de aquí es el TERMINAL y lo dice el agregado, no el
+// que lo llama (spec 07 §5.2). Antes era siempre "queued", en el camino de
+// éxito y en el de fallo, y quien reconstruía el estado real era la CLI a
+// partir del error devuelto.
 type CreateExecutionOutput struct {
 	ExecutionID string
 	Status      string
+	ExitCode    *int
+	StartedAt   time.Time
+	FinishedAt  *time.Time
 }
 
 // CreateExecutionUseCase valida el request mínimo y ejecuta la pipeline de forma
@@ -31,6 +39,7 @@ type CreateExecutionUseCase struct {
 	executablePipeline command.Executable
 	executableCommand  command.Executable
 	executableStep     command.Executable
+	clock              shared.Clock
 	notify             domNotify.LogObserver
 	status             domNotify.StatusObserver
 }
@@ -40,11 +49,13 @@ type CreateExecutionUseCase struct {
 func NewCreateExecutionUseCase(
 	executablePipeline command.Executable,
 	executableCommand command.Executable,
-	executableStep command.Executable) *CreateExecutionUseCase {
+	executableStep command.Executable,
+	clock shared.Clock) *CreateExecutionUseCase {
 	return &CreateExecutionUseCase{
 		executablePipeline: executablePipeline,
 		executableCommand:  executableCommand,
 		executableStep:     executableStep,
+		clock:              clock,
 	}
 }
 
@@ -59,10 +70,10 @@ func (uc *CreateExecutionUseCase) WithObservers(notify domNotify.LogObserver, st
 	return &clone
 }
 
-// Execute valida el comando y lanza la ejecución de la pipeline.
-// Retorna ExecutionID y Status="queued" tras lanzar la cadena.
-// El consumidor (RunCommand) interpreta el error retornado para decidir el
-// status terminal (succeeded / failed) que reportará al StatusReporter.
+// Execute valida el comando, lanza la ejecución de la pipeline y CIERRA el
+// ciclo de vida del agregado: es la única capa que ve el éxito y el fallo, así
+// que es la que los registra (spec 07 §5.2, «un solo dueño por hecho»).
+// Retorna el estado terminal tal como lo publica el agregado.
 //
 // notify debe ser no-nil (el caller usualmente provee un MultiObserver vacío);
 // status puede ser nil — los handlers usan ExecutionContext.NotifyStage que
@@ -118,10 +129,14 @@ func (uc *CreateExecutionUseCase) Execute(ctx context.Context, request dto.Reque
 		request.Execution.Step,
 		request.Execution.Environment,
 		command.NewExecutionRuntime(request.Execution.RuntimeImage, request.Execution.RuntimeTag),
+		uc.clock,
 	)
 
 	childCtx, cancelFn := context.WithCancel(ctx)
 	execution.SetCancelFn(cancelFn)
+	// El `defer` es la corrección de la fuga: el cancelFn se guardaba y no se
+	// llamaba nunca, así que el contexto hijo sobrevivía al proceso que lo creó.
+	defer execution.Cancel()
 
 	executionContext := command.NewExecutionContext(
 		&childCtx,
@@ -132,15 +147,59 @@ func (uc *CreateExecutionUseCase) Execute(ctx context.Context, request dto.Reque
 		uc.status,
 	)
 
-	if err := uc.executablePipeline.Execute(executionContext); err != nil {
-		return CreateExecutionOutput{
-			ExecutionID: execution.ID().String(),
-			Status:      command.StatusQueued.String(),
-		}, fmt.Errorf("%w", err)
+	if err := execution.MarkRunning(); err != nil {
+		return uc.output(execution), fmt.Errorf("use case create execution: %w", err)
 	}
 
+	runErr := uc.executablePipeline.Execute(executionContext)
+	uc.markTerminal(ctx, execution, runErr)
+
+	if runErr != nil {
+		return uc.output(execution), fmt.Errorf("%w", runErr)
+	}
+	return uc.output(execution), nil
+}
+
+// markTerminal pliega el resultado observado al estado del agregado.
+//
+// Una cancelación no es un fallo aunque llegue disfrazada de uno: al cancelar
+// el contexto, el comando en curso muere y la cadena devuelve error. Lo que
+// distingue los dos casos es el contexto padre, y por eso se mira ÉL y no el
+// error. Es la diferencia entre `cancelled` —una decisión— e `interrupted`
+// —una desgracia— que el vocabulario de la spec 17 necesita poder expresar.
+//
+// El error de la transición se descarta a propósito: sólo puede fallar si el
+// agregado ya está en un estado terminal, y eso significa que alguien más
+// —la cancelación— ya registró un hecho más específico que éste.
+func (uc *CreateExecutionUseCase) markTerminal(ctx context.Context, execution *command.Execution, runErr error) {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		_ = execution.MarkCancelled()
+		return
+	}
+	if runErr != nil {
+		_ = execution.MarkFailed(exitCodeOf(runErr))
+		return
+	}
+	_ = execution.MarkSucceeded(0)
+}
+
+// exitCodeOf recupera el exit code del comando que falló. Cualquier otro fallo
+// —un clone, una validación del pipelinecode— no tiene exit code propio y se
+// registra con el genérico.
+func exitCodeOf(err error) int {
+	var commandFailed *command.CommandFailedError
+	if errors.As(err, &commandFailed) {
+		return commandFailed.ExitCode()
+	}
+	return command.DefaultFailureExitCode
+}
+
+func (uc *CreateExecutionUseCase) output(execution *command.Execution) CreateExecutionOutput {
 	return CreateExecutionOutput{
 		ExecutionID: execution.ID().String(),
-		Status:      command.StatusQueued.String(),
-	}, nil
+		Status:      execution.Status().String(),
+		ExitCode:    execution.ExitCode(),
+		StartedAt:   execution.StartedAt(),
+		FinishedAt:  execution.FinishedAt(),
+	}
 }

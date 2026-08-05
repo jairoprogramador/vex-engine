@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -22,9 +23,10 @@ func newRunCommand() *cobra.Command {
 (en ese orden de prioridad), ejecuta la pipeline y reporta logs/stages.
 
 Exit codes:
-  0  ejecución exitosa
-  1  fallo de la pipeline
-  2  input invalido (JSON malformado, schema_version no soportado, fuente vacía)`,
+  0    ejecución exitosa
+  1    fallo de la pipeline
+  2    input invalido (JSON malformado, schema_version no soportado, fuente vacía)
+  130  ejecución cancelada (SIGINT/SIGTERM)`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -32,7 +34,9 @@ Exit codes:
 			if err != nil {
 				return err
 			}
-			code := runCmd.Execute(os.Stdin, cmd.OutOrStdout(), cmd.ErrOrStderr(), args)
+			code := runWithSignalHandling(func(ctx context.Context) int {
+				return runCmd.Execute(ctx, os.Stdin, cmd.OutOrStdout(), cmd.ErrOrStderr(), args)
+			})
 			if code != cli.ExitSucceeded {
 				os.Exit(code)
 			}

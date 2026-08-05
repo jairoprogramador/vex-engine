@@ -43,8 +43,7 @@ func (h *CommandRunnerHandler) Handle(ctx *context.Context, request *CommandRequ
 		return fmt.Errorf("error en la ejecución del comando '%s': %w, %s", request.CommandName(), err, result.CombinedOutput())
 	}
 	if result.ExitCode() != 0 {
-		return fmt.Errorf("comando '%s' falló con exit code %d:\n%s",
-			request.CommandName(), result.ExitCode(), result.CombinedOutput())
+		return NewCommandFailedError(request.CommandName(), result.ExitCode(), result.CombinedOutput())
 	}
 
 	request.SetCommandResult(result)

@@ -12,19 +12,25 @@ import (
 
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
 	"github.com/jairoprogramador/vex-engine/internal/application/usecase"
+	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	domNotify "github.com/jairoprogramador/vex-engine/internal/domain/notify"
 	"github.com/jairoprogramador/vex-engine/internal/infrastructure/notify"
 )
 
 // Exit codes (alineados con la convención unix de los procesos one-shot):
 //
-//	0 → succeeded
-//	1 → execution failed (la pipeline falló)
-//	2 → input error (malformed JSON, schema_version no soportado, etc.)
+//	0   → succeeded
+//	1   → execution failed (la pipeline falló)
+//	2   → input error (malformed JSON, schema_version no soportado, etc.)
+//	130 → cancelled (SIGINT/SIGTERM); 128+SIGINT, la convención del shell
+//
+// El 130 existe para que una interrupción voluntaria no se lea como un fallo
+// de la pipeline (spec 07 §5.4).
 const (
 	ExitSucceeded  = 0
 	ExitFailed     = 1
 	ExitInputError = 2
+	ExitCancelled  = 130
 )
 
 // supportedSchemaVersion es el contrato de RequestInput que este binario entiende.
@@ -63,8 +69,12 @@ func NewRunCommand(createExec *usecase.CreateExecutionUseCase) *RunCommand {
 // valida el schema, ejecuta la pipeline reportando stages, y reporta el status
 // terminal vía SupabaseStatusReporter (si hay endpoint).
 //
+// `ctx` es el contexto del proceso: cancelarlo (lo hace el manejador de señales
+// de cmd/vexd) aborta la ejecución y la deja registrada como `canceled` en vez
+// de como un fallo cualquiera.
+//
 // Retorna el exit code que el proceso debe emitir.
-func (c *RunCommand) Execute(stdin io.Reader, stdout io.Writer, stderr io.Writer, args RunArgs) int {
+func (c *RunCommand) Execute(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Writer, args RunArgs) int {
 	if stdout == nil {
 		stdout = os.Stdout
 	}
@@ -115,7 +125,7 @@ func (c *RunCommand) Execute(stdin io.Reader, stdout io.Writer, stderr io.Writer
 
 	createExec := c.createExec.WithObservers(multiLogs, multiStatus)
 
-	output, runErr := createExec.Execute(context.Background(), requestInput, args.ExecutionID)
+	output, runErr := createExec.Execute(ctx, requestInput, args.ExecutionID)
 
 	multiLogs.Close()
 
@@ -124,12 +134,26 @@ func (c *RunCommand) Execute(stdin io.Reader, stdout io.Writer, stderr io.Writer
 		logsLost = supabaseLogs.LogsLost()
 	}
 
+	// El status terminal ya no se deduce aquí a partir del error: lo publica el
+	// agregado, que es quien lo sabe (spec 07 §5.2). Lo que esta capa decide es
+	// sólo con qué exit code sale el PROCESO, que es asunto suyo.
+	terminalStatus := output.Status
+	if terminalStatus == "" {
+		// Un request rechazado en la validación no llega a tener agregado, así
+		// que no hay estado que publicar: es un fallo y así se reporta.
+		terminalStatus = command.StatusFailed.String()
+	}
 	exitCode := ExitSucceeded
-	terminalStatus := "succeeded"
 	errMsg := ""
-	if runErr != nil {
+	switch {
+	case terminalStatus == command.StatusCancelled.String():
+		exitCode = ExitCancelled
+		if runErr != nil {
+			errMsg = runErr.Error()
+		}
+		fmt.Fprintf(stderr, "vexd run: execution %s cancelled\n", output.ExecutionID)
+	case runErr != nil:
 		exitCode = ExitFailed
-		terminalStatus = "failed"
 		errMsg = runErr.Error()
 		fmt.Fprintf(stderr, "vexd run: execution %s failed: %v\n", output.ExecutionID, runErr)
 	}

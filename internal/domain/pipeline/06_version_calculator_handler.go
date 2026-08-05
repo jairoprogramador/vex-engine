@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	"github.com/jairoprogramador/vex-engine/internal/domain/shared"
 )
 
 const MaxCommitsForVersioning = 200
@@ -30,20 +31,27 @@ const (
 type VersionCalculatorHandler struct {
 	PipelineBaseHandler
 	repository ProjectTagRepository
+	clock      shared.Clock
 }
 
 var _ PipelineHandler = (*VersionCalculatorHandler)(nil)
 
-func NewVersionCalculatorHandler(repository ProjectTagRepository) PipelineHandler {
+func NewVersionCalculatorHandler(repository ProjectTagRepository, clock shared.Clock) PipelineHandler {
 	return &VersionCalculatorHandler{
 		PipelineBaseHandler: PipelineBaseHandler{Next: nil},
 		repository:          repository,
+		clock:               clock,
 	}
 }
 
+// Handle calcula la versión del proyecto. Las dos ramas —la de semver y la de
+// fecha— toman el instante de la MISMA fuente (spec 07 §5.1): antes una usaba
+// `time.Now()` y la otra el `startedAt` de la ejecución, así que la misma
+// decisión se tomaba con dos relojes según por dónde entrara.
 func (h *VersionCalculatorHandler) Handle(ctx *context.Context, request *PipelineRequestHandler) error {
 	request.Emit("calculating version")
-	projectVersion, projectHeadHash, err := h.NextVersion(ctx, request.ProjectLocalPath(), time.Now())
+	now := h.clock.Now()
+	projectVersion, projectHeadHash, err := h.NextVersion(ctx, request.ProjectLocalPath(), now)
 	if err != nil {
 		return fmt.Errorf("%w", err)
 	}
@@ -60,7 +68,7 @@ func (h *VersionCalculatorHandler) Handle(ctx *context.Context, request *Pipelin
 	if request.StepName() == string(command.StepDeploy) {
 		request.SetProjectVersion(projectVersion.String())
 	} else {
-		projectVersionDate := NewDateVersion(request.startedAt())
+		projectVersionDate := NewDateVersion(now)
 		request.SetProjectVersion(projectVersionDate.String())
 	}
 	if h.Next != nil {

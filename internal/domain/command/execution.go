@@ -2,26 +2,51 @@ package command
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"sync"
 	"time"
+
+	"github.com/jairoprogramador/vex-engine/internal/domain/shared"
 )
+
+// ErrTransicionIlegal es el error de toda transición que el ciclo de vida no
+// admite: marcar dos veces un estado terminal, o marcar uno sin haber
+// empezado. No es un caso excepcional a evitar — es el mecanismo por el que
+// una cancelación gana sobre el fallo que ella misma provocó (spec 07 §5.4).
+var ErrTransicionIlegal = errors.New("transición de estado ilegal")
 
 type Execution struct {
 	id          ExecutionID
-	status      ExecutionStatus
 	project     ExecutionProject
 	pipeline    ExecutionPipeline
 	step        string
 	environment string
 	runtime     ExecutionRuntime
-	startedAt   time.Time
-	finishedAt  *time.Time
-	exitCode    *int
-	cancelFn    context.CancelFunc
+	clock       shared.Clock
+
+	// projectVersion y projectHeadHash son hechos DE LA EJECUCIÓN: qué versión
+	// se calculó y sobre qué commit. Vivían en PipelineRequestHandler —el
+	// estado de una cadena— y eso los hacía morir con ella (spec 07 §5.3).
+	projectVersion  string
+	projectHeadHash string
+
+	// mu protege el ciclo de vida. La cancelación llega desde fuera del hilo
+	// que ejecuta la pipeline, así que status/finishedAt/exitCode son los
+	// únicos campos del agregado con dos escritores posibles.
+	mu         sync.Mutex
+	status     ExecutionStatus
+	startedAt  time.Time
+	finishedAt *time.Time
+	exitCode   *int
+
+	cancelFn context.CancelFunc
 }
 
 func NewExecution(executionId ExecutionID, project ExecutionProject, pipeline ExecutionPipeline,
 	step, environment string,
 	runtime ExecutionRuntime,
+	clock shared.Clock,
 ) *Execution {
 	return &Execution{
 		id:          executionId,
@@ -31,7 +56,8 @@ func NewExecution(executionId ExecutionID, project ExecutionProject, pipeline Ex
 		step:        step,
 		environment: environment,
 		runtime:     runtime,
-		startedAt:   time.Now(),
+		clock:       clock,
+		startedAt:   clock.Now(),
 	}
 }
 
@@ -48,6 +74,8 @@ func (e *Execution) ID() ExecutionID {
 }
 
 func (e *Execution) Status() ExecutionStatus {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	return e.status
 }
 
@@ -81,6 +109,22 @@ func (e *Execution) SetProjectLocalPath(projectLocalPath string) {
 
 func (e *Execution) ProjectLocalPath() string {
 	return e.project.ProjectLocalPath()
+}
+
+func (e *Execution) SetProjectVersion(projectVersion string) {
+	e.projectVersion = projectVersion
+}
+
+func (e *Execution) ProjectVersion() string {
+	return e.projectVersion
+}
+
+func (e *Execution) SetProjectHeadHash(projectHeadHash string) {
+	e.projectHeadHash = projectHeadHash
+}
+
+func (e *Execution) ProjectHeadHash() string {
+	return e.projectHeadHash
 }
 
 func (e *Execution) PipelineURL() string {
@@ -125,35 +169,75 @@ func (e *Execution) StartedAt() time.Time {
 }
 
 func (e *Execution) FinishedAt() *time.Time {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	return e.finishedAt
 }
 
 func (e *Execution) ExitCode() *int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	return e.exitCode
 }
 
-func (e *Execution) MarkRunning() {
+// Duration es el tiempo que la ejecución estuvo viva. Sólo existe una vez
+// alcanzado el estado terminal: mientras corre, no hay duración que medir.
+func (e *Execution) Duration() (time.Duration, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.finishedAt == nil {
+		return 0, false
+	}
+	return e.finishedAt.Sub(e.startedAt), true
+}
+
+// MarkRunning abre el trabajo. Sólo se puede empezar lo que está encolado.
+func (e *Execution) MarkRunning() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.status != StatusQueued {
+		return fmt.Errorf("%w: %s → %s", ErrTransicionIlegal, e.status, StatusRunning)
+	}
 	e.status = StatusRunning
+	return nil
 }
 
-func (e *Execution) MarkSucceeded(exitCode int) {
-	now := time.Now()
-	e.status = StatusSucceeded
-	e.finishedAt = &now
-	e.exitCode = &exitCode
+// MarkSucceeded cierra el trabajo con éxito. Sólo se puede terminar lo que
+// está corriendo: un estado terminal no se pisa (§5.3').
+func (e *Execution) MarkSucceeded(exitCode int) error {
+	return e.finish(StatusSucceeded, &exitCode)
 }
 
-func (e *Execution) MarkFailed(exitCode int) {
-	now := time.Now()
-	e.status = StatusFailed
-	e.finishedAt = &now
-	e.exitCode = &exitCode
+// MarkFailed cierra el trabajo con fallo, con el exit code del comando que lo
+// provocó.
+func (e *Execution) MarkFailed(exitCode int) error {
+	return e.finish(StatusFailed, &exitCode)
 }
 
-func (e *Execution) MarkCancelled() {
-	now := time.Now()
-	e.status = StatusCancelled
+// MarkCancelled cierra el trabajo por decisión de quien lo lanzó. No lleva
+// exit code: no hay comando cuyo resultado reportar, y ésa es exactamente la
+// diferencia con un fallo. Se admite desde `queued` porque la señal puede
+// llegar antes de que la cadena arranque.
+func (e *Execution) MarkCancelled() error {
+	return e.finish(StatusCancelled, nil)
+}
+
+func (e *Execution) finish(status ExecutionStatus, exitCode *int) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.status.IsTerminal() {
+		return fmt.Errorf("%w: %s → %s", ErrTransicionIlegal, e.status, status)
+	}
+	if e.status == StatusQueued && status != StatusCancelled {
+		return fmt.Errorf("%w: %s → %s", ErrTransicionIlegal, e.status, status)
+	}
+
+	now := e.clock.Now()
+	e.status = status
 	e.finishedAt = &now
+	e.exitCode = exitCode
+	return nil
 }
 
 func RehydrateExecution(
@@ -163,6 +247,7 @@ func RehydrateExecution(
 	pipeline ExecutionPipeline,
 	step, environment string,
 	runtime ExecutionRuntime,
+	clock shared.Clock,
 	startedAt time.Time,
 	finishedAt *time.Time,
 	exitCode *int,
@@ -175,6 +260,7 @@ func RehydrateExecution(
 		step:        step,
 		environment: environment,
 		runtime:     runtime,
+		clock:       clock,
 		startedAt:   startedAt,
 		finishedAt:  finishedAt,
 		exitCode:    exitCode,
@@ -185,6 +271,9 @@ func (e *Execution) SetCancelFn(fn context.CancelFunc) {
 	e.cancelFn = fn
 }
 
+// Cancel libera el contexto de la ejecución. Se invoca siempre —con `defer`
+// desde el use case— porque un `context.WithCancel` cuyo cancel no se llama
+// filtra la goroutine que lo vigila.
 func (e *Execution) Cancel() {
 	if e.cancelFn != nil {
 		e.cancelFn()

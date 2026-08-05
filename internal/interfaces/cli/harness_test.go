@@ -274,17 +274,30 @@ func (h *harness) args() cli.RunArgs {
 // run escribe el RequestInput en un archivo y ejecuta la vía --input.
 func (h *harness) run(opts ...requestOption) runResult {
 	h.t.Helper()
-	path := filepath.Join(h.t.TempDir(), fmt.Sprintf("request-%d.json", nextHarnessID()))
-	writeFile(h.t, path, string(h.marshal(h.request(opts...))))
-
 	args := h.args()
-	args.InputFile = path
+	args.InputFile = h.writeRequest(h.request(opts...))
 	return h.execute(args, nil)
 }
 
-// execute es el único punto que construye el motor: mismo cableado que el
-// binario, con las rutas del fixture en lugar de $HOME y /appProject.
+// writeRequest deja el RequestInput en un archivo temporal y devuelve su ruta.
+func (h *harness) writeRequest(request dto.RequestInput) string {
+	h.t.Helper()
+	path := filepath.Join(h.t.TempDir(), fmt.Sprintf("request-%d.json", nextHarnessID()))
+	writeFile(h.t, path, string(h.marshal(request)))
+	return path
+}
+
 func (h *harness) execute(args cli.RunArgs, stdin io.Reader) runResult {
+	return h.executeCtx(context.Background(), args, stdin)
+}
+
+// executeCtx es el único punto que construye el motor: mismo cableado que el
+// binario, con las rutas del fixture en lugar de $HOME y /appProject.
+//
+// El contexto se recibe para poder cancelarlo: es lo que hace el manejador de
+// señales de cmd/vexd al recibir un SIGINT (spec 07 §5.4), y lo único de esa
+// ruta que no depende de mandarle una señal de verdad al proceso de test.
+func (h *harness) executeCtx(ctx context.Context, args cli.RunArgs, stdin io.Reader) runResult {
 	h.t.Helper()
 
 	runCmd, err := cli.BuildRunCommand(cli.EngineConfig{
@@ -294,7 +307,7 @@ func (h *harness) execute(args cli.RunArgs, stdin io.Reader) runResult {
 	require.NoError(h.t, err)
 
 	var stdout, stderr bytes.Buffer
-	code := runCmd.Execute(stdin, &stdout, &stderr, args)
+	code := runCmd.Execute(ctx, stdin, &stdout, &stderr, args)
 	h.assertNingunaVariableAnonima()
 	return runResult{exitCode: code, stdout: stdout.String(), stderr: stderr.String()}
 }

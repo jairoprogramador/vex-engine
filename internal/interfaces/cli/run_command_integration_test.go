@@ -11,9 +11,11 @@ package cli_test
 // El andamiaje está en harness_test.go.
 
 import (
+	"context"
 	"encoding/base64"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -499,6 +501,77 @@ func TestRunCommand_PasoInexistente(t *testing.T) {
 
 	assert.Equal(t, cli.ExitFailed, result.exitCode)
 	assert.Contains(t, result.stderr, "no está definido en el pipeline")
+	assert.Empty(t, h.ranSteps())
+}
+
+// ── Ciclo de vida de la ejecución (spec 07) ─────────────────────────────────
+
+// Un Ctrl-C es la forma normal de abortar en local, y hasta la spec 07 mataba
+// el proceso sin dejar rastro: no había manejador de señales y el estado
+// terminal lo deducía esta capa a partir del error. Ahora la interrupción
+// cancela el contexto, el agregado la registra como `canceled` y el proceso
+// sale con un código que NO se confunde con el de una pipeline fallida.
+//
+// Lo que el test manda no es la señal sino lo que la señal provoca —cancelar
+// el contexto—; mandarle un SIGINT de verdad mataría el proceso de test.
+//
+// La salida no es instantánea: cancelar mata el `sh` del comando, pero sus
+// hijos heredan el pipe de stdout y la espera no termina hasta que ellos
+// también salen. Es exactamente la razón por la que la cancelación es
+// best-effort y por la que el manejador de señales lleva un plazo (§5.4).
+func TestRunCommand_UnaCancelacionDuranteUnComandoNoEsUnFallo(t *testing.T) {
+	h := newHarness(t, withPipelineFile("steps/01-test/commands.yaml", `
+- name: comando largo
+  cmd: echo "01-test arrancado" | tee -a "$VEX_TEST_LOG"; sleep 5
+- name: siguiente
+  cmd: echo "01-test NO-DEBE-CORRER" | tee -a "$VEX_TEST_LOG"
+`))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Cancelar en cuanto el comando dio señales de vida: antes sería cancelar
+	// la clonación, que es otro caso (el de abajo).
+	go func() {
+		for i := 0; i < 300; i++ {
+			if len(h.logLines()) > 0 {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		cancel()
+	}()
+
+	args := h.args()
+	args.InputFile = h.writeRequest(h.request())
+	result := h.executeCtx(ctx, args, nil)
+
+	assert.Equal(t, cli.ExitCancelled, result.exitCode,
+		"cancelar es una decisión; fallar es otra cosa, y el exit code las distingue")
+	assert.Contains(t, result.stderr, "cancelled")
+	assert.Equal(t, []string{"01-test"}, h.ranSteps())
+
+	// Y la cancelación pasa por el camino de error, no por encima de él: la
+	// limpieza de la spec 06 corre y el borrado compensatorio de las huellas
+	// también. Un `Ctrl-C` deja de ser muerte dura, que es lo que estrecha la
+	// ventana descrita en la spec 09 §1 (a).
+	assert.Empty(t, h.persistedStepState("test"),
+		"un step cancelado no puede dejar escrito «sin cambios»")
+}
+
+// La señal puede llegar antes de que la cadena alcance el primer comando. El
+// resultado es el mismo: cancelada, no fallida.
+func TestRunCommand_UnaCancelacionAntesDeEmpezarTampocoEsUnFallo(t *testing.T) {
+	h := newHarness(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	args := h.args()
+	args.InputFile = h.writeRequest(h.request())
+	result := h.executeCtx(ctx, args, nil)
+
+	assert.Equal(t, cli.ExitCancelled, result.exitCode)
 	assert.Empty(t, h.ranSteps())
 }
 
