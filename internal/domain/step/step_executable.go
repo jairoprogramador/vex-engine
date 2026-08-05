@@ -92,9 +92,19 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 			}
 			return err
 		},
+		// Limpieza garantizada: corre falle o no el step (spec 06 §5.1).
+		//
+		// La variable se retira ANTES de restaurar porque restaurar puede fallar
+		// y salir por el `return`: `step_workdir` es material del mapa acumulado,
+		// del que salen la huella y la identidad del step, y dejar ahí el del
+		// step fallido es dejar residuo en la identidad. El orden hace que ese
+		// invariante no dependa del disco.
 		func() error {
-			executionContext.RestoreFileSessions()
 			executionContext.RemoveAccumulatedVar(command.VarStepWorkdir)
+			if err := executionContext.RestoreFileSessions(); err != nil {
+				return fmt.Errorf("restaurar las plantillas del step %s: %w",
+					executionContext.StepName(), err)
+			}
 			return nil
 		},
 	)

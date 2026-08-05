@@ -244,6 +244,46 @@ func TestRunCommand_ComandoConExitCodeDistintoDeCero(t *testing.T) {
 	assert.Equal(t, "01-test antes-del-fallo", h.logLines()[0])
 }
 
+// ── Limpieza tras un fallo (spec 06) ────────────────────────────────────────
+
+// La plantilla se interpola EN EL SITIO dentro de la copia de trabajo, y el
+// original se restaura al terminar el step. Hasta la spec 06 esa restauración
+// vivía detrás del camino feliz: cuando el comando fallaba —el caso normal— la
+// copia quedaba con los valores sustituidos.
+func TestRunCommand_UnComandoFallidoDejaElWorkdirLimpio(t *testing.T) {
+	const plantilla = "steps/01-test/k8s/deployment.yaml"
+	const original = "image: ${var.environment}-${var.project_name}\n"
+
+	h := newHarness(t,
+		withPipelineFile(plantilla, original),
+		withPipelineFile("steps/01-test/commands.yaml", `
+- name: falla
+  cmd: cat "${var.step_workdir}/k8s/deployment.yaml" | tee -a "$VEX_TEST_LOG"; exit 3
+  templates:
+    - k8s/deployment.yaml
+`))
+
+	primera := h.run()
+	require.Equal(t, cli.ExitFailed, primera.exitCode)
+
+	// El comando SÍ vio la plantilla interpolada: es para eso que se interpola.
+	assert.Equal(t, "image: sand-demo-app", h.logLines()[0])
+
+	// Y al salir, la copia de trabajo volvió a su contenido original.
+	assert.Equal(t, original, h.workdirFile(plantilla),
+		"una plantilla que se queda interpolada ya no tiene ${var.…} que interpolar en la corrida siguiente")
+
+	// Corolario: el segundo intento falla igual que el primero. Hoy la copia del
+	// workdir se rehace desde el clon en cada ejecución, así que esta parte
+	// pasaba también antes de la spec 06; queda como guardia de que la
+	// restauración no introduce una diferencia entre corridas.
+	h.resetLog()
+	segunda := h.run()
+	assert.Equal(t, cli.ExitFailed, segunda.exitCode)
+	assert.Equal(t, "image: sand-demo-app", h.logLines()[0])
+	assert.Equal(t, original, h.workdirFile(plantilla))
+}
+
 func TestRunCommand_ProbeSinCoincidencia(t *testing.T) {
 	h := newHarness(t, withPipelineFile("steps/01-test/commands.yaml", `
 - name: build

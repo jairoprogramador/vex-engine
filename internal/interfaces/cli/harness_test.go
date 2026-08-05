@@ -391,6 +391,23 @@ func (h *harness) persistedStepState(step string) []string {
 	return found
 }
 
+// workdirFile lee un archivo de la copia de trabajo del pipelinecode —el
+// directorio donde el motor interpola las plantillas EN EL SITIO—. La ruta real
+// lleva el hash de las dos URLs, así que se localiza por patrón en vez de
+// recalcularla.
+func (h *harness) workdirFile(relPath string) string {
+	h.t.Helper()
+
+	patron := filepath.Join(h.root, cli.VexHomeDirName, "projects", "*", "workdirs", "*", fixtureEnvironment, relPath)
+	matches, err := filepath.Glob(patron)
+	require.NoError(h.t, err)
+	require.Len(h.t, matches, 1, "se esperaba exactamente un workdir con %s", relPath)
+
+	data, err := os.ReadFile(matches[0])
+	require.NoError(h.t, err)
+	return string(data)
+}
+
 // assertNingunaVariableAnonima es el invariante GLOBAL de la spec 03: ninguna
 // variable acumulada tiene nombre vacío. Se comprueba tras CADA ejecución del
 // harness, no en un caso suelto, porque lo que se afirma no es que un input

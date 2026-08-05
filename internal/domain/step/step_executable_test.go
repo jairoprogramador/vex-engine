@@ -88,6 +88,38 @@ func TestStepExecutable_StepSaltadoNoPersisteEstado(t *testing.T) {
 	})
 }
 
+// La limpieza del step corre aunque el step falle (spec 06 §5.1).
+//
+// `step_workdir` lo pone el `before` del step y lo retira su `after`, que hasta
+// la spec 06 vivía detrás del camino feliz. El residuo no es cosmético: el mapa
+// acumulado es el material de identidad del que salen la huella de variables
+// —y mañana `cache_key` y `content_id`— así que dejar ahí el workdir del step
+// fallido es dejar residuo en la identidad.
+func TestStepExecutable_UnStepFallidoNoDejaSuWorkdirEnElMapaAcumulado(t *testing.T) {
+	t.Run("control: el step exitoso tampoco lo deja", func(t *testing.T) {
+		contexto := contextoDePrueba(t)
+		ejecutable := domStep.NewStepExecutable(
+			handlerQueFalla{}, &varsStoreSpy{}, &statusRepositorySpy{})
+
+		require.NoError(t, ejecutable.Execute(contexto))
+
+		_, presente := contexto.GetAccumulatedVar(command.VarStepWorkdir)
+		require.False(t, presente)
+	})
+
+	t.Run("el step fallido tampoco", func(t *testing.T) {
+		contexto := contextoDePrueba(t)
+		ejecutable := domStep.NewStepExecutable(
+			handlerQueFalla{err: errDelHandler}, &varsStoreSpy{}, &statusRepositorySpy{})
+
+		require.ErrorIs(t, ejecutable.Execute(contexto), errDelHandler)
+
+		_, presente := contexto.GetAccumulatedVar(command.VarStepWorkdir)
+		require.False(t, presente,
+			"el workdir del step que falló seguiría contaminando la identidad del siguiente")
+	})
+}
+
 // ── Dobles ──────────────────────────────────────────────────────────────────
 
 type handlerQueFalla struct{ err error }

@@ -152,8 +152,8 @@ pipeline, la ejecución ocurre sobre el proyecto.
 ### templates
 
 Se interpolan **en el sitio**, sobreescribiendo el archivo dentro de la copia del pipeline.
-El motor guarda el contenido original y lo restaura al terminar el step. El repositorio
-original del pipeline nunca se toca.
+El motor guarda el contenido original y lo restaura al terminar el step, **haya terminado
+bien o mal** (spec 06 §5.1). El repositorio original del pipeline nunca se toca.
 
 ### outputs y probe
 
@@ -789,7 +789,7 @@ de rendimiento, no de correctitud.
 
 | # | Qué pasa |
 |---|---|
-| D1 | Si un step falla, **las plantillas interpoladas no se restauran**: quedan con los valores sustituidos dentro de la copia de trabajo |
+| D1 | ~~Si un step falla, **las plantillas interpoladas no se restauran**: quedan con los valores sustituidos dentro de la copia de trabajo~~ **Corregido (spec 06 §5.1): la limpieza del Template Method está en `defer`, así que corre falle o no la ejecución. El error de `exec` sigue siendo el que manda —el de la restauración se acompaña con `errors.Join` en vez de descartarse— y `step_workdir` deja de quedar huérfano en el mapa acumulado tras un step fallido. No cubre la muerte dura del proceso (`Ctrl-C`, D10): eso es la opción D de la spec, diferida** |
 | D2 | ~~Un step sin `commands.yaml` —o con el archivo vacío— se registra como éxito. «Step vacío» y «step ejecutado» son indistinguibles~~ **Corregido (spec 04 §5.3, D-A12): es `skipped{reason: no_commands}`, y además deja de persistir estado de re-ejecución** |
 | D3 | ~~Un directorio de step con prefijo de un solo dígito (`2-supply`) hace que el motor busque `02-supply/commands.yaml`, no lo encuentre, y el step pase sin ejecutar nada (efecto de D2)~~ **Corregido (spec 04 §5.1): el prefijo se valida a exactamente dos dígitos en el validador de estructura y en `NewStepName`, así que ese directorio ya no puede existir sin que la ejecución falle nombrándolo** |
 | D4 | Las escrituras del almacén y del estado no son atómicas. Una interrupción a mitad deja el archivo truncado, y el motor lee un archivo truncado como «no hay nada»: el valor se pierde en silencio |
@@ -831,4 +831,5 @@ leer las entradas que dependen de ellas. El detalle y el estado vivo están en
 6. Si se ejecuta: por cada comando interpola plantillas y `cmd`, resuelve el workdir,
    ejecuta, verifica los `probe` y extrae las nuevas variables runtime.
 7. Al terminar el step con éxito, persiste el acumulado partido en ámbito compartido y
-   ámbito del ambiente, y restaura las plantillas.
+   ámbito del ambiente. Termine como termine, restaura las plantillas y retira
+   `step_workdir` del acumulado.
