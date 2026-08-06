@@ -3,26 +3,42 @@ package step
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/jairoprogramador/vex-engine/internal/domain/step/status"
+	"github.com/jairoprogramador/vex-engine/internal/domain/cache"
+	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+)
+
+// Motivos por los que un paso se ejecuta. Son TRES, y sustituyen a la agregación
+// de razones de cuatro reglas (spec 10 §5.3).
+//
+// La decisión entera se reduce a: existe entrada ⇒ saltar; no existe ⇒ ejecutar;
+// expirada ⇒ ejecutar. No hay `Policy`, ni `PolicyBuilder`, ni `RuleRegistry`,
+// ni `Decision`, ni `Evidence`, ni cuatro repositorios: cuando la decisión es
+// «¿existe esta clave?», mantener la maquinaria de reglas sería estructura sin
+// contenido.
+const (
+	reasonNoEntry      = "no consta que este contenido se haya ejecutado aquí"
+	reasonExpired      = "la entrada de caché ha expirado"
+	reasonUndetermined = "no se pudo determinar si ya se ejecutó"
 )
 
 type StepRunnerHandler struct {
 	StepBaseHandler
 	commandRepository PipelineCommandRepository
-	policyBuilder     *status.PolicyBuilder
+	entries           cache.Entries
 }
 
 var _ StepHandler = (*StepRunnerHandler)(nil)
 
 func NewStepRunnerHandler(
 	commandRepository PipelineCommandRepository,
-	policyBuilder *status.PolicyBuilder) StepHandler {
+	entries cache.Entries) StepHandler {
 
 	return &StepRunnerHandler{
 		StepBaseHandler:   StepBaseHandler{Next: nil},
 		commandRepository: commandRepository,
-		policyBuilder:     policyBuilder,
+		entries:           entries,
 	}
 }
 
@@ -46,68 +62,105 @@ func (h *StepRunnerHandler) Handle(ctx *context.Context, request *StepRequestHan
 		return nil
 	}
 
-	// Un step que el motor no sabe evaluar aborta la ejecución aquí (spec 05
-	// §5.2). Antes `Build` no fallaba nunca: devolvía una policy vacía, y una
-	// policy vacía se saltaba siempre. Este `return` es el que convierte aquel
-	// silencio en un fallo con nombre.
-	policy, err := h.policyBuilder.Build(request.StepName())
-	if err != nil {
-		return fmt.Errorf("construir policy: %w", err)
-	}
+	// AQUÍ desapareció el `policyBuilder.Build` que abortaba la ejecución ante
+	// un paso con nombre desconocido (spec 05 §5.2). No se sustituyó por nada:
+	// la clave se compone del MATERIAL, no del nombre, así que un `05-notify` ya
+	// no necesita que el motor tenga sus comprobaciones cableadas. No hay entrada
+	// para su clave, luego se ejecuta; al terminar bien, se escribe; la corrida
+	// siguiente lo salta. Es el destino de P1, entregado por eliminación (spec 10
+	// §5.3bis), y aquella medida de transición vivió sólo entre la 05 y la 10.
+	key, run, reason := h.decide(ctx, request, commands)
 
-	ctxRule := status.RuleContext{
-		status.CurrentTimeParam:          request.StartedAt(),
-		status.InstCurrentParam:          commands,
-		status.VariablesCurrentParam:     request.AccumulatedVars(),
-		status.ProjectStatusCurrentParam: request.ProjectStatus(),
-		status.ProjectUrlParam:           request.ProjectUrl(),
-		status.PipelineUrlParam:          request.PipelineUrl(),
-		status.EnvironmentParam:          request.Environment(),
-		status.StepParam:                 request.StepNameExe(),
-	}
-
-	// Evaluar ya no escribe nada: la policy responde y devuelve lo que observó
-	// (spec 09 §5.1). Quien persiste esa observación es el camino de éxito de
-	// `StepExecutable`, después del último comando.
-	decision, evidences, err := policy.Evaluate(ctxRule)
-	if err != nil {
-		// ADVERTENCIA VISIBLE, no razón de negocio (spec 09 §5.3). Un fallo de
-		// infraestructura no es «el código cambió», y hasta la spec 09 este error
-		// se emitía con el mismo tono que cualquier otra línea y se seguía.
-		//
-		// La asimetría con el `return` de `Build`, veinte líneas más arriba, es
-		// deliberada y hay que conservarla: `Build` falla cuando el motor no sabe
-		// QUÉ comprobar —pipelinecode inválido, se aborta— y `Evaluate` cuando no
-		// pudo AVERIGUAR si algo cambió —fallo de infraestructura, se ejecuta y se
-		// dice—. Fundir las dos convertiría un pipelinecode inválido en un
-		// despliegue que se ejecuta igual.
-		request.Emit(fmt.Sprintf("advertencia: no se pudo determinar el estado de re-ejecución de %s: %v",
-			request.StepNameExe(), err))
-	}
-	if decision.ShouldRun() {
-		// La evidencia queda anotada ANTES de ejecutar, pero solo se escribe si
-		// se llega al final. Anotar no persiste nada.
-		request.RecordStatusEvidence(ctxRule, evidences)
-
-		if decision.IsUndetermined() {
-			request.Emit(fmt.Sprintf("Ejecutando %s sin poder determinar si cambió: %s",
-				request.StepNameExe(), decision.Reason()))
-		} else {
-			request.Emit(fmt.Sprintf("Ejecutando %s: %s", request.StepNameExe(), decision.Reason()))
+	if !run {
+		request.Emit(fmt.Sprintf("%s ya fue ejecutado y se mantiene sin cambios%s",
+			request.StepNameExe(), reason))
+		if h.Next != nil {
+			return h.Next.Handle(ctx, request)
 		}
-		for _, command := range commands {
-			request.AddCommand(command)
-			if err := request.Execute(); err != nil {
-				return err
-			}
-		}
-		request.Emit(fmt.Sprintf("%s ejecutado correctamente", request.StepNameExe()))
-	} else {
-		request.Emit(fmt.Sprintf("%s ya fue ejecutado y se mantiene sin cambios", request.StepNameExe()))
+		return nil
 	}
+
+	// La clave queda anotada ANTES de ejecutar, pero sólo se escribe si se llega
+	// al final. Anotar no persiste nada: si el paso falla —o si el proceso muere
+	// a mitad— la anotación muere con la cadena, y la corrida siguiente vuelve a
+	// no encontrar entrada. Ésa es la ventana que la spec 09 cerró y que esta
+	// spec sólo tiene que no reabrir al cambiar QUÉ se escribe.
+	if !key.IsZero() {
+		request.RecordCacheKey(key)
+	}
+
+	request.Emit(fmt.Sprintf("Ejecutando %s: %s", request.StepNameExe(), reason))
+	for _, cmd := range commands {
+		request.AddCommand(cmd)
+		if err := request.Execute(); err != nil {
+			return err
+		}
+	}
+	request.Emit(fmt.Sprintf("%s ejecutado correctamente", request.StepNameExe()))
 
 	if h.Next != nil {
 		return h.Next.Handle(ctx, request)
 	}
 	return nil
+}
+
+// decide responde las dos preguntas de una vez: bajo qué clave va este paso y si
+// hay que ejecutarlo. Devuelve también el motivo, que es lo que el usuario lee.
+//
+// Se conserva el fail-open de la spec 09 §5.3 —ante la duda, ejecutar— y se
+// conserva que NO sea silencioso: un caché roto es algo que el usuario tiene que
+// ver, y confundirlo con «el código cambió» era el defecto (c) de aquella spec.
+// Lo que ya no hace falta es un tercer estado en un enum: aquí la duda tiene un
+// solo origen —no se pudo consultar— y viaja en el motivo.
+func (h *StepRunnerHandler) decide(
+	ctx *context.Context,
+	request *StepRequestHandler,
+	commands []command.Command,
+) (key cache.CacheKey, run bool, reason string) {
+
+	material, err := NewCacheMaterial(request, commands)
+	if err == nil {
+		key, err = cache.NewCacheKey(material)
+	}
+	if err != nil {
+		// Sin material no hay clave, y sin clave no se escribe entrada. Que la
+		// ausencia de entrada implique ejecutar es lo que conserva —por
+		// construcción, sin código que la defienda— la semántica «sin evidencia
+		// ⇒ ejecutar» de la spec 05 §5.1: una clave que nadie escribió no puede
+		// afirmar que nada cambió.
+		request.Emit(fmt.Sprintf(
+			"advertencia: no se pudo componer la clave de caché de %s: %v",
+			request.StepNameExe(), err))
+		return cache.CacheKey{}, true, reasonUndetermined
+	}
+
+	entry, found, err := h.entries.Get(ctx, key)
+	if err != nil {
+		// ADVERTENCIA VISIBLE, no razón de negocio. Un fallo de infraestructura
+		// no es «el contenido cambió». La clave SÍ se devuelve: el paso se
+		// ejecuta y, si termina bien, deja su entrada — no haber podido leer no
+		// es motivo para no escribir.
+		request.Emit(fmt.Sprintf(
+			"advertencia: no se pudo consultar el caché de %s: %v",
+			request.StepNameExe(), err))
+		return key, true, reasonUndetermined
+	}
+
+	if !found {
+		return key, true, reasonNoEntry
+	}
+
+	// El TTL es metadato de la entrada, no material de la clave: la entrada
+	// nueva se escribirá bajo la MISMA clave, sustituyendo a la caducada en su
+	// sitio.
+	if entry.IsExpired(request.StartedAt()) {
+		return key, true, reasonExpired
+	}
+
+	// La procedencia es la razón de ser de `Provenance`: sin ella, «se salta»
+	// con una clave opaca dejaría sin respuesta «¿cuándo se probó esto por
+	// última vez?», que es la afirmación de valor del motor (spec 10 §5.4).
+	return key, false, fmt.Sprintf(" (ejecutado el %s por %s)",
+		entry.ProducedBy.At.UTC().Format(time.RFC3339),
+		entry.ProducedBy.ExecutionID)
 }

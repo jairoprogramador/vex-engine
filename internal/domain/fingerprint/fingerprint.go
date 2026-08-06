@@ -1,10 +1,21 @@
-// Package fingerprint contiene la primitiva de identidad del motor: la huella
-// del contenido de un árbol de archivos.
+// Package fingerprint contiene las primitivas de identidad del motor: las
+// huellas de lo que determina el resultado de un paso.
 //
-// La regla canónica vive aquí, sin I/O, sobre el puerto TreeSource. El recorrido
-// del sustrato —disco, memoria, un clon— vive en infraestructura. Esa partición
-// es lo que permite que la regla se especifique y se verifique con vectores en
-// memoria: ver SPEC-v1.md, que es normativo.
+// Son TRES reglas, cada una con su token de versión y su especificación
+// normativa, y las tres producen el mismo value object `Fingerprint`:
+//
+//	Compute              → v1:       árbol de archivos     SPEC-v1.md
+//	ComputeInstructions  → inst-v1:  comandos declarados   SPEC-INSTRUCTIONS-v1.md
+//	ComputeVariables     → vars-v1:  variables del paso    SPEC-VARIABLES-v1.md
+//
+// Las tres componen la `cache_key` (spec 10). Los tokens son distintos a
+// propósito: comparten tipo y material, pero no historia, y una debe poder
+// saltar a v2 sin arrastrar a las otras.
+//
+// Las reglas canónicas viven aquí, sin I/O. El recorrido del sustrato —disco,
+// memoria, un clon— vive en infraestructura, y la traducción desde el modelo de
+// ejecución vive en quien consume. Esa partición es lo que permite que las tres
+// se especifiquen y se verifiquen con vectores en memoria.
 package fingerprint
 
 import (

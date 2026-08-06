@@ -39,20 +39,31 @@ const supportedSchemaVersion = 1
 
 // RunArgs son los flags de `vexd run` mapeados desde Cobra.
 type RunArgs struct {
-	InputFile        string
-	InputEnv         string
-	LogEndpoint      string
-	StatusEndpoint   string
-	StepCodeEndpoint string // endpoint de la edge fn status-code (o equivalente)
-	StepInstEndpoint string // endpoint de la edge fn status-instructions
-	StepTimeEndpoint string // endpoint de la edge fn status-time
-	StepVarsEndpoint string // endpoint de la edge fn status-vars
-	// StepDeleteEndpoint ya NO se cablea a nada. Servía al borrado compensatorio
-	// del estado de re-ejecución, que desapareció con la spec 09 §5.2 al mover la
-	// escritura al camino de éxito: no queda nada que compensar. El flag sigue
-	// aceptándose para no romper a quien lo pase; la spec 16 lo elimina junto con
-	// los otros cinco `--step-*-endpoint`.
-	StepDeleteEndpoint    string
+	InputFile      string
+	InputEnv       string
+	LogEndpoint    string
+	StatusEndpoint string
+
+	// CINCO FLAGS SIN LECTOR. Los cinco apuntaban a las edge functions del
+	// estado de re-ejecución, y ninguno se cablea ya a nada:
+	//
+	//   - StepDeleteEndpoint servía al borrado compensatorio, que desapareció
+	//     con la spec 09 §5.2 al mover la escritura al camino de éxito;
+	//   - los otros cuatro servían a los cuatro `Supabase*StatusRepository`, que
+	//     la spec 10 borró al unificar las cuatro entradas de estado en una sola
+	//     de caché. En modo remoto el caché arranca frío —la máquina es
+	//     efímera—, que es una degradación de rendimiento, no de correctitud.
+	//
+	// Los cinco siguen aceptándose para no romper a quien los pase. Quien los
+	// retira es la spec 16, junto con `--mode` y `--status-endpoint`, cuando el
+	// destino del estado pase a ser configuración explícita. Las edge functions
+	// `status-*` se quedan sin cliente desde aquí; su retirada va con la 26.
+	StepCodeEndpoint   string
+	StepInstEndpoint   string
+	StepTimeEndpoint   string
+	StepVarsEndpoint   string
+	StepDeleteEndpoint string
+
 	StepStoreVarsEndpoint string // endpoint de la edge fn store-vars (almacén de variables)
 	LogToken              string
 	ExecutionID           string

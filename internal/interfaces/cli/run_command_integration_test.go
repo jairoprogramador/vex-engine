@@ -23,8 +23,8 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
 )
 
-// correHastaEstable ejecuta hasta que la policy deja de mandar ejecutar. Hoy
-// hacen falta DOS ejecuciones: ver TestRunCommand_ReejecucionSinCambios.
+// correHastaEstable ejecuta hasta que ningún paso corre. Hoy hacen falta DOS
+// ejecuciones: ver TestRunCommand_ReejecucionSinCambios.
 func correHastaEstable(t *testing.T, h *harness) {
 	t.Helper()
 	for i := 0; i < 5; i++ {
@@ -118,9 +118,16 @@ func TestRunCommand_CambioEnElCodigoDelProyecto(t *testing.T) {
 	result := h.run()
 	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
 
-	// `test` tiene la regla de código; `supply` no (policy_builder.go). El
-	// cambio re-ejecuta uno y deja el otro saltado.
-	assert.Equal(t, []string{"01-test"}, h.ranSteps())
+	// LOS DOS, y aquí se ve la regresión de eficiencia que la spec 10 §5.3
+	// acepta a cambio de correctitud. Antes `test` tenía la regla de código y
+	// `supply` no, así que este cambio re-ejecutaba uno y dejaba el otro
+	// saltado. Con una clave única, TODO entra en la clave de todos los pasos:
+	// `supply` se re-ejecuta ante un cambio de código que no le afecta.
+	//
+	// Se acepta porque la alternativa era peor: la selección por paso estaba
+	// cableada en el motor POR NOMBRE, que es justo lo que P1 deroga. La spec 15
+	// devuelve la granularidad, declarada por el pipeline en vez de cableada.
+	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
 
 	h.resetLog()
 	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
@@ -143,12 +150,15 @@ func TestRunCommand_UnChmodEnElProyectoReejecutaElStep(t *testing.T) {
 	result := h.run()
 	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
 
-	// `test` es el step con la regla de código; `supply` no la tiene.
-	assert.Equal(t, []string{"01-test"}, h.ranSteps())
+	// Los dos pasos, no sólo `test`: desde la spec 10 la huella del código entra
+	// en la clave de todos. Lo que este caso fija es que el permiso SIGUE
+	// moviendo la identidad al unificarse las claves; el caso es herencia de la
+	// spec 08 y tenía que sobrevivir, no reescribirse desde cero.
+	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
 
 	h.resetLog()
 	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
-	assert.Empty(t, h.ranSteps(), "el permiso ya está en la huella persistida")
+	assert.Empty(t, h.ranSteps(), "el permiso ya está en la clave de la entrada escrita")
 }
 
 // Un enlace dentro del proyecto era invisible a la identidad. Ahora su destino
@@ -166,18 +176,141 @@ func TestRunCommand_CambiarElDestinoDeUnEnlaceReejecutaElStep(t *testing.T) {
 	result := h.run()
 	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
 
-	assert.Equal(t, []string{"01-test"}, h.ranSteps())
+	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
 }
 
-// La huella que se persiste y se compara lleva el prefijo de la regla. Sin él,
-// corregir una divergencia congelada en una v2 sería indistinguible de un bug.
-func TestRunCommand_LaHuellaPersistidaLlevaLaVersionDeLaRegla(t *testing.T) {
+// ── La clave de caché (spec 10) ─────────────────────────────────────────────
+
+// La clave que se persiste y se compara lleva el prefijo de su regla de
+// composición. Sin él, cambiar cómo se compone la clave sería indistinguible de
+// un bug.
+//
+// Sustituye a `TestRunCommand_LaHuellaPersistidaLlevaLaVersionDeLaRegla`, que
+// leía la huella de código del `.status` que la policy escribía: ese archivo ya
+// no existe, y lo que se persiste ahora es la clave. La propiedad que aquel test
+// defendía —que el prefijo de versión no se pierde por el camino— vive donde
+// importa, porque la clave se compone sobre las formas canónicas COMPLETAS de
+// las tres huellas.
+func TestRunCommand_LaClavePersistidaLlevaLaVersionDeLaRegla(t *testing.T) {
 	h := newHarness(t)
 	correHastaEstable(t, h)
 
-	huella := h.storedCodeFingerprint("test")
+	claves := h.cacheEntries()
 
-	assert.Regexp(t, `^v1:[0-9a-f]{64}$`, huella)
+	require.NotEmpty(t, claves)
+	for _, clave := range claves {
+		assert.Regexp(t, `^ck-v1:[0-9a-f]{64}$`, clave)
+	}
+}
+
+// EL comportamiento nuevo de la spec 10 (§1 defecto b): el motor existe para no
+// repetir trabajo, y hasta aquí hacer un cambio y revertirlo costaba DOS
+// ejecuciones completas cuando debería costar cero.
+//
+// La causa era que lo guardado era siempre lo último escrito: una sola casilla
+// por paso, pisada en cada corrida. Direccionada por contenido, la entrada del
+// estado A sigue en su sitio cuando se escribe la del B.
+func TestRunCommand_VolverAUnEstadoYaEjecutadoAcierta(t *testing.T) {
+	h := newHarness(t)
+
+	// Estado A.
+	correHastaEstable(t, h)
+	entradasEnA := h.cacheEntries()
+	require.NotEmpty(t, entradasEnA)
+
+	// Estado B: un byte distinto en el proyecto.
+	h.writeProjectFile("src/app.txt", "v2\n")
+	h.resetLog()
+	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+	assert.NotEmpty(t, h.ranSteps(), "el cambio a B re-ejecuta")
+
+	// Vuelta a A, byte a byte.
+	h.writeProjectFile("src/app.txt", "v1\n")
+	h.resetLog()
+	result := h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	assert.Empty(t, h.ranSteps(),
+		"volver a un estado ya ejecutado con éxito no cuesta nada: HOY re-ejecutaba")
+	assert.Subset(t, h.cacheEntries(), entradasEnA,
+		"las entradas de A siguen en su sitio: escribir las de B no las pisó")
+}
+
+// La clave no depende de la máquina, y por eso el caché compartido de la spec 16
+// puede significar algo: el mismo árbol, el mismo proyecto y el mismo
+// pipelinecode dan la misma clave desde otro $HOME y otra ruta absoluta.
+//
+// Es también donde muerde el defecto heredado de `.git` como archivo (spec 08
+// §9.10, `cache/SPEC-v1.md` §3.3): en un worktree o un submódulo, `.git` entra
+// en la huella con una ruta absoluta dentro, y este test se pondría en rojo. El
+// fixture usa repos normales, así que hoy pasa; cuando el caché se comparta de
+// verdad, este es el caso que hay que volver a mirar.
+func TestRunCommand_LaClaveNoDependeDeLaMaquina(t *testing.T) {
+	unaMaquina := newHarness(t)
+	correHastaEstable(t, unaMaquina)
+
+	// La otra máquina arranca con el caché FRÍO, así que ejecuta todo: lo que se
+	// compara no es si se saltó, sino bajo QUÉ CLAVES quedaron sus entradas.
+	otraMaquina := unaMaquina.otraMaquina()
+	correHastaEstable(t, otraMaquina)
+
+	assert.Equal(t, unaMaquina.cacheEntries(), otraMaquina.cacheEntries(),
+		"dos raíces distintas con el mismo árbol dan las mismas claves")
+}
+
+// `show` no cambia qué se ejecuta, sólo si la salida se imprime — y entra en la
+// clave igualmente (spec 10 §5.1bis). Sin esto, la secuencia es: un comando hace
+// algo raro, el autor añade `show: true` para verlo, el paso se salta, no se
+// imprime nada, y el autor concluye que `show` no funciona.
+//
+// El test de la spec 00 que afirmaba lo contrario —`el flag show NO entra en la
+// huella`, en rules_test.go— se borró aquí con el paquete entero. Lo que lo
+// sustituye a nivel de unidad es `TestComputeInstructions_ShowEntraEnElMaterial`.
+func TestRunCommand_AnadirShowInvalidaElCache(t *testing.T) {
+	const supplyCmd = "steps/02-supply/commands.yaml"
+	const sinShow = `
+- name: provision
+  cmd: echo '02-supply acr_name = "${var.registry_prefix}-${var.artifact_name}"' | tee -a "$VEX_TEST_LOG"
+  outputs:
+    - name: acr_name
+      probe: acr_name = "([^"]+)"
+`
+
+	h := newHarness(t, withPipelineFile(supplyCmd, sinShow))
+	correHastaEstable(t, h)
+
+	// El ÚNICO cambio es `show: true`. Ni el comando, ni el workdir, ni los
+	// outputs, ni el código, ni las variables.
+	h.commitPipelineFile(supplyCmd, sinShow+"  show: true\n")
+
+	h.resetLog()
+	result := h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	assert.Equal(t, []string{"02-supply"}, h.ranSteps(),
+		"añadir `show: true` para depurar tiene que volver a ejecutar el paso")
+}
+
+// Consultar el caché no crea la entrada. Es la idempotencia de la spec 09 §9.10
+// traducida a este modelo, y es una red de regresión: si consultar escribiera,
+// una muerte dura entre la consulta y el final del paso dejaría grabado «ya se
+// hizo» para un paso que nunca terminó.
+func TestRunCommand_ConsultarElCacheNoCreaLaEntrada(t *testing.T) {
+	h := newHarness(t)
+	correHastaEstable(t, h)
+
+	entradas := h.cacheEntries()
+	require.NotEmpty(t, entradas)
+
+	// Tres corridas que no ejecutan nada: sólo consultan.
+	for range 3 {
+		h.resetLog()
+		require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+		require.Empty(t, h.ranSteps())
+	}
+
+	assert.Equal(t, entradas, h.cacheEntries(),
+		"consultar no añadió ni cambió ninguna entrada")
 }
 
 // ── Aislamiento de ambiente (regresión de R-22) ─────────────────────────────
@@ -193,8 +326,14 @@ func TestRunCommand_AmbientesAislados(t *testing.T) {
 	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
 
 	// R-22: `supply@prod` no se salta pese a que `supply@sand` acaba de correr.
-	// Hoy pasa por accidente —la regla de instrucciones NO lleva el ambiente en
-	// su clave, la de variables sí—, y este test lo convierte en contrato.
+	//
+	// Hasta la spec 10 pasaba por ACCIDENTE: la clave de las instrucciones y la
+	// del código no llevaban el ambiente, y que `prod` no acertara con lo escrito
+	// por `sand` dependía únicamente de que la variable `environment` estuviera en
+	// el mapa acumulado y no figurara en la lista de exclusiones de la huella de
+	// variables. Desde la 10 el ambiente está en la clave por derecho propio, en
+	// `Scope`, y el caso que lo fija sin depender del material de variables es
+	// `TestNewCacheKey_ElAmbienteNoSePuedeCaerDeLaClave`.
 	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
 	assert.Equal(t, "vexprod-demo-app", h.storedVars("prod", "supply")["acr_name"])
 
@@ -450,6 +589,7 @@ func TestRunCommand_StepSinComandosNiSeEjecutaNiPersisteEstado(t *testing.T) {
 	control := newHarness(t)
 	require.Equal(t, cli.ExitSucceeded, control.run().exitCode)
 	require.NotEmpty(t, control.persistedStepState("supply"))
+	require.Len(t, control.cacheEntries(), 2, "control: dos pasos con comandos, dos entradas")
 
 	h := newHarness(t, withPipelineFile("steps/02-supply/commands.yaml", ""))
 
@@ -460,6 +600,8 @@ func TestRunCommand_StepSinComandosNiSeEjecutaNiPersisteEstado(t *testing.T) {
 		"02-supply no ejecutó ningún comando")
 	assert.Empty(t, h.persistedStepState("supply"),
 		"un step saltado por falta de comandos no deja estado de re-ejecución")
+	assert.Len(t, h.cacheEntries(), 1,
+		"ni entrada de caché: sólo la del paso que sí corrió")
 	assert.Empty(t, h.storedVars("sand", "supply"),
 		"tampoco el almacén: registry_prefix estaba declarado, pero nada lo consumió")
 
@@ -469,6 +611,9 @@ func TestRunCommand_StepSinComandosNiSeEjecutaNiPersisteEstado(t *testing.T) {
 	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
 	assert.NotContains(t, h.ranSteps(), "02-supply")
 	assert.Empty(t, h.persistedStepState("supply"))
+	assert.Len(t, h.cacheEntries(), 2,
+		"las dos entradas son de 01-test —se re-ejecutó con otro material, ver "+
+			"TestRunCommand_ReejecucionSinCambios—; 02-supply sigue sin dejar ninguna")
 }
 
 // ── Evaluar no escribe: el estado se persiste tras el éxito (spec 09) ───────
@@ -503,6 +648,8 @@ func TestRunCommand_UnStepQueNoTerminaNoDejaEstadoDeReejecucion(t *testing.T) {
 		"control: el step que SÍ terminó deja su estado, así que la ausencia de abajo se ve")
 	assert.Empty(t, h.persistedStepState("supply"),
 		"el step que empezó y no terminó no deja nada escrito")
+	assert.Len(t, h.cacheEntries(), 1,
+		"una sola entrada, la del paso que terminó: no hay entrada de «se intentó»")
 
 	// Y no es cosa de una corrida: la siguiente vuelve a intentarlo en vez de
 	// encontrar una huella escrita y saltárselo.
@@ -521,58 +668,67 @@ func TestRunCommand_ElEstadoAparecTrasElExitoDelStep(t *testing.T) {
 
 	assert.NotEmpty(t, h.persistedStepState("test"))
 	assert.NotEmpty(t, h.persistedStepState("supply"))
+	assert.Len(t, h.cacheEntries(), 2, "una entrada por paso que terminó")
 }
 
-// ── Step con nombre desconocido (spec 05) ───────────────────────────────────
+// ── El vocabulario de steps, abierto (specs 05 y 10 §5.3bis) ────────────────
 
-func TestRunCommand_StepDesconocidoFallaEnVezDeSaltarse(t *testing.T) {
-	// `05-notify` es estructuralmente impecable —prefijo de dos dígitos, orden
-	// único, comandos declarados— y hasta la spec 05 la ejecución terminaba con
-	// exit code 0 sin haber corrido un solo comando suyo: `PolicyBuilder` le daba
-	// cero reglas, y una policy sin reglas concluía «all rules passed».
-	//
-	// Ahora el motor dice que no sabe evaluarlo, y lo dice fallando.
+// EL DIFF DE P1, y conviene mirarlo en la revisión: este test afirmaba lo
+// CONTRARIO hasta la spec 10.
+//
+// Historia en tres actos. Hasta la spec 05, `05-notify` —estructuralmente
+// impecable: prefijo de dos dígitos, orden único, comandos declarados— terminaba
+// con exit code 0 sin haber corrido un solo comando suyo: `PolicyBuilder` le daba
+// cero reglas y una policy sin reglas concluía «all rules passed». La spec 05
+// convirtió aquel silencio en un fallo con nombre, como MEDIDA DE TRANSICIÓN y a
+// sabiendas de que era corta.
+//
+// La spec 10 la retira, y no añadiendo nada: al borrar el `switch` que elegía
+// comprobaciones por nombre de paso, la clave pasa a componerse del MATERIAL. Un
+// paso desconocido no tiene entrada para su clave, luego se ejecuta; al terminar
+// bien, escribe. El vocabulario de pasos se abre POR ELIMINACIÓN —es aquí, y no
+// en la spec 15, que sólo añade la granularidad declarada—, y la medida de
+// transición vivió exactamente entre la 05 y la 10.
+func TestRunCommand_StepDesconocidoSeEjecutaYLaCorridaSiguienteLoSalta(t *testing.T) {
 	const notifyCmd = "steps/05-notify/commands.yaml"
 	const notifyBody = `
 - name: avisar
-  cmd: echo "05-notify NO-DEBE-CORRER" | tee -a "$VEX_TEST_LOG"
+  cmd: echo "05-notify AVISANDO" | tee -a "$VEX_TEST_LOG"
 `
 
 	h := newHarness(t, withPipelineFile(notifyCmd, notifyBody))
 
 	result := h.run(withStep("notify"))
 
-	assert.Equal(t, cli.ExitFailed, result.exitCode)
-	assert.Contains(t, result.stderr, "no tiene comprobaciones definidas")
-	assert.Contains(t, result.stderr, "notify", "el error nombra al step")
-	assert.Contains(t, result.stderr, "test, supply, package, deploy",
-		"y enumera los conocidos, que es lo accionable")
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.NotContains(t, result.stderr, "no tiene comprobaciones definidas",
+		"el motor ya no necesita tener cableado el paso para saber si re-ejecutarlo")
+	assert.Equal(t, []string{"01-test", "02-supply", "05-notify"}, h.ranSteps(),
+		"un paso con un nombre que el motor no conoce se ejecuta como cualquier otro")
+	assert.Len(t, h.cacheEntries(), 3, "y deja su entrada, como cualquier otro")
 
-	// El fallo es del step desconocido, no de los anteriores: los dos que el
-	// motor sí sabe evaluar corrieron, y el suyo no ejecutó nada.
-	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
-	assert.Empty(t, h.persistedStepState("notify"),
-		"un step que el motor no sabe evaluar no deja estado de re-ejecución")
-
-	// Y no es un fallo de una sola corrida: la siguiente vuelve a fallar igual,
-	// en vez de encontrar una huella escrita y saltarse el problema.
+	// La segunda mitad, que es la que demuestra que no se ejecuta «siempre» sino
+	// «cuando su contenido no consta»: la corrida siguiente lo salta.
+	//
+	// `05-notify` se salta ya en la segunda corrida porque no produce `outputs`;
+	// `01-test` y `02-supply` sí, y por eso todavía necesitan una corrida más
+	// (ver TestRunCommand_ReejecucionSinCambios).
 	h.resetLog()
 	segunda := h.run(withStep("notify"))
-	assert.Equal(t, cli.ExitFailed, segunda.exitCode)
-	assert.Contains(t, segunda.stderr, "no tiene comprobaciones definidas")
+	require.Equal(t, cli.ExitSucceeded, segunda.exitCode, segunda.stderr)
+	assert.NotContains(t, h.ranSteps(), "05-notify", "su contenido ya consta: se salta")
 }
 
-func TestRunCommand_StepDesconocidoPosteriorAlPedidoNoSeDiagnostica(t *testing.T) {
-	// LÍMITE del arreglo, medido y no supuesto. El diagnóstico es PEREZOSO: vive
-	// en la cadena 2, así que solo alcanza a los steps que la corrida toca. La
-	// cadena de pipeline ejecuta `steps[:pedido+1]`, de modo que un `05-notify`
-	// detrás de `02-supply` no se construye, no se evalúa y no se diagnostica.
+func TestRunCommand_StepDesconocidoPosteriorAlPedidoTampocoEstorba(t *testing.T) {
+	// Este caso medía el LÍMITE del diagnóstico de la spec 05: era perezoso —vivía
+	// en la cadena 2— así que un `05-notify` detrás de `02-supply` no se construía
+	// y por tanto no se diagnosticaba, y `vex supply` devolvía 0 sobre un
+	// pipelinecode que la 05 consideraba roto.
 	//
-	// El pipelinecode roto sigue existiendo y `vex supply` sigue devolviendo 0. Lo
-	// que cambia es que deja de haber una corrida que *parezca* haber ejecutado el
-	// step: para verlo hay que pedirlo. Adelantar la comprobación al validador de
-	// estructura (spec 04) queda EXPLÍCITAMENTE fuera de la spec 05 §6, y la 10 lo
-	// vuelve innecesario: al borrar el switch, un step desconocido se ejecuta.
+	// Desde la spec 10 no hay nada que diagnosticar: el pipelinecode ya no está
+	// roto. Se conserva el caso porque lo que sigue midiendo es real y no cambió:
+	// la cadena de pipeline ejecuta `steps[:pedido+1]`, así que pedir `supply` no
+	// toca `05-notify`.
 	h := newHarness(t, withPipelineFile("steps/05-notify/commands.yaml",
 		"- name: avisar\n  cmd: echo \"05-notify NO-DEBE-CORRER\" | tee -a \"$VEX_TEST_LOG\"\n"))
 
@@ -597,6 +753,8 @@ func TestRunCommand_StepDesconocidoSinComandosSigueSiendoNoCommands(t *testing.T
 	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
 	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
 	assert.Empty(t, h.persistedStepState("notify"))
+	assert.Len(t, h.cacheEntries(), 2,
+		"sin comandos no hay material que resumir: el paso no deja entrada")
 }
 
 func TestRunCommand_PasoInexistente(t *testing.T) {
@@ -657,11 +815,12 @@ func TestRunCommand_UnaCancelacionDuranteUnComandoNoEsUnFallo(t *testing.T) {
 	assert.Equal(t, []string{"01-test"}, h.ranSteps())
 
 	// Y la cancelación pasa por el camino de error, no por encima de él: la
-	// limpieza de la spec 06 corre y el borrado compensatorio de las huellas
-	// también. Un `Ctrl-C` deja de ser muerte dura, que es lo que estrecha la
-	// ventana descrita en la spec 09 §1 (a).
+	// limpieza de la spec 06 corre. Un `Ctrl-C` deja de ser muerte dura, que es
+	// lo que estrecha la ventana descrita en la spec 09 §1 (a).
 	assert.Empty(t, h.persistedStepState("test"),
 		"un step cancelado no puede dejar escrito «sin cambios»")
+	assert.Empty(t, h.cacheEntries(),
+		"y no hay entrada de «se intentó»: una entrada existe si y sólo si un paso terminó bien")
 }
 
 // La señal puede llegar antes de que la cadena alcance el primer comando. El

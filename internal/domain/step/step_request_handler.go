@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/jairoprogramador/vex-engine/internal/domain/cache"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
-	"github.com/jairoprogramador/vex-engine/internal/domain/step/status"
 )
 
 type StepRequestHandler struct {
@@ -14,11 +14,19 @@ type StepRequestHandler struct {
 	stepStatus       command.StepStatus
 	skipReason       SkipReason
 
-	// Lo que la policy observó, esperando a que el step termine bien. Vive aquí
-	// —y no en el ExecutionContext— porque es estado de ESTA cadena y muere con
-	// ella; el ExecutionContext ya es demasiado grande.
-	statusContext   status.RuleContext
-	statusEvidences []status.Evidence
+	// La clave bajo la que se escribirá la entrada, esperando a que el step
+	// termine bien. Vive aquí —y no en el ExecutionContext— porque es estado de
+	// ESTA cadena y muere con ella; el ExecutionContext ya es demasiado grande.
+	//
+	// Que muera con la cadena es la propiedad que se quiere, no un efecto
+	// secundario: si el step no llega al final, la clave se pierde sin que nadie
+	// tenga que borrarla.
+	//
+	// Sustituye al par {RuleContext, []Evidence} que la spec 09 tuvo que hacer
+	// viajar hasta aquí. El contexto viajaba porque las cuatro claves eran
+	// distintas y ninguna estaba en la evidencia; ahora la clave es una y ya
+	// está calculada.
+	cacheKey cache.CacheKey
 }
 
 func NewStepRequestHandler(executionContext *command.ExecutionContext, stepName string) *StepRequestHandler {
@@ -89,23 +97,20 @@ func (rh *StepRequestHandler) MarkStepSkipped(reason SkipReason) {
 	rh.skipReason = reason
 }
 
-// RecordStatusEvidence anota lo que la policy observó para que se escriba
-// DESPUÉS de que el step termine bien (spec 09 §5.2).
+// RecordCacheKey anota bajo qué clave se escribirá la entrada DESPUÉS de que el
+// step termine bien (spec 09 §5.2, heredado por la 10 §5.2).
 //
 // Anotar no es escribir: si el step falla —o si el proceso muere a mitad— esto
-// se pierde con la cadena, que es exactamente lo que se quiere. El estado de
-// re-ejecución solo debe existir para steps que terminaron.
-func (rh *StepRequestHandler) RecordStatusEvidence(ctx status.RuleContext, evidences []status.Evidence) {
-	rh.statusContext = ctx
-	rh.statusEvidences = evidences
+// se pierde con la cadena, que es exactamente lo que se quiere. Una entrada de
+// caché sólo debe existir para pasos que terminaron.
+func (rh *StepRequestHandler) RecordCacheKey(key cache.CacheKey) {
+	rh.cacheKey = key
 }
 
-func (rh *StepRequestHandler) StatusContext() status.RuleContext {
-	return rh.statusContext
-}
-
-func (rh *StepRequestHandler) StatusEvidences() []status.Evidence {
-	return rh.statusEvidences
+// CacheKey devuelve la clave anotada. La segunda salida es falsa cuando no hay
+// nada que escribir: el step se saltó, o no se pudo componer su material.
+func (rh *StepRequestHandler) CacheKey() (cache.CacheKey, bool) {
+	return rh.cacheKey, !rh.cacheKey.IsZero()
 }
 
 func (rh *StepRequestHandler) StepStatus() command.StepStatus {

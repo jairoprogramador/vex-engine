@@ -47,8 +47,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
+	infraCache "github.com/jairoprogramador/vex-engine/internal/infrastructure/cache"
 	stepInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step"
-	stepStatInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step/status"
 	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
 )
 
@@ -367,12 +367,19 @@ func (h *harness) storedVars(scope, step string) map[string]string {
 	return out
 }
 
-// persistedStepState devuelve la ruta relativa de todo archivo que el motor haya
-// escrito para un step: las huellas de la policy (`inst<step>.status`,
-// `code<step>.status`, `<step>.status`) y el almacén de variables
-// (`<step>.vars`). Es la observación de «no persiste estado de re-ejecución» de
-// la spec 04 §5.3: un step saltado por falta de comandos no deja rastro, así que
-// la corrida siguiente vuelve a saltarlo por la misma razón y no por caché.
+// persistedStepState devuelve la ruta relativa de todo archivo del ALMACÉN DE
+// VARIABLES que el motor haya escrito para un step (`<step>.vars`).
+//
+// Hasta la spec 10 encontraba además las tres huellas de la policy
+// (`inst<step>.status`, `code<step>.status`, `<step>.status`), que llevaban el
+// nombre del paso en el nombre del archivo. Ya no existen: la entrada de caché
+// está direccionada por CONTENIDO, así que el paso va dentro del hash y no en la
+// ruta. Lo que la sustituye como observación es `cacheEntries`.
+//
+// Sigue siendo la mitad de la observación de «no persiste estado de
+// re-ejecución» de la spec 04 §5.3: un step saltado por falta de comandos no
+// deja rastro, así que la corrida siguiente vuelve a saltarlo por la misma razón
+// y no por caché.
 func (h *harness) persistedStepState(step string) []string {
 	h.t.Helper()
 
@@ -386,8 +393,8 @@ func (h *harness) persistedStepState(step string) []string {
 			return nil
 		}
 		// El pipelinecode copiado al workdir también menciona el step; lo que se
-		// busca aquí es estado persistido, que siempre es .status o .vars.
-		if ext := filepath.Ext(path); ext != ".status" && ext != ".vars" {
+		// busca aquí es estado persistido, que siempre es .vars.
+		if filepath.Ext(path) != ".vars" {
 			return nil
 		}
 		rel, err := filepath.Rel(projects, path)
@@ -403,6 +410,45 @@ func (h *harness) persistedStepState(step string) []string {
 	require.NoError(h.t, err)
 	sort.Strings(found)
 	return found
+}
+
+// cacheEntries devuelve las claves de las entradas de caché escritas, tal como
+// cada archivo se identifica a sí mismo, ordenadas.
+//
+// Se lee la clave de DENTRO del archivo y no de su ruta a propósito: la ruta es
+// un detalle del almacén, la clave es el contrato. Y como está direccionada por
+// contenido, dos ejecuciones que dan la misma clave producen un solo archivo
+// —que es la mitad de lo que la spec 10 promete—, mientras que dos estados
+// distintos conviven.
+func (h *harness) cacheEntries() []string {
+	h.t.Helper()
+
+	base := filepath.Join(h.root, cli.VexHomeDirName, "cache")
+	claves := make([]string, 0, 4)
+	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || filepath.Ext(path) != ".json" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		var dto infraCache.FileCacheEntryDTO
+		if err := json.Unmarshal(data, &dto); err != nil {
+			return fmt.Errorf("decodificar %s: %w", path, err)
+		}
+		claves = append(claves, dto.CacheKey)
+		return nil
+	})
+	if os.IsNotExist(err) {
+		return claves
+	}
+	require.NoError(h.t, err)
+	sort.Strings(claves)
+	return claves
 }
 
 // workdirFile lee un archivo de la copia de trabajo del pipelinecode —el
@@ -506,27 +552,32 @@ func (h *harness) symlinkProjectFile(relPath, target string) {
 	require.NoError(h.t, os.Symlink(target, link))
 }
 
-// storedCodeFingerprint lee la huella de código que la policy persistió para un
-// step. Se decodifica el gob a mano, como en assertNingunaVariableAnonima: lo
-// que se quiere observar es la cadena tal cual quedó en disco.
-func (h *harness) storedCodeFingerprint(step string) string {
+// otraMaquina devuelve un harness que ve EL MISMO proyecto y el mismo
+// pipelinecode desde otra máquina: otro $HOME y otra ruta absoluta para el árbol
+// del proyecto, con las mismas urls.
+//
+// Es lo que permite observar la propiedad que hace que el caché compartido de la
+// spec 16 signifique algo: la clave no depende de dónde estén los archivos. El
+// árbol se copia byte a byte, incluido su `.git`, para que la versión y la
+// revisión del proyecto salgan idénticas.
+func (h *harness) otraMaquina() *harness {
 	h.t.Helper()
 
-	projects := filepath.Join(h.root, cli.VexHomeDirName, "projects")
-	patron := filepath.Join(projects, "*", "status", "*", "code"+step+".status")
-	matches, err := filepath.Glob(patron)
-	require.NoError(h.t, err)
-	require.Len(h.t, matches, 1, "se esperaba exactamente un code%s.status", step)
+	base := h.t.TempDir()
+	otro := &harness{
+		t:           h.t,
+		root:        filepath.Join(base, "home"),
+		projectDir:  filepath.Join(base, "project"),
+		pipelineDir: h.pipelineDir,
+		projectURL:  h.projectURL,
+		pipelineURL: h.pipelineURL,
+		execLog:     h.execLog,
+	}
 
-	file, err := os.Open(matches[0])
-	require.NoError(h.t, err)
-	defer file.Close()
+	require.NoError(h.t, os.MkdirAll(otro.root, 0o755))
+	copyTree(h.t, h.projectDir, otro.projectDir)
 
-	var stored []stepStatInfra.FileCodeStatusDTO
-	require.NoError(h.t, gob.NewDecoder(file).Decode(&stored))
-	require.NotEmpty(h.t, stored)
-
-	return stored[len(stored)-1].Fingerprint
+	return otro
 }
 
 // ── Utilidades de disco y git ───────────────────────────────────────────────

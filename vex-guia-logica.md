@@ -129,7 +129,7 @@ ejecutan los comandos siguientes ni los steps posteriores.
 | `description` | documentación. El motor no la usa y **no entra en la huella de instrucciones**        |
 | `cmd` | el comando shell a ejecutar. Se lanza con `sh -c` (`cmd /C` en Windows)               |
 | `workdir` | ver abajo                                                                             |
-| `show` | si es `true`, vuelca el stdout del comando al log de la ejecución. Por defecto `false` |
+| `show` | si es `true`, vuelca el stdout del comando al log de la ejecución. Por defecto `false`. **Sí entra en la huella de instrucciones** (sección 7.2) |
 | `templates` | archivos a interpolar antes de ejecutar `cmd`                                         |
 | `outputs[]` | `name` + `description` + `probe`. Ver abajo                                           |
 
@@ -293,14 +293,14 @@ comando.
 
 Al terminar:
 
-- **Si el step tuvo éxito** → se escriben las huellas de estado de ese step (sección 7.3) y
-  se persiste el mapa acumulado, partido en dos: lo marcado como compartido va al ámbito
-  `shared`, el resto al ámbito del ambiente. Quedan excluidas las seis variables volátiles:
-  `project_version`, `project_revision`, `project_revision_full`, `tool_name`,
-  `project_workdir` y `step_workdir`.
-- **Si el step falló** → no se escribe nada. No hay huellas que borrar porque no llegaron a
-  escribirse: la evaluación de la sección 7 es una consulta y el único momento de escritura
-  es el punto anterior.
+- **Si el step tuvo éxito** → se escribe su entrada de caché (sección 7.3) y se persiste el
+  mapa acumulado, partido en dos: lo marcado como compartido va al ámbito `shared`, el resto
+  al ámbito del ambiente. Quedan excluidas las seis variables volátiles —`project_version`,
+  `project_revision`, `project_revision_full`, `tool_name`, `project_workdir` y
+  `step_workdir`—, que son las mismas que la huella de variables excluye, de una sola lista.
+- **Si el step falló** → no se escribe nada. No hay entrada que borrar porque no llegó a
+  escribirse: consultar el caché no lo modifica, y el único momento de escritura es el punto
+  anterior.
 
 El almacén guarda el mapa acumulado **completo** bajo el nombre de cada step, no solo lo
 que ese step produjo. El archivo de `deploy` contiene también lo que produjo `supply`.
@@ -368,106 +368,140 @@ nuevo con profundidad 1. No hay ventana de reutilización *(ver P6 en la secció
 
 ## 7. Re-ejecución: cuándo un step se salta
 
-Antes de ejecutar los comandos de un step, el motor evalúa un conjunto de comprobaciones.
-**Si cualquiera detecta un cambio, el step se ejecuta.** Solo se salta si todas coinciden
-en que nada cambió.
+Antes de ejecutar los comandos de un step, el motor compone una **clave de caché** a partir
+de todo lo que determina el resultado de ese step, y pregunta si existe una entrada para
+ella.
 
-### 7.1 Las cuatro comprobaciones
+```
+existe entrada y no ha caducado  →  el step se salta
+no existe entrada                →  el step se ejecuta; al terminar bien, se escribe
+la entrada ha caducado           →  el step se ejecuta; la entrada nueva tiene la MISMA clave
+```
 
-| Comprobación | Material de la huella |
-|---|---|
-| **instrucciones** | el `commands.yaml` del step canonicalizado: por comando, su `name`, `cmd`, `workdir`, lista de `templates` y lista de outputs (`name` + `probe`). **No** entran `description` ni `show` |
-| **variables** | el mapa acumulado ordenado por nombre (nombre + valor + si es compartida), menos las seis volátiles de la sección 5.2 |
-| **código** | la huella del árbol del proyecto calculada en el paso 8 de la cadena de pipeline, en su forma canónica `v1:<sha256>` |
-| **tiempo** | TTL fijo de **30 días** desde la última ejecución del step |
+No hay reglas, ni una lista de comprobaciones, ni una tabla por nombre de step. La decisión
+es una comparación de igualdad.
 
-### 7.2 Qué comprobaciones aplica cada step
+### 7.1 El material de la clave
 
-Hoy están cableadas en el motor por nombre de step:
+Siete dimensiones, **todas obligatorias**:
 
-| Step | Comprobaciones |
-|---|---|
-| `test` | instrucciones + variables + código + tiempo |
-| `supply` | instrucciones + variables |
-| `package` | instrucciones + variables + código |
-| `deploy` | instrucciones + variables + código |
+| # | Dimensión | Qué es |
+|---|---|---|
+| 1 | proyecto | la url del repositorio del proyecto |
+| 2 | pipeline | la url del pipelinecode |
+| 3 | **ámbito** | el ambiente. Desde la spec 15 podrá valer también `shared` |
+| 4 | step | el nombre del step, sin el prefijo `NN-` |
+| 5 | instrucciones | la huella `inst-v1` de los comandos declarados |
+| 6 | variables | la huella `vars-v1` de las variables del step |
+| 7 | código | la huella `v1` del árbol del proyecto |
 
-**Un step con cualquier otro nombre hace fallar la ejecución, nombrándolo y enumerando los
-conocidos** (spec 05 §5.2). Hasta entonces el motor lo interpretaba como «nada cambió» y lo
-saltaba siempre, sin avisar y con exit code 0.
+El **ámbito es obligatorio y no anulable**, y ese es el punto: la clave no responde «¿son
+iguales las entradas?» sino **«¿esto ya se ejecutó *aquí*?»**. Un step tiene efectos sobre un
+ambiente real, y que dos ambientes tengan entradas idénticas no significa que ejecutar en uno
+haya dejado algo hecho en el otro. Hasta que la clave existió, el aislamiento entre `sand` y
+`prod` dependía de que la variable `environment` estuviera en el mapa acumulado y nadie la
+declarara volátil.
 
-Es una **medida de transición**, no el destino: el vocabulario de steps sigue siendo abierto
-para cargarlos y cerrado para decidir si se ejecutan. La brecha se cierra en dos entregas:
-la spec 10 borra esta tabla entera al sustituir las cuatro reglas por una comparación de
-`cache_key` —y ahí un step desconocido pasa a **ejecutarse**—, y la 15 devuelve la
-granularidad, ya declarada por el pipelinecode *(ver P1 en la sección 9)*.
+Si **falta cualquiera de las siete**, no se compone clave: el step se ejecuta y no se escribe
+entrada. Como *ausencia de entrada ⇒ ejecutar*, «no se pudo averiguar» y «no consta» llevan al
+mismo sitio, que es el seguro.
 
-Debajo del cableado hay además una corrección de semántica que vale para cualquier policy,
-la construya quien la construya: **cero comprobaciones evalúa a «ejecutar», no a «nada
-cambió»**. Un conjunto vacío de evidencia no concluye que el step esté al día.
+**El tiempo no entra.** El TTL —30 días— es metadato de expiración de la entrada, no material
+de la clave: una entrada que caduca se sustituye **bajo la misma clave**. Se aplica a todos los
+steps por igual.
+
+### 7.2 Las tres huellas
+
+Las tres son SHA-256 sobre un material canónico, cada una con su **regla congelada, su token
+de versión y su especificación normativa** en `internal/domain/fingerprint/`:
+
+| Huella | Token | Material |
+|---|---|---|
+| instrucciones | `inst-v1:` | por comando y **en el orden declarado**: `name`, `cmd`, `workdir`, `show`, la lista de `templates` y la de outputs (`name` + `probe`). **No** entra `description` |
+| variables | `vars-v1:` | el mapa acumulado, ordenado, con nombre + valor + si es compartida, **menos las seis volátiles** de la sección 5.2 |
+| código | `v1:` | el árbol del proyecto: una entrada por archivo visible, con su contenido, su bit de ejecución y el destino de los enlaces |
+
+Tres cosas que conviene no perder de vista:
+
+- **`show` entra**, aunque no cambie qué se ejecuta. Si no entrara, añadir `show: true` para
+  depurar un comando no invalidaría el caché: el step se saltaría y no se imprimiría nada, y
+  un caché que ignora una edición deliberada del pipelinecode es indistinguible de uno roto.
+  La regla general es que **todo campo declarable en `commands.yaml` entra**; excluir uno
+  exige justificarlo por campo, y hoy la única exclusión justificada es `description`, que ni
+  siquiera llega al modelo de ejecución.
+- **`description` no entra**, ni el del comando ni el de un output.
+- **El cuerpo de las plantillas no entra en ninguna de las tres.** `templates:` aporta las
+  *rutas*; el contenido de esos archivos no está en el material de instrucciones, y la huella
+  del árbol es la del **proyecto**, no la del pipelinecode. Consecuencia viva: **editar
+  `steps/02-supply/k8s/deployment.yaml` y volver a ejecutar hace que el step se salte.** Es un
+  defecto conocido, anotado como D12 en la sección 9.2.
+
+Cada huella lleva su token en la forma externa, y la clave se compone sobre esas cadenas
+**completas**, nunca sobre el hash pelado. De ahí sale que subir de versión cualquiera de las
+tres reglas invalide todas las claves emitidas sin código extra.
 
 ### 7.3 Cómo se guarda el estado
 
-Cada comprobación guarda su huella con una clave distinta:
+Una entrada por clave, en un archivo JSON direccionado por contenido:
 
-| Comprobación | Clave |
-|---|---|
-| instrucciones | `(proyecto, pipeline, step)` |
-| código | `(proyecto, pipeline, step)` |
-| variables | `(proyecto, pipeline, ambiente, step)` |
-| tiempo | `(proyecto, ambiente, step)` |
+```
+$HOME/.vex/cache/<versión de la clave>/<2 primeros del hash>/<resto>.json
+```
 
-Dos consecuencias de que las claves no sean uniformes:
+```json
+{
+  "schema_version": 1,
+  "cache_key": "ck-v1:6d12da1d…",
+  "expires_at": "2026-09-05T12:00:00Z",
+  "produced_by": { "execution_id": "…", "at": "2026-08-06T12:00:00Z" }
+}
+```
 
-- **El aislamiento entre ambientes depende de una sola comprobación.** Como instrucciones y
-  código no llevan ambiente, correr `supply` en `sand` deja escrito «sin cambios» para
-  `prod`. Que `prod` sí se ejecute lo garantiza únicamente que sus variables declaradas
-  difieran. *(Ver P4 en la sección 9.)*
-- La comprobación de tiempo no lleva pipeline: dos pipelines sobre el mismo proyecto
-  comparten su TTL.
+La entrada es **de sola presencia**: no guarda resultado reutilizable, guarda que este
+contenido exacto ya se ejecutó con éxito aquí, quién lo hizo y hasta cuándo vale. El contenido
+reutilizable —las variables— sigue en el almacén, aparte y a propósito: el caché **se puede
+borrar entero sin perder un hecho**, y el almacén no, porque ahí hay identificadores de
+recursos que existen de verdad.
 
-La huella nueva **se escribe después de que el step termina bien**, desde un único sitio y
-una sola vez (spec 09 §5.2). Evaluar una comprobación es una consulta: mira el estado
-anterior, responde, y devuelve lo que observó — pero no modifica nada.
+Como la ruta sale del hash y no de la posición, **dos estados distintos conviven**: volver a un
+estado ya ejecutado con éxito acierta en caché en vez de re-ejecutar, que es lo que un motor
+que existe para no repetir trabajo tiene que hacer.
 
-Hasta la spec 09 se escribía **durante** la evaluación, antes del primer comando, y un
-borrado compensatorio en el camino de error intentaba revertirlo. El compensador no podía
-cubrir el caso que importaba: un `SIGKILL`, un OOM o un corte de luz entre «se escribió» y
-«el step terminó» dejaba grabado «sin cambios» para un step que nunca corrió, y la corrida
-siguiente lo saltaba. Al mover la escritura al final, no hay nada que compensar y el
-borrado desapareció con su causa.
+La entrada **se escribe después de que el step termina bien**, desde un único sitio y una sola
+vez. Consultar el caché no la crea. Un step que empieza y no termina —incluidos `SIGKILL`, un
+OOM o un corte de luz— no deja nada, y la corrida siguiente lo vuelve a ejecutar.
 
 ### 7.4 Cuando el motor no puede averiguarlo
 
-Una comprobación tiene tres respuestas, no dos:
+Se conserva el **fail-open** —ante la duda, ejecutar, porque ejecutar de más nunca produce un
+despliegue que no ocurrió— y se conserva que **no sea silencioso**. Dos formas de duda, las dos
+con advertencia explícita y las dos ejecutando:
 
-| Respuesta | Significado | Efecto |
-|---|---|---|
-| `skip` | se sabe que no cambió | no ejecutar |
-| `run` | se sabe que cambió | ejecutar |
-| `undetermined` | **no se pudo averiguar** | ejecutar, y decirlo |
+- **no se pudo componer la clave** (falta material), y entonces tampoco se escribe entrada;
+- **no se pudo consultar el caché** (el almacén no contestó), y entonces sí se escribe si el
+  step termina bien: no haber podido leer no es motivo para no escribir.
 
-`undetermined` es lo que devuelve una comprobación cuyo repositorio no contestó. Se conserva
-el **fail-open** —ante la duda, ejecutar, porque ejecutar de más nunca produce un despliegue
-que no ocurrió— pero deja de ser silencioso: antes un fallo de I/O producía exactamente la
-misma decisión y la misma forma de razón que «el código cambió», así que el usuario no podía
-distinguir un caché roto de un cambio real.
+Ninguna de las dos se disfraza de «el contenido cambió», que es lo que ocurría cuando un fallo
+de I/O producía la misma decisión y la misma forma de razón que un cambio real.
 
-Dos casos que **no** son `undetermined`:
-
-- **Cero comprobaciones ⇒ `run`**, con su propio motivo. No es «no se sabe»: es que no hay
-  nada que averiguar.
-- **Step desconocido ⇒ error**, y aborta la ejecución. El motor no sabe *qué* comprobar, que
-  es una pregunta distinta de no poder *averiguar* si algo cambió.
-
-Si la escritura del estado falla **después** de un step exitoso, el step no falla —el
-despliegue ocurrió— pero se emite una advertencia: la corrida siguiente volverá a ejecutarlo
-y el usuario tiene que poder saber por qué.
+Si la escritura de la entrada falla **después** de un step exitoso, el step no falla —el
+despliegue ocurrió— pero se emite una advertencia: la corrida siguiente volverá a ejecutarlo y
+el usuario tiene que poder saber por qué.
 
 ### 7.5 Granularidad
 
 La decisión es **todo o nada por step**: o corren todos sus comandos, o no corre ninguno.
 No existe granularidad menor.
+
+Y **todo entra en la clave de todos los steps**. No hay comprobaciones seleccionadas por
+nombre: un cambio de código re-ejecuta también `supply`, al que no le afecta. Es una pérdida
+de eficiencia aceptada a cambio de correctitud —la selección estaba cableada en el motor por
+nombre de step, y por eso un step llamado de cualquier otra forma no se ejecutaba jamás— y se
+recupera cuando el pipelinecode pueda declararla *(ver P1 y P5 en la sección 9)*.
+
+**Cualquier nombre de step vale.** El motor deriva la decisión del contenido, no de una lista
+de nombres conocidos, así que un `05-notify` se ejecuta como cualquier otro y la corrida
+siguiente lo salta.
 
 ---
 
@@ -532,15 +566,21 @@ silencio, y no exige formato nuevo. **Una vez exista**, un step sin declaración
 ejecuta siempre** — que es el destino, y es seguro porque ejecutar de más nunca produce un
 despliegue que no ocurrió, mientras que saltar de menos sí.
 
-**El primer tiempo está implementado** (spec 05): `PolicyBuilder.Build` devuelve error ante
-un step que no conoce, y `Policy.Evaluate` con cero reglas manda ejecutar en vez de saltar.
+**El primer tiempo se implementó** (spec 05) y **ya no existe**: `PolicyBuilder.Build`
+devolvía error ante un step que no conocía, y `Policy.Evaluate` con cero reglas mandaba
+ejecutar en vez de saltar. Los dos tipos se fueron con la spec 10. Lo que sobrevive es la
+semántica —**un conjunto vacío de evidencia no concluye que el step esté al día**—, hoy en la
+forma «ausencia de entrada de caché ⇒ ejecutar», y sobrevive **por construcción**: una clave
+que nadie escribió no puede afirmar que nada cambió.
 
-El segundo tiempo llega repartido, y conviene no confundir las dos mitades. El **vocabulario
-se abre en la spec 10**, por eliminación: al desaparecer `PolicyBuilder` no queda ningún
-nombre que reconocer, y un step desconocido simplemente no tiene entrada de caché, luego se
-ejecuta. La **declaración** —`checks` por step, que es lo que devuelve la granularidad que
-la 10 sacrifica— es la **spec 15**. La medida de transición de la 05 vive solo entre la 05 y
-la 10.
+**El vocabulario ya está abierto (spec 10).** Al desaparecer `PolicyBuilder` no quedó ningún
+nombre que reconocer: un step desconocido no tiene entrada de caché, luego se ejecuta, y al
+terminar bien escribe la suya. La medida de transición de la 05 vivió exactamente entre la 05
+y la 10, y el cuerpo de este documento (sección 7.5) ya lo describe así.
+
+**Lo que queda pendiente es la declaración** —`checks` por step, que es lo que devuelve la
+granularidad que la 10 sacrificó al meter todo en la clave de todos los steps—, y es la
+**spec 15**.
 
 **P2 — La marca `shared` pasa a ser explícita.**
 Un campo `scope: shared` en el comando, junto al `workdir`:
@@ -592,7 +632,11 @@ no hay nada que resolver.
 Son dos mecanismos con dos reglas, y ambos quedan vigentes. Conviene no leer P7 como una
 derogación de P3: P7 no cambia quién gana, **quita la pregunta** en los casos que cubre.
 
-**P4 — El ambiente es parte de la identidad de re-ejecución.**
+**P4 — El ambiente es parte de la identidad de re-ejecución. — HECHO (spec 10).**
+El ámbito es una de las siete dimensiones de la clave, obligatorio y no anulable, y el cuerpo
+de este documento lo describe en la sección 7.1. Lo que queda de esta entrada es el porqué,
+que sigue valiendo para quien llegue después.
+
 Las cuatro comprobaciones pasan a la clave `(proyecto, pipeline, ambiente, step)`. La huella
 no responde «¿son iguales las entradas?» sino «¿esto ya se ejecutó *aquí*?»: un step tiene
 efectos sobre un ambiente real, y que dos ambientes tengan entradas idénticas no significa
@@ -658,7 +702,7 @@ De ahí se sigue lo que hay que construir:
 
 **Dimensionarlo bien.** P5 no formaliza algo que el motor ya haga a medias: parte la unidad
 de decisión de `step` a `step × ámbito`, y hoy esa granularidad **no existe** —la decisión
-es todo o nada por step (sección 7.4)—. Toca la clave de re-ejecución, la construcción de
+es todo o nada por step (sección 7.5)—. Toca la clave de re-ejecución, la construcción de
 la decisión, el orden de ejecución y la partición de la huella de variables, que hoy se
 calcula sobre un único mapa acumulado indivisible. Es capacidad nueva sobre una base
 existente, no un ajuste.
@@ -778,7 +822,10 @@ implementación independiente validarse.
 > aplicar la misma huella al repo de pipeline (spec 18) y sustituir el commit por ella en
 > el registro.
 
-**P10 — El estado de re-ejecución pasa a estar direccionado por contenido.**
+**P10 — El estado de re-ejecución pasa a estar direccionado por contenido. — HECHO (spec 10).**
+Implementado tal cual, incluidas las entradas de sola presencia. El cuerpo de este documento
+lo describe en la sección 7; lo que queda aquí es el registro de lo que se decidió y por qué.
+
 Las cuatro huellas sueltas con cuatro claves distintas (sección 7.3) se unifican en **una
 entrada bajo una clave derivada del contenido**: instrucciones + variables + código +
 ambiente (P4) + ámbito (P5). Tres cambios de comportamiento:
@@ -887,6 +934,7 @@ de rendimiento, no de correctitud.
 | D10 | ~~Un `Ctrl-C` mata la ejecución sin dejar rastro de cancelación: no hay manejador de señales y el mecanismo de cancelación que el motor declara no se invoca nunca. «Cancelado» e «interrumpido» son indistinguibles~~ **Corregido (spec 07 §5.4): `cmd/vexd` maneja `SIGINT`/`SIGTERM` cancelando el contexto de la ejecución, que queda registrada como `canceled` y sale con exit code 130. Es best-effort y así se documenta (sección 5.4): `SIGKILL` y OOM siguen plegando a «interrumpido», que es la respuesta honesta. De paso, el `cancelFn` que se guardaba sin llamar nunca obtuvo su `defer`** |
 | D11 | ~~Si el identificador de ejecución tiene menos de cuatro caracteres, la línea de log que lo abrevia provoca un panic~~ **Corregido (spec 07 §5.5): se abrevia solo a partir de ocho caracteres. El plan lo describía como «menos de 8»; el código panicaba con menos de 4 y solapaba las dos mitades entre 4 y 7** |
 | D12 | ~~El estado de la ejecución no se usa: `status` se queda en `queued` de principio a fin, `finishedAt` y `exitCode` son siempre `nil`, y el estado terminal lo deduce la CLI a partir del error devuelto~~ **Corregido (spec 07 §5.2): el use case invoca las transiciones y el agregado publica su estado terminal con sus instantes. Ver sección 5.4** |
+| D14 | **El cuerpo de las plantillas no participa en ninguna huella.** `templates:` aporta las *rutas* al material de instrucciones; el contenido de esos archivos no entra ahí, y la huella del árbol es la del **proyecto**, no la del pipelinecode. Consecuencia reproducida en el harness: **editar `steps/02-supply/k8s/deployment.yaml` y volver a ejecutar hace que el step se salte** — el despliegue no ocurre y el motor dice «sin cambios», sobre el archivo que más se edita a mano de todo el pipelinecode. Es la forma exacta del criterio de corrección de la spec 08 («lo que cambia el despliegue sin cambiar la huella») y la misma clase que el `chmod` que aquella arregló. **No lo introduce el direccionamiento por contenido**; lo hace visible haber escrito por primera vez qué entra en cada huella. El arreglo es una octava dimensión —la huella del pipelinecode, que la spec 18 ya calcula para `content_id`— y cambia todas las claves emitidas una vez |
 | D13 | ~~Dos relojes en la misma función: el cálculo de versión tomaba el instante de `time.Now()` en una rama y del `startedAt` de la ejecución en la otra, para la misma decisión~~ **Corregido (spec 07 §5.1, R-25): el puerto `Clock` es la única fuente de instantes del dominio, y las dos ramas la comparten** |
 
 ### 9.3 Decisiones abiertas

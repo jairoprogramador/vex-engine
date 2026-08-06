@@ -8,12 +8,11 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	pipDom "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
 	stepDom "github.com/jairoprogramador/vex-engine/internal/domain/step"
-	stepStat "github.com/jairoprogramador/vex-engine/internal/domain/step/status"
+	cacheInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/cache"
 	cmdInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/command"
 	pippInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
 	sharedInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/shared"
 	stepInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step"
-	stepStatInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step/status"
 )
 
 const (
@@ -70,6 +69,13 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	projectsBasePath := filepath.Join(cfg.RootVexPath, VexHomeDirName, "projects")
 	pipelinesBasePath := filepath.Join(cfg.RootVexPath, VexHomeDirName, "pipelines")
 
+	// El caché NO cuelga de `projects/`: está direccionado por contenido, y el
+	// proyecto es una de las siete dimensiones que van dentro del hash, no un
+	// tramo de la ruta (spec 10 §5.1). Que el directorio sea aparte hace además
+	// visible su regla de vida: se puede borrar entero sin consecuencias, cosa
+	// que `projects/` —donde vive el almacén de variables— no admite.
+	cacheBasePath := filepath.Join(cfg.RootVexPath, VexHomeDirName, "cache")
+
 	// --- Infrastructure: pipeline ---
 	// Modo local: en lugar de clonar, crea un symlink hacia el punto de montaje
 	// del proyecto (el CWD del host). Modo remoto: clonación git normal.
@@ -102,41 +108,20 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	pipelineVarsRepo := stepInfra.NewPipelineVarsRepository()
 	pipelineCommandRepo := stepInfra.NewPipelineCommandRepository()
 
-	// --- Infrastructure: step status (local o remoto según flag) ---
-	var (
-		instStatusRepo stepStat.InstructionsStatusRepository
-		varsStatusRepo stepStat.VariablesStatusRepository
-		codeStatusRepo stepStat.CodeStatusRepository
-		timeStatusRepo stepStat.TimeStatusRepository
-	)
-
-	if args.Mode != ModeLocal {
-		codeStatusRepo = stepStatInfra.NewSupabaseCodeStatusRepository(
-			args.StepCodeEndpoint, args.LogToken, args.ExecutionID,
-		)
-		instStatusRepo = stepStatInfra.NewSupabaseInstStatusRepository(
-			args.StepInstEndpoint, args.LogToken, args.ExecutionID,
-		)
-		timeStatusRepo = stepStatInfra.NewSupabaseTimeStatusRepository(
-			args.StepTimeEndpoint, args.LogToken, args.ExecutionID,
-		)
-		varsStatusRepo = stepStatInfra.NewSupabaseVarsStatusRepository(
-			args.StepVarsEndpoint, args.LogToken, args.ExecutionID,
-		)
-	} else {
-		// Modo local: repos de archivo en disco.
-		instStatusRepo = stepStatInfra.NewFileInstStatusRepository(projectsBasePath)
-		varsStatusRepo = stepStatInfra.NewFileVarsStatusRepository(projectsBasePath)
-		codeStatusRepo = stepStatInfra.NewFileCodeStatusRepository(projectsBasePath)
-		timeStatusRepo = stepStatInfra.NewFileTimeStatusRepository(projectsBasePath)
-	}
-
-	// El único escritor del estado de re-ejecución (spec 09 §5.2). Ya no hay
-	// repositorio de borrado compensatorio: desapareció con la escritura
-	// anticipada que intentaba revertir, y con él `args.StepDeleteEndpoint`, que
-	// queda sin uso hasta que la spec 16 borre el flag.
-	statusWriter := stepStat.NewStatusWriter(
-		instStatusRepo, varsStatusRepo, codeStatusRepo, timeStatusRepo)
+	// --- Infrastructure: caché de re-ejecución ---
+	//
+	// UN repositorio, y sin rama por modo. Aquí había cuatro repositorios × dos
+	// implementaciones —archivo y Supabase— seleccionados por `args.Mode`; los
+	// cuatro de Supabase se borran con la spec 10, lo que deja las edge functions
+	// `status-*` sin cliente (su retirada va con la spec 26) y con los cuatro se
+	// van los `--step-{code,inst,time,vars}-endpoint`, que ya no lee nadie.
+	//
+	// Consecuencia declarada: **el modo remoto pierde caché desde esta spec**,
+	// no desde la 16. La máquina de Fly es efímera, así que este repositorio
+	// arranca frío en cada ejecución. Es una degradación de RENDIMIENTO, no de
+	// correctitud: un caché frío ejecuta de más, nunca de menos. Quien devuelve
+	// el caché compartido es la spec 16, con un destino de estado explícito.
+	entries := cacheInfra.NewFileEntriesRepository(cacheBasePath)
 
 	// --- Infrastructure: command (shell, filesystem) ---
 	fileSystem := cmdInfra.NewFileSystemManager()
@@ -156,15 +141,12 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	)
 	executablePipeline := pipDom.NewPipelineExecutable(pipelineHead)
 
-	// --- Domain: policy registry (step runner) ---
-	ruleRegistry := stepStat.NewRuleRegistry()
-	ruleRegistry.Register(stepStat.NewInstructionsPipelineRule(instStatusRepo))
-	ruleRegistry.Register(stepStat.NewVariablesRuleRule(varsStatusRepo))
-	ruleRegistry.Register(stepStat.NewCodeProjectRuleRule(codeStatusRepo))
-	ruleRegistry.Register(stepStat.NewTimeRule(timeStatusRepo))
-	policyBuilder := stepStat.NewPolicyBuilder(ruleRegistry)
-
 	// --- Domain: step handler chain ---
+	//
+	// Aquí se construía el `RuleRegistry` con las cuatro reglas y el
+	// `PolicyBuilder` que las elegía por nombre de paso. Los tres tipos
+	// desaparecieron con la spec 10: la decisión es «¿existe esta clave?», y para
+	// eso no hay nada que registrar ni que componer.
 	// El orden importa: los dos handlers de almacén cargan ANTES que las
 	// variables declaradas por el pipelinecode, de modo que lo declarado gana
 	// sobre lo almacenado.
@@ -172,9 +154,9 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		stepDom.NewVarsStoreSharedHandler(varsStoreRepo),
 		stepDom.NewVarsStoreStepHandler(varsStoreRepo),
 		stepDom.NewVarsHandler(pipelineVarsRepo),
-		stepDom.NewStepRunnerHandler(pipelineCommandRepo, policyBuilder),
+		stepDom.NewStepRunnerHandler(pipelineCommandRepo, entries),
 	)
-	executableStep := stepDom.NewStepExecutable(stepHead, varsStoreRepo, statusWriter)
+	executableStep := stepDom.NewStepExecutable(stepHead, varsStoreRepo, entries)
 
 	// --- Domain: command handler chain ---
 	fileInterpolator := command.NewFileInterpolator(fileSystem)

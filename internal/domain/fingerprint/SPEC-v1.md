@@ -3,6 +3,19 @@
 > **Estado:** congelada · **Prefijo:** `v1:` · **Implementación de referencia:**
 > `compute.go` + `ignore.go`, en este mismo directorio · **Vectores:** §7
 
+> **Este paquete especifica TRES reglas, y este documento es sólo la primera.**
+> La spec 10 pagó las otras dos, que la 08 había dejado sin hacer:
+>
+> | Regla | Prefijo | Documento |
+> |---|---|---|
+> | contenido de un árbol de archivos | `v1:` | **este** |
+> | instrucciones de un paso | `inst-v1:` | `SPEC-INSTRUCTIONS-v1.md` |
+> | variables de un paso | `vars-v1:` | `SPEC-VARIABLES-v1.md` |
+>
+> Los tres tokens de versión son **distintos** a propósito: las tres huellas son
+> del mismo tipo y entran en el mismo material de `cache.Material`, pero son
+> reglas distintas y sus versiones tienen que poder moverse por separado.
+
 Este documento es **normativo**. La huella de contenido es la primitiva de
 identidad del motor: responde a «¿cambió el código?» hoy y a «¿es este el mismo
 despliegue?» cuando el registro exista. El valor entero de esa decisión es la

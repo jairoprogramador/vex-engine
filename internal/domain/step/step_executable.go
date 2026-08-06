@@ -6,15 +6,15 @@ import (
 	"reflect"
 	"slices"
 
+	"github.com/jairoprogramador/vex-engine/internal/domain/cache"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
-	domStepStatus "github.com/jairoprogramador/vex-engine/internal/domain/step/status"
 )
 
 type StepExecutable struct {
 	command.BaseExecutable
 	handler        StepHandler
 	varsRepository VarsStoreRepository
-	statusWriter   *domStepStatus.StatusWriter
+	entries        cache.Entries
 }
 
 var _ command.Executable = (*StepExecutable)(nil)
@@ -22,12 +22,12 @@ var _ command.Executable = (*StepExecutable)(nil)
 func NewStepExecutable(
 	handler StepHandler,
 	varsRepository VarsStoreRepository,
-	statusWriter *domStepStatus.StatusWriter) *StepExecutable {
+	entries cache.Entries) *StepExecutable {
 
 	return &StepExecutable{
 		handler:        handler,
 		varsRepository: varsRepository,
-		statusWriter:   statusWriter,
+		entries:        entries,
 	}
 }
 
@@ -60,8 +60,9 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 			case err == nil:
 				request.MarkStepSuccess()
 
-				// AQUÍ, y solo aquí, se escribe el estado de re-ejecución: después
-				// de que el último comando del step terminó bien (spec 09 §5.2).
+				// AQUÍ, y solo aquí, se escribe la entrada de caché: después de
+				// que el último comando del step terminó bien (spec 09 §5.2,
+				// heredado por la 10).
 				//
 				// Antes lo escribía cada regla dentro de su `Evaluate`, antes de
 				// ejecutar nada, y el borrado compensatorio del camino de error
@@ -69,20 +70,12 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 				// dura —es código que corre después—, así que un SIGKILL o un OOM
 				// a mitad dejaba escrito «sin cambios» para un step que nunca
 				// terminó y la corrida siguiente lo saltaba. Con la escritura
-				// aquí no hay nada que compensar, y el `Delete` desapareció junto
-				// con su causa.
-				if writeErr := s.statusWriter.Write(
-					request.StatusContext(), request.StatusEvidences()); writeErr != nil {
-					// Fail-open y VISIBLE: no haber podido guardar el caché no
-					// invalida el despliegue que sí ocurrió, así que el step no
-					// falla por esto. Lo que sí pasa es que la corrida siguiente
-					// volverá a ejecutarlo, y el usuario merece saber que su
-					// caché está roto en vez de creer que su código cambió
-					// (spec 09 §2).
-					executionContext.Emit(fmt.Sprintf(
-						"advertencia: no se pudo guardar el estado de re-ejecución del step %s: %v",
-						executionContext.StepName(), writeErr))
-				}
+				// aquí no hay nada que compensar.
+				//
+				// Lo que la spec 10 cambió es sólo QUÉ se escribe: donde la 09
+				// dejó un `switch` por nombre de regla repartiendo cuatro
+				// evidencias a cuatro almacenes, hay una sola escritura.
+				s.putCacheEntry(request, executionContext)
 
 				err := s.saveScopeVars(executionContext.Environment(), executionContext.StepName(), executionContext)
 				if err != nil {
@@ -128,6 +121,45 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 	)
 }
 
+// putCacheEntry deja constancia de que ESTE contenido exacto ya se ejecutó con
+// éxito aquí.
+//
+// Sin clave anotada no se escribe nada, y eso cubre dos casos distintos con la
+// misma respuesta: el paso se saltó por caché —no hay nada nuevo que decir— o no
+// se pudo componer su material. En el segundo, escribir sería peor que no
+// escribir: dejaría una entrada bajo una clave incompleta, que colisiona con la
+// de cualquier otro material al que le falte lo mismo. Como «ausencia de entrada
+// ⇒ ejecutar», no escribir es exactamente lo correcto.
+func (s *StepExecutable) putCacheEntry(
+	request *StepRequestHandler,
+	executionContext *command.ExecutionContext) {
+
+	key, ok := request.CacheKey()
+	if !ok {
+		return
+	}
+
+	// El instante sale del reloj inyectable a través del agregado (spec 07): no
+	// hay `time.Now()` en el dominio, y por eso los dos lados del borde del TTL
+	// se pueden probar sin esperar treinta días.
+	entry := cache.NewEntry(cache.Provenance{
+		ExecutionID: executionContext.ExecutionID().String(),
+		At:          executionContext.StartedAt(),
+	}, cache.DefaultTTL)
+
+	if err := s.entries.Put(executionContext.Ctx(), key, entry); err != nil {
+		// Fail-open y VISIBLE: no haber podido guardar el caché no invalida el
+		// despliegue que sí ocurrió, así que el step no falla por esto —convertir
+		// «no pude guardar el caché» en «el despliegue falló» sería mentir en la
+		// dirección peligrosa (spec 09 §9.6)—. Lo que sí pasa es que la corrida
+		// siguiente volverá a ejecutarlo, y el usuario merece saber que su caché
+		// está roto en vez de creer que su código cambió.
+		executionContext.Emit(fmt.Sprintf(
+			"advertencia: no se pudo guardar el estado de re-ejecución del step %s: %v",
+			executionContext.StepName(), err))
+	}
+}
+
 func (s *StepExecutable) saveScopeVars(
 	scope, step string,
 	executionContext *command.ExecutionContext) error {
@@ -140,15 +172,13 @@ func (s *StepExecutable) saveScopeVars(
 		return nil
 	}
 
+	// La lista de volátiles ya no está escrita aquí a mano: era la misma que
+	// filtraba la huella de variables, duplicada en dos archivos sin nada que
+	// las mantuviera sincronizadas (spec 10). Ahora hay un solo dueño, y está
+	// especificada en `fingerprint/SPEC-VARIABLES-v1.md` §3.1.
 	accumulatedScopeVars := executionContext.FilteredAccumulatedVars(
 		func(variable command.Variable) bool {
-			return variable.IsShared() == isShared &&
-				variable.Name() != command.VarProjectVersion &&
-				variable.Name() != command.VarProjectRevision &&
-				variable.Name() != command.VarProjectRevisionFull &&
-				variable.Name() != command.VarToolName &&
-				variable.Name() != command.VarProjectWorkdir &&
-				variable.Name() != command.VarStepWorkdir
+			return variable.IsShared() == isShared && !command.IsVolatileVar(variable.Name())
 		}).ToSlice()
 
 	accumulatedScopeVars = sortedExecutionVarsByName(accumulatedScopeVars)

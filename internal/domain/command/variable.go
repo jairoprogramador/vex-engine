@@ -1,6 +1,9 @@
 package command
 
-import "errors"
+import (
+	"errors"
+	"slices"
+)
 
 const (
 	VarStepWorkdir         = "step_workdir"
@@ -16,6 +19,39 @@ const (
 	VarProjectRevisionFull = "project_revision_full"
 	VarToolName            = "tool_name"
 )
+
+// volatileVarNames son las variables que el motor DERIVA de cada ejecución y
+// que por tanto no describen la intención de nadie: cambian solas.
+//
+// Ni entran en la identidad de un step —harían que ningún step se saltara
+// jamás— ni se guardan en el almacén, que las recalcularía mal en la corrida
+// siguiente. Las dos exclusiones eran la misma lista escrita dos veces, en
+// `vars_rule.go` y en `step_executable.go`, sin nada que las mantuviera
+// sincronizadas; ahora hay un solo dueño (spec 10).
+//
+// La lista es NORMATIVA para la huella de variables: está transcrita en
+// `fingerprint/SPEC-VARIABLES-v1.md` §3.1, y `TestVolatileVarNames_...` la fija.
+var volatileVarNames = []string{
+	VarProjectVersion,
+	VarProjectRevision,
+	VarProjectRevisionFull,
+	VarToolName,
+	VarProjectWorkdir,
+	VarStepWorkdir,
+}
+
+// VolatileVarNames devuelve una copia de la lista de variables derivadas.
+func VolatileVarNames() []string {
+	names := make([]string, len(volatileVarNames))
+	copy(names, volatileVarNames)
+	return names
+}
+
+// IsVolatileVar dice si una variable la deriva el motor de la ejecución en
+// curso.
+func IsVolatileVar(name string) bool {
+	return slices.Contains(volatileVarNames, name)
+}
 
 type Variable struct {
 	name     string
