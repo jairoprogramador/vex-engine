@@ -6,8 +6,11 @@ import (
 )
 
 const (
+	// `shared_workdir` vivía aquí, declarada y sin que nadie la asignara jamás
+	// (D6). Se elimina con la spec 11: una variable que no existe no puede ser
+	// volátil ni no volátil, y conservarla es invitar a que alguien la asigne sin
+	// saber qué significaba.
 	VarStepWorkdir         = "step_workdir"
-	VarSharedWorkdir       = "shared_workdir"
 	VarEnvironment         = "environment"
 	VarProjectID           = "project_id"
 	VarProjectName         = "project_name"

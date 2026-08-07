@@ -3,31 +3,35 @@ package step
 import (
 	"fmt"
 	"path/filepath"
-	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/cache"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	"github.com/jairoprogramador/vex-engine/internal/domain/state"
 )
 
 type StepExecutable struct {
 	command.BaseExecutable
-	handler        StepHandler
-	varsRepository VarsStoreRepository
-	entries        cache.Entries
+	handler   StepHandler
+	records   state.Records
+	recordIDs state.RecordIDFactory
+	entries   cache.Entries
 }
 
 var _ command.Executable = (*StepExecutable)(nil)
 
 func NewStepExecutable(
 	handler StepHandler,
-	varsRepository VarsStoreRepository,
+	records state.Records,
+	recordIDs state.RecordIDFactory,
 	entries cache.Entries) *StepExecutable {
 
 	return &StepExecutable{
-		handler:        handler,
-		varsRepository: varsRepository,
-		entries:        entries,
+		handler:   handler,
+		records:   records,
+		recordIDs: recordIDs,
+		entries:   entries,
 	}
 }
 
@@ -50,47 +54,45 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 			err := s.handler.Handle(request.Ctx(), request)
 			switch {
 			case err == nil && request.WasSkipped():
-				// El step no ejecutó nada, así que no hay estado que persistir: el
-				// almacén dejaría escrito «sin cambios» sobre cero evidencia, y eso
+				// El step no ejecutó nada, así que no hay hecho que registrar: el
+				// almacén dejaría escrito «esto corrió» sobre cero evidencia, y eso
 				// es lo que hacía que un `commands.yaml` vacío no se pudiera volver
 				// a intentar nunca (spec 04 §5.3).
 				executionContext.Emit(fmt.Sprintf("Step %s saltado: %s",
 					executionContext.StepName(), request.SkipReason()))
 
+			case err == nil && !request.WasExecuted():
+				// El step revivió: sus comandos no corrieron porque el último
+				// registro de su clave dice que ese trabajo ya está hecho. Es un
+				// éxito, y NO es un hecho nuevo — escribir un registro aquí lo
+				// duplicaría en cada corrida y, como el camino de revivir no anota
+				// huella, el registro nuevo dejaría al step sin poder revivir nunca
+				// más (spec 11 §5.3).
+				request.MarkStepSuccess()
+
 			case err == nil:
 				request.MarkStepSuccess()
 
-				// AQUÍ, y solo aquí, se escribe la entrada de caché: después de
-				// que el último comando del step terminó bien (spec 09 §5.2,
-				// heredado por la 10).
+				// AQUÍ, y solo aquí, se escribe el estado: después de que el último
+				// comando del step terminó bien (spec 09 §5.2, heredado por la 10 y
+				// por la 11).
 				//
 				// Antes lo escribía cada regla dentro de su `Evaluate`, antes de
 				// ejecutar nada, y el borrado compensatorio del camino de error
 				// intentaba revertirlo. El compensador no podía cubrir la muerte
 				// dura —es código que corre después—, así que un SIGKILL o un OOM
-				// a mitad dejaba escrito «sin cambios» para un step que nunca
-				// terminó y la corrida siguiente lo saltaba. Con la escritura
-				// aquí no hay nada que compensar.
+				// a mitad dejaba escrito «ya se hizo» para un step que nunca
+				// terminó y la corrida siguiente lo saltaba. Con la escritura aquí
+				// no hay nada que compensar.
 				//
-				// Lo que la spec 10 cambió es sólo QUÉ se escribe: donde la 09
-				// dejó un `switch` por nombre de regla repartiendo cuatro
-				// evidencias a cuatro almacenes, hay una sola escritura.
-				s.putCacheEntry(request, executionContext)
-
-				err := s.saveScopeVars(executionContext.Environment(), executionContext.StepName(), executionContext)
-				if err != nil {
-					executionContext.Emit(fmt.Sprintf("error al guardar vars scope %s: %v", executionContext.Environment(), err))
-				}
-				err = s.saveScopeVars(command.SharedScopeName, executionContext.StepName(), executionContext)
-				if err != nil {
-					executionContext.Emit(fmt.Sprintf("error al guardar vars scope %s: %v", command.SharedScopeName, err))
-				}
-				// step es "deploy" crear tag en repo git con la version actual
+				// Lo que la spec 11 cambia es QUÉ se escribe y con qué regla de
+				// vida: un REGISTRO nuevo por ejecución real, que no sustituye a
+				// ninguno, más una entrada de índice que apunta a él.
+				s.appendRecords(request, executionContext)
 
 			default:
 				// Un step fallido no borra nada porque no había escrito nada: la
-				// evidencia que la policy le anotó muere aquí con la cadena
-				// (spec 09 §5.2).
+				// huella que la cadena anotó muere aquí con ella (spec 09 §5.2).
 				//
 				// Aquí vivía el borrado compensatorio, y con él el descarte de
 				// error que la spec 02 §5.4 tuvo que parchear para que dejara de
@@ -121,85 +123,159 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 	)
 }
 
-// putCacheEntry deja constancia de que ESTE contenido exacto ya se ejecutó con
-// éxito aquí.
+// appendRecords deja constancia de que ESTE step acaba de ejecutarse aquí, y de
+// lo que produjo.
 //
-// Sin clave anotada no se escribe nada, y eso cubre dos casos distintos con la
-// misma respuesta: el paso se saltó por caché —no hay nada nuevo que decir— o no
-// se pudo componer su material. En el segundo, escribir sería peor que no
-// escribir: dejaría una entrada bajo una clave incompleta, que colisiona con la
-// de cualquier otro material al que le falte lo mismo. Como «ausencia de entrada
-// ⇒ ejecutar», no escribir es exactamente lo correcto.
-func (s *StepExecutable) putCacheEntry(
+// Escribe DOS registros mientras el ámbito no lo declare el step (spec 13): uno
+// bajo el ámbito de proyecto —lo que hasta entonces se marca como `shared`— y
+// otro bajo el del ambiente. No es una desviación de «un registro por ejecución
+// real»: son dos claves distintas, porque hoy un mismo step puede producir
+// variables de los dos ámbitos y las de proyecto tienen que seguir siendo
+// visibles desde cualquier ambiente. Cuando el step declare UN ámbito, esto se
+// colapsa a una sola escritura y el segundo registro desaparece con la
+// bifurcación.
+//
+// Los dos se escriben aunque el conjunto de variables esté vacío: el hecho que
+// el registro guarda es «este step corrió», no «este step produjo algo», y un
+// registro vacío es además la única forma de expresar «este ámbito ya no tiene
+// variables» — lo que en el almacén viejo obligaba a guardar una lista vacía.
+//
+// Ningún fallo de escritura tumba el step: el despliegue ocurrió, y convertir
+// «no pude guardar» en «el despliegue falló» sería mentir en la dirección
+// peligrosa (spec 09 §9.6). Lo que sí ocurre es que se dice en voz alta.
+func (s *StepExecutable) appendRecords(
 	request *StepRequestHandler,
 	executionContext *command.ExecutionContext) {
 
-	key, ok := request.CacheKey()
+	// El instante sale del reloj inyectable a través del agregado (spec 07): no
+	// hay `time.Now()` en el dominio, y por eso los dos lados del borde de la
+	// expiración se pueden probar sin esperar treinta días.
+	producedBy := state.Provenance{
+		ExecutionID: executionContext.ExecutionID().String(),
+		At:          executionContext.StartedAt(),
+	}
+	fingerprint := request.StepFingerprint()
+
+	projectKey, err := request.ProjectStateKey()
+	if err != nil {
+		s.warn(executionContext, err)
+	} else {
+		s.appendRecord(executionContext, projectKey,
+			scopeVariables(executionContext, true), fingerprint, producedBy)
+	}
+
+	environmentKey, err := request.EnvironmentStateKey()
+	if err != nil {
+		s.warn(executionContext, err)
+		return
+	}
+	recordID := s.appendRecord(executionContext, environmentKey,
+		scopeVariables(executionContext, false), fingerprint, producedBy)
+
+	// El índice apunta a un registro que YA existe: si el registro no se pudo
+	// escribir, no hay a qué apuntar y no se escribe entrada. Un índice con
+	// punteros rotos dejaría de ser reconstruible sin distinguir cuáles lo están.
+	if !recordID.IsZero() {
+		s.putIndexEntry(request, executionContext, environmentKey, recordID)
+	}
+}
+
+// appendRecord escribe un registro y devuelve su identificador, o el
+// identificador cero si no se pudo escribir.
+func (s *StepExecutable) appendRecord(
+	executionContext *command.ExecutionContext,
+	key state.Key,
+	variables []command.Variable,
+	fingerprint string,
+	producedBy state.Provenance) state.RecordID {
+
+	recordID, err := s.recordIDs.New(producedBy.At)
+	if err != nil {
+		s.warn(executionContext, err)
+		return state.RecordID{}
+	}
+
+	record, err := state.NewStepRecord(recordID, fingerprint, variables, producedBy)
+	if err != nil {
+		s.warn(executionContext, err)
+		return state.RecordID{}
+	}
+
+	if err := s.records.Append(executionContext.Ctx(), key, record); err != nil {
+		// Fail-open y VISIBLE. A diferencia del índice, lo que se pierde aquí es
+		// un HECHO: si el step extrajo el nombre de un recurso que acaba de crear
+		// en la nube, el motor deja de tener su pista. El step no falla —el
+		// recurso existe igual— pero esto no puede pasar en silencio.
+		s.warn(executionContext, fmt.Errorf(
+			"no se pudo registrar el estado del step %s en el ámbito %s: %w",
+			executionContext.StepName(), key.Scope(), err))
+		return state.RecordID{}
+	}
+	return recordID
+}
+
+// putIndexEntry deja el puntero «este contenido exacto corrió, y éste fue el
+// registro».
+//
+// Sin huella anotada no se escribe nada, y eso cubre dos casos con la misma
+// respuesta: el step revivió —no hay nada nuevo que indexar— o no se pudo
+// componer su material. En el segundo, escribir sería peor que no escribir:
+// dejaría una entrada bajo una clave incompleta, que colisiona con la de
+// cualquier otro material al que le falte lo mismo.
+//
+// Que falle no cambia ninguna decisión del motor —el índice no participa en
+// ninguna—, así que la advertencia dice exactamente eso y no «tu caché está
+// roto».
+func (s *StepExecutable) putIndexEntry(
+	request *StepRequestHandler,
+	executionContext *command.ExecutionContext,
+	stateKey state.Key,
+	recordID state.RecordID) {
+
+	key, ok := request.IndexKey()
 	if !ok {
 		return
 	}
 
-	// El instante sale del reloj inyectable a través del agregado (spec 07): no
-	// hay `time.Now()` en el dominio, y por eso los dos lados del borde del TTL
-	// se pueden probar sin esperar treinta días.
-	entry := cache.NewEntry(cache.Provenance{
-		ExecutionID: executionContext.ExecutionID().String(),
-		At:          executionContext.StartedAt(),
-	}, cache.DefaultTTL)
+	entry, err := cache.NewEntry(stateKey, recordID)
+	if err != nil {
+		s.warn(executionContext, err)
+		return
+	}
 
 	if err := s.entries.Put(executionContext.Ctx(), key, entry); err != nil {
-		// Fail-open y VISIBLE: no haber podido guardar el caché no invalida el
-		// despliegue que sí ocurrió, así que el step no falla por esto —convertir
-		// «no pude guardar el caché» en «el despliegue falló» sería mentir en la
-		// dirección peligrosa (spec 09 §9.6)—. Lo que sí pasa es que la corrida
-		// siguiente volverá a ejecutarlo, y el usuario merece saber que su caché
-		// está roto en vez de creer que su código cambió.
 		executionContext.Emit(fmt.Sprintf(
-			"advertencia: no se pudo guardar el estado de re-ejecución del step %s: %v",
+			"advertencia: no se pudo indexar el registro del step %s: %v",
 			executionContext.StepName(), err))
 	}
 }
 
-func (s *StepExecutable) saveScopeVars(
-	scope, step string,
-	executionContext *command.ExecutionContext) error {
-
-	isShared := scope == command.SharedScopeName
-
-	repositoryScopeVars, err := s.varsRepository.Get(executionContext.Ctx(), executionContext.ProjectUrl(), executionContext.PipelineUrl(), scope, step)
-	if err != nil {
-		executionContext.Emit(fmt.Sprintf("error al cargar vars scope %s: %v", scope, err))
-		return nil
-	}
-
-	// La lista de volátiles ya no está escrita aquí a mano: era la misma que
-	// filtraba la huella de variables, duplicada en dos archivos sin nada que
-	// las mantuviera sincronizadas (spec 10). Ahora hay un solo dueño, y está
-	// especificada en `fingerprint/SPEC-VARIABLES-v1.md` §3.1.
-	accumulatedScopeVars := executionContext.FilteredAccumulatedVars(
-		func(variable command.Variable) bool {
-			return variable.IsShared() == isShared && !command.IsVolatileVar(variable.Name())
-		}).ToSlice()
-
-	accumulatedScopeVars = sortedExecutionVarsByName(accumulatedScopeVars)
-	repositoryScopeVars = sortedExecutionVarsByName(repositoryScopeVars)
-
-	if !reflect.DeepEqual(repositoryScopeVars, accumulatedScopeVars) {
-		return s.varsRepository.Save(executionContext.Ctx(), executionContext.ProjectUrl(), executionContext.PipelineUrl(), scope, step, accumulatedScopeVars)
-	}
-	return nil
+func (s *StepExecutable) warn(executionContext *command.ExecutionContext, err error) {
+	executionContext.Emit(fmt.Sprintf("advertencia: %v", err))
 }
 
-func sortedExecutionVarsByName(vars []command.Variable) []command.Variable {
-	ordered := slices.Clone(vars)
-	slices.SortFunc(ordered, func(a, b command.Variable) int {
-		if a.Name() < b.Name() {
-			return -1
-		}
-		if a.Name() > b.Name() {
-			return 1
-		}
-		return 0
+// scopeVariables es el conjunto que va a un registro: el mapa acumulado no
+// volátil, partido por ámbito.
+//
+// El filtro de volátiles NO está escrito aquí a mano: era la misma lista que
+// filtra la huella de variables, duplicada en dos archivos sin nada que las
+// mantuviera sincronizadas (spec 10). Hay un solo dueño, y está especificado en
+// `fingerprint/SPEC-VARIABLES-v1.md` §3.1.
+//
+// Desapareció con el modelo la comparación previa por `reflect.DeepEqual`: en un
+// almacén append-only no hay nada que comparar antes de escribir, porque no se
+// está decidiendo si sustituir algo.
+// El orden por nombre es para el humano que abre el archivo: un mapa de Go se
+// recorre en orden aleatorio, y sin ordenar dos registros con las mismas
+// variables se verían distintos en un diff. No es material de ninguna huella.
+func scopeVariables(executionContext *command.ExecutionContext, shared bool) []command.Variable {
+	variables := executionContext.FilteredAccumulatedVars(
+		func(variable command.Variable) bool {
+			return variable.IsShared() == shared && !command.IsVolatileVar(variable.Name())
+		}).ToSlice()
+
+	slices.SortFunc(variables, func(a, b command.Variable) int {
+		return strings.Compare(a.Name(), b.Name())
 	})
-	return ordered
+	return variables
 }

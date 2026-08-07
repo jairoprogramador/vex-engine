@@ -1,14 +1,14 @@
 package step_test
 
-// La entrada de caché se escribe UNA sola vez, desde aquí, y solo si el step
-// terminó bien (spec 09 §5.2, heredado por la 10 §5.2).
+// El estado se escribe UNA sola vez, desde aquí, y solo si el step terminó bien
+// (spec 09 §5.2, heredado por la 10 §5.2 y por la 11 §5.3).
 //
 // Aquí vivía el borrado compensatorio: las reglas escribían la huella nueva
 // dentro de `Evaluate` —antes del primer comando— y este `Delete` la revertía si
 // el step fallaba. La spec 09 lo eliminó junto con su causa; la 10 no cambió el
-// MOMENTO —eso ya estaba— sino QUÉ se escribe: donde había un `switch` por
-// nombre de regla repartiendo cuatro evidencias a cuatro almacenes, hay una sola
-// escritura bajo una sola clave.
+// MOMENTO —eso ya estaba— sino QUÉ se escribe; la 11 cambia la REGLA DE VIDA de
+// lo escrito: un registro nuevo que no sustituye a ninguno, más un puntero de
+// índice hacia él.
 
 import (
 	"context"
@@ -25,6 +25,7 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/domain/fingerprint"
 	domNotify "github.com/jairoprogramador/vex-engine/internal/domain/notify"
 	"github.com/jairoprogramador/vex-engine/internal/domain/shared"
+	domState "github.com/jairoprogramador/vex-engine/internal/domain/state"
 	domStep "github.com/jairoprogramador/vex-engine/internal/domain/step"
 )
 
@@ -33,132 +34,178 @@ var (
 	errDeEscritura = errors.New("permiso denegado al escribir el estado")
 )
 
-func TestStepExecutable_LaEntradaSeEscribeSoloTrasElExito(t *testing.T) {
-	t.Run("un step exitoso escribe la entrada de su clave", func(t *testing.T) {
-		almacen := &entriesEspia{}
-		ejecutable := domStep.NewStepExecutable(handlerQueAnota{}, &varsStoreSpy{}, almacen)
+func TestStepExecutable_ElRegistroSeEscribeSoloTrasElExito(t *testing.T) {
+	t.Run("un step exitoso deja registro y lo indexa", func(t *testing.T) {
+		registros := &recordsEspia{}
+		indice := &entriesEspia{}
+		ejecutable := nuevoEjecutable(handlerQueAnota{}, registros, indice)
 
 		require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
 
-		require.Equal(t, []string{claveDePrueba(t).String()}, almacen.escritas)
+		// Dos registros mientras el ámbito no lo declare el step (spec 13): el
+		// del proyecto y el del ambiente.
+		require.Equal(t, []string{"project", "environment:prod"}, registros.ambitos())
+		assert.Equal(t, []string{claveDePrueba(t).String()}, indice.escritas)
 	})
 
 	// Una muerte dura es, vista desde el código, «se decidió ejecutar y no se
 	// llegó al camino de éxito». Antes la huella ya estaba escrita para entonces
 	// —la escribía `Evaluate`— y solo el borrado compensatorio la quitaba, que es
 	// código que corre después y que un SIGKILL no ejecuta.
-	//
-	// Lo que este test fija es la propiedad ESTRUCTURAL que sustituye a aquel
-	// compensador: por este camino no se escribe nada, así que no hay nada que
-	// revertir.
-	t.Run("un step que anota su clave y NO termina no deja entrada", func(t *testing.T) {
-		almacen := &entriesEspia{}
-		ejecutable := domStep.NewStepExecutable(
-			handlerQueAnotaYFalla{err: errDelHandler}, &varsStoreSpy{}, almacen)
+	t.Run("un step que anota su huella y NO termina no deja nada", func(t *testing.T) {
+		registros := &recordsEspia{}
+		indice := &entriesEspia{}
+		ejecutable := nuevoEjecutable(
+			handlerQueAnotaYFalla{err: errDelHandler}, registros, indice)
 
 		require.ErrorIs(t, ejecutable.Execute(contextoDePrueba(t)), errDelHandler)
-		require.Empty(t, almacen.escritas,
-			"la clave anotada muere con la cadena; nada llegó al disco")
+		require.Empty(t, registros.anadidos, "no hay registro de «se intentó»")
+		require.Empty(t, indice.escritas)
 	})
 
-	t.Run("un step saltado no escribe entrada", func(t *testing.T) {
-		almacen := &entriesEspia{}
-		ejecutable := domStep.NewStepExecutable(handlerQueSalta{}, &varsStoreSpy{}, almacen)
+	// «Uno por ejecución REAL del step — nunca cuando se revive» (spec 11 §5.3).
+	//
+	// No es contable: el step que revive no anota huella, así que su registro
+	// saldría con la huella vacía y dejaría al step sin poder revivir NUNCA más.
+	// El síntoma es una oscilación de periodo dos —ejecuta, revive, ejecuta,
+	// revive— y su red a nivel de integración es
+	// `TestRunCommand_ReejecucionSinCambios` a partir de la tercera corrida.
+	t.Run("un step que revive no deja registro", func(t *testing.T) {
+		registros := &recordsEspia{}
+		indice := &entriesEspia{}
+		ejecutable := nuevoEjecutable(handlerQueRevive{}, registros, indice)
 
 		require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
-		require.Empty(t, almacen.escritas)
+		require.Empty(t, registros.anadidos,
+			"revivir no es un hecho nuevo del step: es la constatación de uno viejo")
+		require.Empty(t, indice.escritas)
 	})
 
-	// Un step que no anotó clave —porque no se pudo componer su material— no
-	// deja entrada aunque termine bien. Escribir bajo una clave incompleta sería
-	// peor que no escribir: colisionaría con la de cualquier otro material al
-	// que le faltara lo mismo. Y como «ausencia de entrada ⇒ ejecutar», no
-	// escribir es exactamente lo correcto (spec 10, §8 última fila del recuadro).
-	t.Run("un step sin clave anotada no escribe entrada", func(t *testing.T) {
-		almacen := &entriesEspia{}
-		ejecutable := domStep.NewStepExecutable(handlerQueNoAnota{}, &varsStoreSpy{}, almacen)
+	t.Run("un step saltado no deja nada", func(t *testing.T) {
+		registros := &recordsEspia{}
+		indice := &entriesEspia{}
+		ejecutable := nuevoEjecutable(handlerQueSalta{}, registros, indice)
 
 		require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
-		require.Empty(t, almacen.escritas)
+		require.Empty(t, registros.anadidos,
+			"las variables declaradas estaban en el mapa acumulado, pero ningún comando las consumió")
+		require.Empty(t, indice.escritas)
 	})
+}
+
+// EL cambio de la spec 11, y la asimetría de su §4: un step cuyo material no se
+// pudo componer SÍ deja registro —lo que produjo es estado real, y perder de
+// vista un ARN es peor que re-ejecutar— pero sin huella, así que no revivirá
+// nunca. Lo que no deja es entrada de índice: no hay contenido bajo el que
+// indexarlo.
+func TestStepExecutable_UnStepSinHuellaRegistraIgualPeroNoIndexa(t *testing.T) {
+	registros := &recordsEspia{}
+	indice := &entriesEspia{}
+	ejecutable := nuevoEjecutable(handlerQueNoAnota{}, registros, indice)
+
+	require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
+
+	require.Len(t, registros.anadidos, 2)
+	for _, anadido := range registros.anadidos {
+		assert.Empty(t, anadido.registro.StepFingerprint())
+		assert.False(t, anadido.registro.Revives(""))
+	}
+	assert.Empty(t, indice.escritas, "un puntero bajo una clave incompleta colisionaría")
 }
 
 // La escritura ocurre DESPUÉS del último comando, no antes ni durante. Es la
 // ventana de la spec 09 §1(a) medida por orden, no supuesta.
-func TestStepExecutable_LaEntradaSeEscribeDespuesDelUltimoComando(t *testing.T) {
-	almacen := &entriesEspia{}
-	ejecutable := domStep.NewStepExecutable(
-		handlerQueAnota{orden: &almacen.orden}, &varsStoreSpy{}, almacen)
+func TestStepExecutable_ElRegistroSeEscribeDespuesDelUltimoComando(t *testing.T) {
+	registros := &recordsEspia{}
+	ejecutable := nuevoEjecutable(
+		handlerQueAnota{orden: &registros.orden}, registros, &entriesEspia{})
 
 	require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
 
-	require.Equal(t, []string{"comando", "escritura"}, almacen.orden)
+	require.Equal(t, []string{"comando", "escritura", "escritura"}, registros.orden)
 }
 
-// La entrada lleva la procedencia: quién la escribió y cuándo. Sin eso, «se
-// salta porque ya está en caché» con una clave opaca deja sin respuesta la
-// pregunta «¿cuándo se probó esto por última vez?» (spec 10 §5.4).
-func TestStepExecutable_LaEntradaLlevaSuProcedenciaYSuCaducidad(t *testing.T) {
-	almacen := &entriesEspia{}
-	ejecutable := domStep.NewStepExecutable(handlerQueAnota{}, &varsStoreSpy{}, almacen)
+// El registro lleva su procedencia: quién lo escribió y cuándo. Sin eso, «se
+// revive» dejaría sin respuesta «¿cuándo se probó esto por última vez?», y el
+// rollback de la spec 28 no tendría a qué anclar.
+func TestStepExecutable_ElRegistroLlevaSuProcedenciaYSuHuella(t *testing.T) {
+	registros := &recordsEspia{}
+	ejecutable := nuevoEjecutable(handlerQueAnota{}, registros, &entriesEspia{})
 
 	require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
 
-	require.Len(t, almacen.entradas, 1)
-	entrada := almacen.entradas[0]
+	require.NotEmpty(t, registros.anadidos)
+	registro := registros.anadidos[0].registro
 
-	assert.Equal(t, "exec-1", entrada.ProducedBy.ExecutionID)
-	assert.True(t, instanteDePrueba.Equal(entrada.ProducedBy.At),
+	assert.Equal(t, "exec-1", registro.ProducedBy().ExecutionID)
+	assert.True(t, instanteDePrueba.Equal(registro.ProducedBy().At),
 		"el instante sale del reloj inyectable del agregado, no de time.Now()")
-	require.NotNil(t, entrada.ExpiresAt)
-	assert.True(t, instanteDePrueba.Add(domCache.DefaultTTL).Equal(*entrada.ExpiresAt))
+	assert.Equal(t, claveDePrueba(t).String(), registro.StepFingerprint())
+	assert.False(t, registro.ID().IsZero())
+}
+
+// Las variables se reparten por ámbito, y las volátiles no entran en ninguno:
+// las seis las deriva el motor de la ejecución en curso, así que guardarlas
+// sería guardar basura que la corrida siguiente recalcularía distinta.
+func TestStepExecutable_ElRegistroSeParteEnDosAmbitosYFiltraLasVolatiles(t *testing.T) {
+	registros := &recordsEspia{}
+	ejecutable := nuevoEjecutable(handlerQueProduceVariables{}, registros, &entriesEspia{})
+
+	require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
+
+	require.Len(t, registros.anadidos, 2)
+	assert.Equal(t, []string{"artifact_url"}, nombresDe(registros.anadidos[0].registro),
+		"el ámbito de proyecto lleva sólo lo compartido")
+	assert.Equal(t, []string{"acr_name"}, nombresDe(registros.anadidos[1].registro),
+		"y el del ambiente sólo lo suyo, sin las volátiles")
+
+	for _, anadido := range registros.anadidos {
+		for _, nombre := range command.VolatileVarNames() {
+			assert.NotContains(t, nombresDe(anadido.registro), nombre)
+		}
+	}
 }
 
 // (b) de la spec 09 §1: si la escritura falla, el step no falla —el despliegue
-// ocurrió— pero el usuario se entera. Antes el fallo del `Set` se convertía en
-// una razón para ejecutar dentro de la propia decisión, y era indistinguible de
-// «el código cambió».
-func TestStepExecutable_UnFalloAlEscribirLaEntradaNoTumbaElStepPeroSeDice(t *testing.T) {
-	almacen := &entriesEspia{putErr: errDeEscritura}
+// ocurrió— pero el usuario se entera. Lo que se pierde aquí es un HECHO, no una
+// optimización, así que el mensaje lo dice en esos términos.
+func TestStepExecutable_UnFalloAlRegistrarNoTumbaElStepPeroSeDice(t *testing.T) {
+	registros := &recordsEspia{appendErr: errDeEscritura}
 	emisor := &emisorEspia{}
 	contexto := contextoDePruebaCon(t, emisor)
 
-	ejecutable := domStep.NewStepExecutable(handlerQueAnota{}, &varsStoreSpy{}, almacen)
+	ejecutable := nuevoEjecutable(handlerQueAnota{}, registros, &entriesEspia{})
 
 	require.NoError(t, ejecutable.Execute(contexto),
-		"no haber podido guardar el caché no invalida el despliegue que sí ocurrió")
-	assert.True(t, emisor.contiene("no se pudo guardar el estado de re-ejecución"),
-		"pero deja de ser silencioso: el usuario merece saber que su caché está roto")
+		"no haber podido guardar el estado no invalida el despliegue que sí ocurrió")
+	assert.True(t, emisor.contiene("no se pudo registrar el estado del step"),
+		"pero deja de ser silencioso: se acaba de perder la pista de un recurso real")
 	assert.False(t, emisor.contiene("cambió"),
 		"y no se disfraza de cambio de contenido")
 }
 
-// Un step saltado por falta de comandos no persiste estado (spec 04 §5.3).
-//
-// El efecto dañino de tratarlo como `success` no era el vocabulario: era que el
-// step guardaba el almacén sobre cero comandos ejecutados, así que quedaba
-// escrito «sin cambios» para siempre.
-func TestStepExecutable_StepSaltadoNoPersisteEstado(t *testing.T) {
-	t.Run("control: un step exitoso SÍ guarda lo que produjo", func(t *testing.T) {
-		almacen := &varsStoreSpy{}
-		ejecutable := domStep.NewStepExecutable(
-			handlerQueProduceVariable{}, almacen, &entriesEspia{})
+// Si el registro no se pudo escribir, el índice no apunta a él: un índice con
+// punteros rotos dejaría de ser reconstruible sin distinguir cuáles lo están.
+func TestStepExecutable_SinRegistroNoHayIndice(t *testing.T) {
+	indice := &entriesEspia{}
+	ejecutable := nuevoEjecutable(
+		handlerQueAnota{}, &recordsEspia{appendErr: errDeEscritura}, indice)
 
-		require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
-		require.NotZero(t, almacen.guardados)
-	})
+	require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
 
-	t.Run("un step saltado no guarda nada", func(t *testing.T) {
-		almacen := &varsStoreSpy{}
-		entradas := &entriesEspia{}
-		ejecutable := domStep.NewStepExecutable(handlerQueSalta{}, almacen, entradas)
+	assert.Empty(t, indice.escritas)
+}
 
-		require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
-		require.Zero(t, almacen.guardados,
-			"las variables declaradas estaban en el mapa acumulado, pero ningún comando las consumió")
-		require.Empty(t, entradas.escritas,
-			"ni la entrada de caché: no se ejecutó nada que justifique escribirla")
-	})
+// El índice no decide nada, así que un fallo suyo no puede sonar como el del
+// almacén de registros.
+func TestStepExecutable_UnFalloAlIndexarNoTumbaElStepPeroSeDice(t *testing.T) {
+	emisor := &emisorEspia{}
+	contexto := contextoDePruebaCon(t, emisor)
+	ejecutable := nuevoEjecutable(
+		handlerQueAnota{}, &recordsEspia{}, &entriesEspia{putErr: errDeEscritura})
+
+	require.NoError(t, ejecutable.Execute(contexto))
+	assert.True(t, emisor.contiene("no se pudo indexar el registro"))
 }
 
 // La limpieza del step corre aunque el step falle (spec 06 §5.1).
@@ -166,12 +213,12 @@ func TestStepExecutable_StepSaltadoNoPersisteEstado(t *testing.T) {
 // `step_workdir` lo pone el `before` del step y lo retira su `after`, que hasta
 // la spec 06 vivía detrás del camino feliz. El residuo no es cosmético: el mapa
 // acumulado es el material del que sale la huella de variables —y con ella la
-// `cache_key`, y mañana `content_id`— así que dejar ahí el workdir del step
+// huella del step, y mañana `content_id`— así que dejar ahí el workdir del step
 // fallido es dejar residuo en la identidad.
 func TestStepExecutable_UnStepFallidoNoDejaSuWorkdirEnElMapaAcumulado(t *testing.T) {
 	t.Run("control: el step exitoso tampoco lo deja", func(t *testing.T) {
 		contexto := contextoDePrueba(t)
-		ejecutable := domStep.NewStepExecutable(handlerQueFalla{}, &varsStoreSpy{}, &entriesEspia{})
+		ejecutable := nuevoEjecutable(handlerQueFalla{}, &recordsEspia{}, &entriesEspia{})
 
 		require.NoError(t, ejecutable.Execute(contexto))
 
@@ -181,8 +228,8 @@ func TestStepExecutable_UnStepFallidoNoDejaSuWorkdirEnElMapaAcumulado(t *testing
 
 	t.Run("el step fallido tampoco", func(t *testing.T) {
 		contexto := contextoDePrueba(t)
-		ejecutable := domStep.NewStepExecutable(
-			handlerQueFalla{err: errDelHandler}, &varsStoreSpy{}, &entriesEspia{})
+		ejecutable := nuevoEjecutable(
+			handlerQueFalla{err: errDelHandler}, &recordsEspia{}, &entriesEspia{})
 
 		require.ErrorIs(t, ejecutable.Execute(contexto), errDelHandler)
 
@@ -194,6 +241,14 @@ func TestStepExecutable_UnStepFallidoNoDejaSuWorkdirEnElMapaAcumulado(t *testing
 
 // ── Dobles ──────────────────────────────────────────────────────────────────
 
+func nuevoEjecutable(
+	handler domStep.StepHandler,
+	registros domState.Records,
+	indice domCache.Entries) *domStep.StepExecutable {
+
+	return domStep.NewStepExecutable(handler, registros, idsFijos{}, indice)
+}
+
 type handlerQueFalla struct{ err error }
 
 func (h handlerQueFalla) Handle(_ *context.Context, _ *domStep.StepRequestHandler) error {
@@ -202,20 +257,26 @@ func (h handlerQueFalla) Handle(_ *context.Context, _ *domStep.StepRequestHandle
 
 func (h handlerQueFalla) SetNext(domStep.StepHandler) {}
 
-// handlerQueProduceVariable deja una variable en el mapa acumulado, que es lo que
-// el almacén persiste al terminar el step.
-type handlerQueProduceVariable struct{}
+// handlerQueProduceVariables deja una variable de cada ámbito en el mapa
+// acumulado, que es lo que el registro persiste al terminar el step.
+type handlerQueProduceVariables struct{}
 
-func (handlerQueProduceVariable) Handle(_ *context.Context, request *domStep.StepRequestHandler) error {
-	variable, err := command.NewVariable("acr_name", "vexsand-demo-app", false)
+func (handlerQueProduceVariables) Handle(_ *context.Context, request *domStep.StepRequestHandler) error {
+	delAmbiente, err := command.NewVariable("acr_name", "vexsand-demo-app", false)
 	if err != nil {
 		return err
 	}
-	request.AddAccumulatedVars(variable)
+	delProyecto, err := command.NewVariable("artifact_url", "s3://artefactos/demo", true)
+	if err != nil {
+		return err
+	}
+	request.AddAccumulatedVars(delAmbiente)
+	request.AddAccumulatedVars(delProyecto)
+	request.MarkStepExecuted()
 	return nil
 }
 
-func (handlerQueProduceVariable) SetNext(domStep.StepHandler) {}
+func (handlerQueProduceVariables) SetNext(domStep.StepHandler) {}
 
 // handlerQueSalta reproduce lo que hace el handler 04 con un commands.yaml vacío:
 // las variables declaradas ya están en el mapa, pero ningún comando corrió.
@@ -233,14 +294,26 @@ func (handlerQueSalta) Handle(_ *context.Context, request *domStep.StepRequestHa
 
 func (handlerQueSalta) SetNext(domStep.StepHandler) {}
 
-// handlerQueAnota reproduce lo que hace el handler 04 cuando no hay entrada de
-// caché: anota la clave y corre los comandos. Anotar no persiste nada —eso lo
+// handlerQueRevive reproduce lo que hace el handler 04 cuando el último registro
+// de la clave dice que este trabajo ya está hecho: no marca ejecución, no anota
+// huella y termina bien. Ni siquiera es un `skipped`: el step está al día.
+type handlerQueRevive struct{}
+
+func (handlerQueRevive) Handle(_ *context.Context, _ *domStep.StepRequestHandler) error {
+	return nil
+}
+
+func (handlerQueRevive) SetNext(domStep.StepHandler) {}
+
+// handlerQueAnota reproduce lo que hace el handler 04 cuando no hay registro
+// vigente: anota la huella y corre los comandos. Anotar no persiste nada —eso lo
 // hace el camino de éxito de StepExecutable—, que es justo lo que estos tests
 // miden.
 type handlerQueAnota struct{ orden *[]string }
 
 func (h handlerQueAnota) Handle(_ *context.Context, request *domStep.StepRequestHandler) error {
-	request.RecordCacheKey(claveAnotada())
+	request.RecordStepFingerprint(huellaAnotada())
+	request.MarkStepExecuted()
 	if h.orden != nil {
 		*h.orden = append(*h.orden, "comando")
 	}
@@ -249,28 +322,30 @@ func (h handlerQueAnota) Handle(_ *context.Context, request *domStep.StepRequest
 
 func (handlerQueAnota) SetNext(domStep.StepHandler) {}
 
-// handlerQueAnotaYFalla es la muerte a mitad: la clave ya se anotó, los comandos
+// handlerQueAnotaYFalla es la muerte a mitad: la huella ya se anotó, los comandos
 // empezaron y el step no llegó al final.
 type handlerQueAnotaYFalla struct{ err error }
 
 func (h handlerQueAnotaYFalla) Handle(_ *context.Context, request *domStep.StepRequestHandler) error {
-	request.RecordCacheKey(claveAnotada())
+	request.RecordStepFingerprint(huellaAnotada())
+	request.MarkStepExecuted()
 	return h.err
 }
 
 func (handlerQueAnotaYFalla) SetNext(domStep.StepHandler) {}
 
-// handlerQueNoAnota es el paso cuyo material no se pudo componer: corre, termina
-// bien y no deja clave.
+// handlerQueNoAnota es el step cuyo material no se pudo componer: corre, termina
+// bien y no deja huella.
 type handlerQueNoAnota struct{}
 
-func (handlerQueNoAnota) Handle(_ *context.Context, _ *domStep.StepRequestHandler) error {
+func (handlerQueNoAnota) Handle(_ *context.Context, request *domStep.StepRequestHandler) error {
+	request.MarkStepExecuted()
 	return nil
 }
 
 func (handlerQueNoAnota) SetNext(domStep.StepHandler) {}
 
-func claveAnotada() domCache.CacheKey {
+func huellaAnotada() domCache.CacheKey {
 	key, err := domCache.NewCacheKey(materialDePrueba())
 	if err != nil {
 		panic(err) // el material es literal: un error aquí es un bug del test
@@ -304,16 +379,63 @@ func claveDePrueba(t *testing.T) domCache.CacheKey {
 	return key
 }
 
-// ── Espía del almacén de caché ──────────────────────────────────────────────
-//
-// Cuenta escrituras y su orden respecto de los comandos: cero al consultar, y
-// exactamente una después de que el último comando terminó.
+// idsFijos hace reproducible el ULID: la aleatoriedad es infraestructura, y con
+// el puerto se puede fijar entera.
+type idsFijos struct{}
+
+func (idsFijos) New(at time.Time) (domState.RecordID, error) {
+	return domState.NewRecordID(at, []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9})
+}
+
+// ── Espías de las dos tiendas ───────────────────────────────────────────────
+
+type anadido struct {
+	clave    domState.Key
+	registro domState.StepRecord
+}
+
+type recordsEspia struct {
+	anadidos  []anadido
+	appendErr error
+	orden     []string
+}
+
+var _ domState.Records = (*recordsEspia)(nil)
+
+func (r *recordsEspia) Last(*context.Context, domState.Key) (domState.StepRecord, bool, error) {
+	return domState.StepRecord{}, false, nil
+}
+
+func (r *recordsEspia) Append(_ *context.Context, key domState.Key, record domState.StepRecord) error {
+	r.orden = append(r.orden, "escritura")
+	if r.appendErr != nil {
+		return r.appendErr
+	}
+	r.anadidos = append(r.anadidos, anadido{clave: key, registro: record})
+	return nil
+}
+
+func (r *recordsEspia) ambitos() []string {
+	out := make([]string, 0, len(r.anadidos))
+	for _, a := range r.anadidos {
+		out = append(out, a.clave.Scope().String())
+	}
+	return out
+}
+
+func nombresDe(record domState.StepRecord) []string {
+	variables := record.Variables()
+	out := make([]string, 0, len(variables))
+	for i := range variables {
+		out = append(out, variables[i].Name())
+	}
+	return out
+}
 
 type entriesEspia struct {
 	escritas []string
 	entradas []domCache.Entry
 	putErr   error
-	orden    []string
 }
 
 var _ domCache.Entries = (*entriesEspia)(nil)
@@ -323,25 +445,11 @@ func (e *entriesEspia) Get(*context.Context, domCache.CacheKey) (domCache.Entry,
 }
 
 func (e *entriesEspia) Put(_ *context.Context, key domCache.CacheKey, entry domCache.Entry) error {
-	e.orden = append(e.orden, "escritura")
 	if e.putErr != nil {
 		return e.putErr
 	}
 	e.escritas = append(e.escritas, key.String())
 	e.entradas = append(e.entradas, entry)
-	return nil
-}
-
-type varsStoreSpy struct{ guardados int }
-
-var _ domStep.VarsStoreRepository = (*varsStoreSpy)(nil)
-
-func (v *varsStoreSpy) Get(*context.Context, string, string, string, string) ([]command.Variable, error) {
-	return []command.Variable{}, nil
-}
-
-func (v *varsStoreSpy) Save(_ *context.Context, _, _, _, _ string, _ []command.Variable) error {
-	v.guardados++
 	return nil
 }
 

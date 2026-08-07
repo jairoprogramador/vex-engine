@@ -1,8 +1,11 @@
 package cache_test
 
-// El TTL como METADATO de la entrada, no como material de la clave (spec 10
-// §5.1). El tiempo no es propiedad del contenido: una entrada caducada manda
-// ejecutar, y la entrada nueva ocupa el mismo sitio bajo la MISMA clave.
+// La entrada del ÍNDICE, tras el cambio de papel de la spec 11: un puntero de
+// contenido a registro, sin caducidad y sin procedencia.
+//
+// Aquí vivían los tests del TTL. No se han movido: han desaparecido con lo que
+// probaban. La expiración es una propiedad del REGISTRO —de su edad— y no del
+// índice, que ya no decide nada; la declara el pipelinecode con la spec 15.
 
 import (
 	"testing"
@@ -12,58 +15,60 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/cache"
+	"github.com/jairoprogramador/vex-engine/internal/domain/state"
 )
 
-var instante = time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+func TestEntry_ApuntaAUnRegistroConcreto(t *testing.T) {
+	entrada, err := cache.NewEntry(claveDeEstado(t), recordIDDePrueba(t))
+	require.NoError(t, err)
 
-func TestEntry_Caducidad(t *testing.T) {
-	procedencia := cache.Provenance{ExecutionID: "exec-1", At: instante}
-	entrada := cache.NewEntry(procedencia, cache.DefaultTTL)
+	assert.Equal(t, "02-supply", entrada.StateKey.StepID())
+	assert.Equal(t, "environment:sand", entrada.StateKey.Scope().String())
+	assert.False(t, entrada.RecordID.IsZero())
+}
 
-	t.Run("dentro del TTL no ha caducado", func(t *testing.T) {
-		assert.False(t, entrada.IsExpired(instante.Add(29*24*time.Hour)))
+// Un puntero incompleto es un error: apuntar a ninguna parte es peor que no
+// apuntar, porque un índice con entradas rotas deja de ser reconstruible sin
+// distinguir cuáles lo están.
+func TestEntry_UnPunteroIncompletoEsUnError(t *testing.T) {
+	t.Run("sin clave de estado", func(t *testing.T) {
+		_, err := cache.NewEntry(state.Key{}, recordIDDePrueba(t))
+		assert.Error(t, err)
 	})
 
-	t.Run("el borde es exclusivo: caduca AL alcanzarlo", func(t *testing.T) {
-		require.NotNil(t, entrada.ExpiresAt)
-		assert.True(t, entrada.IsExpired(*entrada.ExpiresAt))
-		assert.False(t, entrada.IsExpired(entrada.ExpiresAt.Add(-time.Nanosecond)))
-	})
-
-	t.Run("pasado el TTL ha caducado", func(t *testing.T) {
-		assert.True(t, entrada.IsExpired(instante.Add(31*24*time.Hour)))
-	})
-
-	t.Run("un TTL no positivo es una entrada que no caduca", func(t *testing.T) {
-		perpetua := cache.NewEntry(procedencia, 0)
-		assert.Nil(t, perpetua.ExpiresAt)
-		assert.False(t, perpetua.IsExpired(instante.Add(100*365*24*time.Hour)))
+	t.Run("sin registro", func(t *testing.T) {
+		_, err := cache.NewEntry(claveDeEstado(t), state.RecordID{})
+		assert.Error(t, err)
 	})
 }
 
-// Caducar NO cambia la clave: es lo que distingue el TTL como metadato del TTL
-// como material. Si el tiempo entrara en la clave, cada re-ejecución por
-// caducidad dejaría una entrada nueva y la vieja quedaría huérfana para siempre.
-func TestEntry_CaducarNoCambiaLaClave(t *testing.T) {
+// La clave de contenido no depende del tiempo: dos ejecuciones del mismo
+// material dan la misma clave, y lo que cambia es a qué registro apunta.
+func TestEntry_ElMismoMaterialDaLaMismaClave(t *testing.T) {
 	material := materialBase(t)
 
 	primera, err := cache.NewCacheKey(material)
 	require.NoError(t, err)
-
-	// Pasan 40 días y el paso se re-ejecuta con el mismo contenido.
 	segunda, err := cache.NewCacheKey(material)
 	require.NoError(t, err)
 
-	assert.True(t, primera.Equals(segunda),
-		"la entrada nueva sustituye a la vieja en su sitio")
+	assert.True(t, primera.Equals(segunda))
 }
 
-// La procedencia es lo que hace respondible «¿cuándo se probó esto por última
-// vez?» cuando un paso se salta con una clave opaca (spec 10 §5.4).
-func TestEntry_GuardaQuienLaEscribioYCuando(t *testing.T) {
-	entrada := cache.NewEntry(
-		cache.Provenance{ExecutionID: "exec-42", At: instante}, cache.DefaultTTL)
+func claveDeEstado(t *testing.T) state.Key {
+	t.Helper()
+	scope, err := state.NewEnvironmentScope("sand")
+	require.NoError(t, err)
+	key, err := state.NewKey("https://vex.test/acme/demo-app.git", scope, "02-supply")
+	require.NoError(t, err)
+	return key
+}
 
-	assert.Equal(t, "exec-42", entrada.ProducedBy.ExecutionID)
-	assert.True(t, instante.Equal(entrada.ProducedBy.At))
+func recordIDDePrueba(t *testing.T) state.RecordID {
+	t.Helper()
+	id, err := state.NewRecordID(
+		time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC),
+		[]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9})
+	require.NoError(t, err)
+	return id
 }

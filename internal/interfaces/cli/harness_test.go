@@ -19,7 +19,6 @@ package cli_test
 import (
 	"bytes"
 	"context"
-	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -47,8 +46,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
+	"github.com/jairoprogramador/vex-engine/internal/domain/state"
 	infraCache "github.com/jairoprogramador/vex-engine/internal/infrastructure/cache"
-	stepInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step"
+	stateInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/state"
 	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
 )
 
@@ -351,15 +351,52 @@ func (h *harness) resetLog() {
 	writeFile(h.t, h.execLog, "")
 }
 
-// storedVars lee el almacén de variables con el mismo repositorio de archivo
-// que usa el motor.
-func (h *harness) storedVars(scope, step string) map[string]string {
+// statePath es la raíz de la tienda NO desechable: un registro por ejecución
+// real de un step, y de ahí no se borra nada (spec 11).
+func (h *harness) statePath() string {
+	return filepath.Join(h.root, cli.VexHomeDirName, "state")
+}
+
+// cachePath es la raíz del ÍNDICE, que sí es desechable — y `borrarElIndice` lo
+// demuestra borrándolo.
+func (h *harness) cachePath() string {
+	return filepath.Join(h.root, cli.VexHomeDirName, "cache")
+}
+
+// storedVars lee el ÚLTIMO registro del ámbito de un ambiente, con el mismo
+// repositorio de archivo que usa el motor.
+//
+// El step va con su prefijo de orden (`02-supply`): la identidad de un step es
+// su ruta, y renumerarlo pierde su historia (spec 11 §5.3).
+func (h *harness) storedVars(environment, stepID string) map[string]string {
 	h.t.Helper()
-	repo := stepInfra.NewFileVarsStoreRepository(filepath.Join(h.root, cli.VexHomeDirName, "projects"))
-	ctx := context.Background()
-	vars, err := repo.Get(&ctx, h.projectURL, h.pipelineURL, scope, step)
+	scope, err := state.NewEnvironmentScope(environment)
+	require.NoError(h.t, err)
+	return h.recordVars(scope, stepID)
+}
+
+// sharedVars lee el ÚLTIMO registro del ámbito de PROYECTO: lo que hasta la
+// spec 13 se marca como `shared` y es común a todos los ambientes.
+func (h *harness) sharedVars(stepID string) map[string]string {
+	h.t.Helper()
+	return h.recordVars(state.NewProjectScope(), stepID)
+}
+
+func (h *harness) recordVars(scope state.Scope, stepID string) map[string]string {
+	h.t.Helper()
+
+	key, err := state.NewKey(h.projectURL, scope, stepID)
 	require.NoError(h.t, err)
 
+	repo := stateInfra.NewFileRecordsRepository(h.statePath())
+	ctx := context.Background()
+	record, found, err := repo.Last(&ctx, key)
+	require.NoError(h.t, err)
+	if !found {
+		return map[string]string{}
+	}
+
+	vars := record.Variables()
 	out := make(map[string]string, len(vars))
 	for _, v := range vars {
 		out[v.Name()] = v.Value()
@@ -367,37 +404,36 @@ func (h *harness) storedVars(scope, step string) map[string]string {
 	return out
 }
 
-// persistedStepState devuelve la ruta relativa de todo archivo del ALMACÉN DE
-// VARIABLES que el motor haya escrito para un step (`<step>.vars`).
+// persistedStepState devuelve la ruta relativa de todo REGISTRO que el motor
+// haya escrito para un step.
 //
-// Hasta la spec 10 encontraba además las tres huellas de la policy
-// (`inst<step>.status`, `code<step>.status`, `<step>.status`), que llevaban el
-// nombre del paso en el nombre del archivo. Ya no existen: la entrada de caché
-// está direccionada por CONTENIDO, así que el paso va dentro del hash y no en la
-// ruta. Lo que la sustituye como observación es `cacheEntries`.
+// Cambió tres veces de sujeto y conviene saber por qué. Hasta la spec 10 miraba
+// las tres huellas de la policy (`inst<step>.status`…); la 10 las borró y dejó
+// aquí el almacén de variables (`<step>.vars`); la 11 lo sustituye por el
+// almacén de registros. Lo que mide es lo mismo desde el principio: la mitad de
+// la observación de «no persiste estado de re-ejecución» de la spec 04 §5.3 —un
+// step saltado por falta de comandos no deja rastro, así que la corrida
+// siguiente vuelve a saltarlo por la misma razón y no por estar al día—.
 //
-// Sigue siendo la mitad de la observación de «no persiste estado de
-// re-ejecución» de la spec 04 §5.3: un step saltado por falta de comandos no
-// deja rastro, así que la corrida siguiente vuelve a saltarlo por la misma razón
-// y no por caché.
+// Con append-only pasa a medir algo más: el CONTADOR sólo sube. Dos ejecuciones
+// reales del mismo step dejan dos rutas, no una pisada.
 func (h *harness) persistedStepState(step string) []string {
 	h.t.Helper()
 
-	projects := filepath.Join(h.root, cli.VexHomeDirName, "projects")
 	found := make([]string, 0, 4)
-	err := filepath.WalkDir(projects, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(h.statePath(), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.Contains(d.Name(), step) {
+		if d.IsDir() || filepath.Ext(path) != ".json" {
 			return nil
 		}
-		// El pipelinecode copiado al workdir también menciona el step; lo que se
-		// busca aquí es estado persistido, que siempre es .vars.
-		if filepath.Ext(path) != ".vars" {
+		// El step es el ÚLTIMO tramo de la ruta, no parte del nombre del archivo:
+		// el archivo se llama como su ULID.
+		if !strings.Contains(filepath.Base(filepath.Dir(path)), step) {
 			return nil
 		}
-		rel, err := filepath.Rel(projects, path)
+		rel, err := filepath.Rel(h.statePath(), path)
 		if err != nil {
 			return err
 		}
@@ -412,20 +448,25 @@ func (h *harness) persistedStepState(step string) []string {
 	return found
 }
 
-// cacheEntries devuelve las claves de las entradas de caché escritas, tal como
-// cada archivo se identifica a sí mismo, ordenadas.
+// borrarElIndice es la comprobación de la spec 11 §5.5.1 hecha ejecutable:
+// `rm -rf $HOME/.vex/cache` no puede cambiar una sola decisión del motor.
+func (h *harness) borrarElIndice() {
+	h.t.Helper()
+	require.NoError(h.t, os.RemoveAll(h.cachePath()))
+}
+
+// cacheEntries devuelve las claves de las entradas del ÍNDICE escritas, tal
+// como cada archivo se identifica a sí mismo, ordenadas.
 //
 // Se lee la clave de DENTRO del archivo y no de su ruta a propósito: la ruta es
-// un detalle del almacén, la clave es el contrato. Y como está direccionada por
-// contenido, dos ejecuciones que dan la misma clave producen un solo archivo
-// —que es la mitad de lo que la spec 10 promete—, mientras que dos estados
-// distintos conviven.
+// un detalle del almacén, la clave es el contrato. Sigue habiendo un archivo por
+// contenido —dos ejecuciones con el mismo material lo reescriben en su sitio—,
+// lo que ya no hay es una decisión que dependa de ellas.
 func (h *harness) cacheEntries() []string {
 	h.t.Helper()
 
-	base := filepath.Join(h.root, cli.VexHomeDirName, "cache")
 	claves := make([]string, 0, 4)
-	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(h.cachePath(), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -474,34 +515,31 @@ func (h *harness) workdirFile(relPath string) string {
 // concreto esté limpio sino que ninguna ejecución puede producir la entrada
 // anónima.
 //
-// El almacén es el único sitio donde el mapa acumulado sobrevive a la
-// ejecución, así que es donde se observa. Se lee decodificando el gob a mano en
-// vez de por el repositorio: `NewVariable` rechaza el nombre vacío, así que
+// El almacén de registros es el único sitio donde el mapa acumulado sobrevive a
+// la ejecución, así que es donde se observa. Se lee decodificando el JSON a mano
+// en vez de por el repositorio: `NewVariable` rechaza el nombre vacío, así que
 // pasar por él convertiría la entrada anónima en un error de lectura en vez de
 // en la aserción que se quiere leer al fallar.
 func (h *harness) assertNingunaVariableAnonima() {
 	h.t.Helper()
 
-	projects := filepath.Join(h.root, cli.VexHomeDirName, "projects")
-	err := filepath.WalkDir(projects, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(h.statePath(), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || filepath.Ext(path) != ".vars" {
+		if d.IsDir() || filepath.Ext(path) != ".json" {
 			return nil
 		}
 
-		file, err := os.Open(path)
+		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		defer file.Close()
-
-		var stored []stepInfra.FileVarStoreDTO
-		if err := gob.NewDecoder(file).Decode(&stored); err != nil {
+		var stored stateInfra.FileStepRecordDTO
+		if err := json.Unmarshal(data, &stored); err != nil {
 			return fmt.Errorf("decodificar %s: %w", path, err)
 		}
-		for _, variable := range stored {
+		for _, variable := range stored.Variables {
 			require.NotEmpty(h.t, variable.Name,
 				"variable con nombre vacío en %s (valor %q): un campo vacío del proyecto se coló como entrada anónima", path, variable.Value)
 		}
@@ -576,6 +614,34 @@ func (h *harness) otraMaquina() *harness {
 
 	require.NoError(h.t, os.MkdirAll(otro.root, 0o755))
 	copyTree(h.t, h.projectDir, otro.projectDir)
+
+	return otro
+}
+
+// conOtroPipeline devuelve un harness que despliega EL MISMO proyecto, en el
+// mismo $HOME, con OTRO pipelinecode.
+//
+// Es lo que hace observable la decisión con la que D-A14 se cerró al revés
+// (spec 11 §5.2): la clave de estado no lleva el pipeline, así que los dos
+// escriben bajo la MISMA clave —el ACR pertenece al proyecto— y aun así no se
+// reviven entre sí, porque sus huellas difieren por construcción.
+func (h *harness) conOtroPipeline() *harness {
+	h.t.Helper()
+
+	id := nextHarnessID()
+	otro := &harness{
+		t:           h.t,
+		root:        h.root,
+		projectDir:  h.projectDir,
+		pipelineDir: filepath.Join(h.t.TempDir(), "pipelinecode"),
+		projectURL:  h.projectURL,
+		pipelineURL: fmt.Sprintf("%s/vex-test-%d/pipelinecode", gitHost, id),
+		execLog:     h.execLog,
+	}
+
+	copyTree(h.t, filepath.Join("testdata", "pipelinecode"), otro.pipelineDir)
+	initRepo(h.t, otro.pipelineDir, "feat: otro pipelinecode")
+	gitRepos.Store(endpointPath(otro.pipelineURL), otro.pipelineDir)
 
 	return otro
 }

@@ -2,51 +2,54 @@ package cache
 
 import (
 	"fmt"
-	"time"
 
 	domCache "github.com/jairoprogramador/vex-engine/internal/domain/cache"
+	domState "github.com/jairoprogramador/vex-engine/internal/domain/state"
 )
 
 // fileCacheEntrySchemaVersion versiona la FORMA del archivo, no la regla de la
 // clave. Son dos cosas distintas y conviene no fundirlas: `ck-v1` dice cómo se
-// compuso la clave —cambiarlo invalida el caché entero—, mientras que esto dice
-// cómo está serializada la entrada, y podría subir sin que ninguna clave cambie.
-const fileCacheEntrySchemaVersion = 1
-
-// entryTimeLayout es RFC3339Nano porque va y vuelve sin perder precisión: el
-// instante que se lee es exactamente el que se escribió.
-const entryTimeLayout = time.RFC3339Nano
-
-// FileCacheEntryDTO es la forma en disco de una entrada.
+// compuso la clave —cambiarlo invalida el índice entero—, mientras que esto dice
+// cómo está serializada la entrada.
 //
-// Lleva la clave DENTRO además de en la ruta, aunque sea redundante: un archivo
-// de caché es lo que alguien abre cuando el motor se saltó un paso y no entiende
-// por qué, y un archivo que no dice de qué es no responde nada.
+// Sube a 2 con la spec 11: la entrada dejó de ser «presencia + caducidad +
+// procedencia» y pasó a ser un puntero a un registro. Una entrada v1 no se puede
+// interpretar como v2 —no apunta a nada—, y como el índice es derivable y no
+// participa en ninguna decisión, la respuesta correcta a encontrarse una es
+// ignorarla, no migrarla.
+const fileCacheEntrySchemaVersion = 2
+
+// FileCacheEntryDTO es la forma en disco de una entrada del índice.
+//
+// Lleva la clave DENTRO además de en la ruta, aunque sea redundante: la ruta es
+// un hash, así que un archivo que no dice de qué clave es no responde nada.
 type FileCacheEntryDTO struct {
-	SchemaVersion int               `json:"schema_version"`
-	CacheKey      string            `json:"cache_key"`
-	ExpiresAt     string            `json:"expires_at,omitempty"`
-	ProducedBy    FileProvenanceDTO `json:"produced_by"`
+	SchemaVersion int             `json:"schema_version"`
+	CacheKey      string          `json:"cache_key"`
+	StateKey      FileStateKeyDTO `json:"state_key"`
+	RecordID      string          `json:"record_id"`
 }
 
-type FileProvenanceDTO struct {
-	ExecutionID string `json:"execution_id"`
-	At          string `json:"at"`
+// FileStateKeyDTO guarda los tres componentes de la clave de estado POR
+// SEPARADO, y no una cadena compuesta: así no hay que inventar un escape del
+// separador para una url o un nombre de ambiente que lo contenga.
+type FileStateKeyDTO struct {
+	Subject string `json:"subject"`
+	Scope   string `json:"scope"`
+	StepID  string `json:"step_id"`
 }
 
 func ToFileCacheEntryDTO(key domCache.CacheKey, entry domCache.Entry) FileCacheEntryDTO {
-	dto := FileCacheEntryDTO{
+	return FileCacheEntryDTO{
 		SchemaVersion: fileCacheEntrySchemaVersion,
 		CacheKey:      key.String(),
-		ProducedBy: FileProvenanceDTO{
-			ExecutionID: entry.ProducedBy.ExecutionID,
-			At:          entry.ProducedBy.At.UTC().Format(entryTimeLayout),
+		StateKey: FileStateKeyDTO{
+			Subject: entry.StateKey.Subject(),
+			Scope:   entry.StateKey.Scope().String(),
+			StepID:  entry.StateKey.StepID(),
 		},
+		RecordID: entry.RecordID.String(),
 	}
-	if entry.ExpiresAt != nil {
-		dto.ExpiresAt = entry.ExpiresAt.UTC().Format(entryTimeLayout)
-	}
-	return dto
 }
 
 func (dto FileCacheEntryDTO) ToDomain() (domCache.Entry, error) {
@@ -56,25 +59,18 @@ func (dto FileCacheEntryDTO) ToDomain() (domCache.Entry, error) {
 			dto.SchemaVersion, fileCacheEntrySchemaVersion)
 	}
 
-	producedAt, err := time.Parse(entryTimeLayout, dto.ProducedBy.At)
+	scope, err := domState.ParseScope(dto.StateKey.Scope)
 	if err != nil {
-		return domCache.Entry{}, fmt.Errorf("interpretar produced_by.at %q: %w", dto.ProducedBy.At, err)
+		return domCache.Entry{}, err
+	}
+	stateKey, err := domState.NewKey(dto.StateKey.Subject, scope, dto.StateKey.StepID)
+	if err != nil {
+		return domCache.Entry{}, err
+	}
+	recordID, err := domState.ParseRecordID(dto.RecordID)
+	if err != nil {
+		return domCache.Entry{}, err
 	}
 
-	entry := domCache.Entry{
-		ProducedBy: domCache.Provenance{
-			ExecutionID: dto.ProducedBy.ExecutionID,
-			At:          producedAt,
-		},
-	}
-
-	if dto.ExpiresAt != "" {
-		expiresAt, err := time.Parse(entryTimeLayout, dto.ExpiresAt)
-		if err != nil {
-			return domCache.Entry{}, fmt.Errorf("interpretar expires_at %q: %w", dto.ExpiresAt, err)
-		}
-		entry.ExpiresAt = &expiresAt
-	}
-
-	return entry, nil
+	return domCache.NewEntry(stateKey, recordID)
 }

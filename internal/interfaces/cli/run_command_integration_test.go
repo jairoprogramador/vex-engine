@@ -13,6 +13,7 @@ package cli_test
 import (
 	"context"
 	"encoding/base64"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -60,7 +61,7 @@ func TestRunCommand_EjecucionLimpia(t *testing.T) {
 	assert.Equal(t, `02-supply acr_name = "vexsand-demo-app"`, h.logLines()[1])
 
 	// Y que el almacén de variables persistió lo extraído.
-	stored := h.storedVars("sand", "supply")
+	stored := h.storedVars("sand", "02-supply")
 	assert.Equal(t, "vexsand-demo-app", stored["acr_name"])
 	assert.Equal(t, "demo-app", stored["artifact_name"])
 
@@ -203,14 +204,20 @@ func TestRunCommand_LaClavePersistidaLlevaLaVersionDeLaRegla(t *testing.T) {
 	}
 }
 
-// EL comportamiento nuevo de la spec 10 (§1 defecto b): el motor existe para no
-// repetir trabajo, y hasta aquí hacer un cambio y revertirlo costaba DOS
-// ejecuciones completas cuando debería costar cero.
+// LA REGRESIÓN DECLARADA de la spec 11 §5.5, y este test afirmaba lo CONTRARIO
+// hasta la spec 10 — el diff conviene mirarlo.
 //
-// La causa era que lo guardado era siempre lo último escrito: una sola casilla
-// por paso, pisada en cada corrida. Direccionada por contenido, la entrada del
-// estado A sigue en su sitio cuando se escribe la del B.
-func TestRunCommand_VolverAUnEstadoYaEjecutadoAcierta(t *testing.T) {
+// La spec 10 compró que `A → B → A` acertara: la entrada estaba direccionada por
+// contenido, así que la de A seguía en su sitio cuando se escribía la de B. Con
+// la clave de POSICIÓN, la decisión compara contra el ÚLTIMO registro, y el
+// último es el de B: volver a A re-ejecuta.
+//
+// Se acepta porque re-ejecutar de más nunca produce un despliegue que no
+// ocurrió, mientras que saltar de menos sí. Y lo que la haría barata de revertir
+// sigue escrito en disco: el índice conserva la entrada de A —lo que este test
+// comprueba en su segunda mitad—, así que la pregunta «¿existe algún registro
+// con esta huella?» ya está respondida el día que se decida volver.
+func TestRunCommand_VolverAUnEstadoYaEjecutadoReejecuta(t *testing.T) {
 	h := newHarness(t)
 
 	// Estado A.
@@ -230,10 +237,116 @@ func TestRunCommand_VolverAUnEstadoYaEjecutadoAcierta(t *testing.T) {
 	result := h.run()
 	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
 
-	assert.Empty(t, h.ranSteps(),
-		"volver a un estado ya ejecutado con éxito no cuesta nada: HOY re-ejecutaba")
+	assert.NotEmpty(t, h.ranSteps(),
+		"la comparación es contra el ÚLTIMO registro, que es el de B")
 	assert.Subset(t, h.cacheEntries(), entradasEnA,
-		"las entradas de A siguen en su sitio: escribir las de B no las pisó")
+		"pero el índice conserva la entrada de A: la regresión es barata de revertir")
+}
+
+// ── El estado append-only (spec 11) ─────────────────────────────────────────
+
+// LA PRUEBA QUE DA NOMBRE A LA SPEC: ejecutar, cambiar algo, volver a ejecutar,
+// y comprobar que LOS DOS REGISTROS existen. Hasta aquí el primero ya no estaba,
+// y con él se iba el valor de ayer — que es a lo que un rollback tiene que poder
+// apuntar (spec 28).
+func TestRunCommand_ElRegistroDeAyerSigueAhi(t *testing.T) {
+	h := newHarness(t)
+
+	correHastaEstable(t, h)
+	registrosTrasLaPrimera := h.persistedStepState("02-supply")
+	require.NotEmpty(t, registrosTrasLaPrimera)
+
+	h.writeProjectFile("src/app.txt", "v2\n")
+	h.resetLog()
+	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+	require.Contains(t, h.ranSteps(), "02-supply")
+
+	registrosTrasLaSegunda := h.persistedStepState("02-supply")
+	assert.Greater(t, len(registrosTrasLaSegunda), len(registrosTrasLaPrimera),
+		"el contador de registros de una clave sólo sube")
+	assert.Subset(t, registrosTrasLaSegunda, registrosTrasLaPrimera,
+		"y los de ayer siguen en su sitio, con su nombre")
+}
+
+// §5.5.1 hecha ejecutable: **borrar el índice no cambia una sola decisión**, y
+// el estado sobrevive al borrado.
+//
+// Es la comprobación que la versión anterior de esta spec no podía montar,
+// porque no había dos tiendas con reglas de vida distintas.
+func TestRunCommand_BorrarElIndiceNoCambiaNingunaDecision(t *testing.T) {
+	h := newHarness(t)
+	correHastaEstable(t, h)
+
+	// El valor extraído del stdout —el que en un pipeline real es un ARN— está
+	// en el almacén de registros, no en el índice.
+	require.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
+
+	h.borrarElIndice()
+	require.Empty(t, h.cacheEntries())
+
+	h.resetLog()
+	result := h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	assert.Empty(t, h.ranSteps(),
+		"las mismas decisiones de salto: la decisión lee el registro, no el índice")
+	assert.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"],
+		"y el estado sobrevive: un ARN no vive en una tienda que alguien va a borrar")
+}
+
+// Aislamiento por ámbito: lo que un step deja en el ámbito de un AMBIENTE no se
+// lee desde otro, y el ámbito de PROYECTO existe aparte, sin ambiente en su
+// clave.
+//
+// El aislamiento es el mismo que la spec 10 compró metiendo el ambiente en el
+// hash. Lo que cambia es de dónde sale: ahora viaja en la clave de posición, así
+// que no puede caerse de ningún hash por descuido.
+func TestRunCommand_ElEstadoSeAislaPorAmbito(t *testing.T) {
+	h := newHarness(t)
+
+	require.Equal(t, cli.ExitSucceeded, h.run(withEnvironment("sand")).exitCode)
+	require.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
+
+	assert.Empty(t, h.storedVars("prod", "02-supply"),
+		"lo del ámbito de un ambiente no se lee desde otro")
+	assert.Empty(t, h.sharedVars("02-supply"),
+		"y el ámbito de proyecto es otra clave: el fixture no produce variables compartidas")
+
+	// El registro del ámbito de proyecto se escribe igualmente —el hecho que
+	// guarda es «este step corrió», no «este step produjo algo»— y vive bajo
+	// `project/`, sin ambiente en la ruta.
+	registros := strings.Join(h.persistedStepState("02-supply"), "\n")
+	assert.Contains(t, registros, filepath.Join("project", "02-supply"))
+	assert.Contains(t, registros, filepath.Join("environment", "sand", "02-supply"))
+}
+
+// DOS PIPELINES, UN PROYECTO: comparten clave de estado y NO se reviven entre
+// sí. Es el test que fija el argumento con el que D-A14 se cerró al revés
+// (spec 11 §5.2).
+//
+// Compartir clave es lo que se quiere: el ACR pertenece al proyecto, así que un
+// proyecto que cambia de plantilla no debe perder de vista los recursos que ya
+// creó. Lo que impide que uno lea el trabajo del otro no es la clave sino la
+// huella, que incluye el pipelinecode entero.
+func TestRunCommand_DosPipelinesCompartenClaveYNoSeRevivenEntreSi(t *testing.T) {
+	primero := newHarness(t)
+	correHastaEstable(t, primero)
+	registrosDelPrimero := primero.persistedStepState("02-supply")
+	require.NotEmpty(t, registrosDelPrimero)
+
+	segundo := primero.conOtroPipeline()
+
+	segundo.resetLog()
+	result := segundo.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Equal(t, []string{"01-test", "02-supply"}, segundo.ranSteps(),
+		"el pipelinecode entra en la huella: el segundo no revive el registro del primero")
+
+	registrosDeLosDos := segundo.persistedStepState("02-supply")
+	assert.Subset(t, registrosDeLosDos, registrosDelPrimero,
+		"y los del primero siguen ahí: nadie sobrescribe a nadie")
+	assert.Greater(t, len(registrosDeLosDos), len(registrosDelPrimero),
+		"los dos escriben bajo la MISMA clave, que es lo que la spec decide")
 }
 
 // La clave no depende de la máquina, y por eso el caché compartido de la spec 16
@@ -259,14 +372,14 @@ func TestRunCommand_LaClaveNoDependeDeLaMaquina(t *testing.T) {
 }
 
 // `show` no cambia qué se ejecuta, sólo si la salida se imprime — y entra en la
-// clave igualmente (spec 10 §5.1bis). Sin esto, la secuencia es: un comando hace
-// algo raro, el autor añade `show: true` para verlo, el paso se salta, no se
+// huella igualmente (spec 10 §5.1bis). Sin esto, la secuencia es: un comando
+// hace algo raro, el autor añade `show: true` para verlo, el step revive, no se
 // imprime nada, y el autor concluye que `show` no funciona.
 //
 // El test de la spec 00 que afirmaba lo contrario —`el flag show NO entra en la
-// huella`, en rules_test.go— se borró aquí con el paquete entero. Lo que lo
-// sustituye a nivel de unidad es `TestComputeInstructions_ShowEntraEnElMaterial`.
-func TestRunCommand_AnadirShowInvalidaElCache(t *testing.T) {
+// huella`, en rules_test.go— se borró con el paquete entero. Lo que lo sustituye
+// a nivel de unidad es `TestComputeInstructions_ShowEntraEnElMaterial`.
+func TestRunCommand_AnadirShowReejecutaElStep(t *testing.T) {
 	const supplyCmd = "steps/02-supply/commands.yaml"
 	const sinShow = `
 - name: provision
@@ -291,16 +404,23 @@ func TestRunCommand_AnadirShowInvalidaElCache(t *testing.T) {
 		"añadir `show: true` para depurar tiene que volver a ejecutar el paso")
 }
 
-// Consultar el caché no crea la entrada. Es la idempotencia de la spec 09 §9.10
-// traducida a este modelo, y es una red de regresión: si consultar escribiera,
-// una muerte dura entre la consulta y el final del paso dejaría grabado «ya se
-// hizo» para un paso que nunca terminó.
-func TestRunCommand_ConsultarElCacheNoCreaLaEntrada(t *testing.T) {
+// Revivir no escribe NADA: ni registro ni entrada de índice.
+//
+// Son dos propiedades en una. La primera es la idempotencia de la spec 09 §9.10:
+// si consultar escribiera, una muerte dura entre la consulta y el final del step
+// dejaría grabado «ya se hizo» para un step que nunca terminó. La segunda es de
+// la spec 11 §5.3 —«un registro por ejecución REAL, nunca cuando se revive»— y
+// no es contable: un registro escrito al revivir saldría sin huella, y el step
+// dejaría de revivir para siempre. Su síntoma sería que esta misma prueba
+// oscilara entre ejecutar y revivir en corridas alternas.
+func TestRunCommand_RevivirNoEscribeNada(t *testing.T) {
 	h := newHarness(t)
 	correHastaEstable(t, h)
 
 	entradas := h.cacheEntries()
+	registros := h.persistedStepState("02-supply")
 	require.NotEmpty(t, entradas)
+	require.NotEmpty(t, registros)
 
 	// Tres corridas que no ejecutan nada: sólo consultan.
 	for range 3 {
@@ -310,7 +430,9 @@ func TestRunCommand_ConsultarElCacheNoCreaLaEntrada(t *testing.T) {
 	}
 
 	assert.Equal(t, entradas, h.cacheEntries(),
-		"consultar no añadió ni cambió ninguna entrada")
+		"consultar no añadió ni cambió ninguna entrada de índice")
+	assert.Equal(t, registros, h.persistedStepState("02-supply"),
+		"ni un registro: revivir no es un hecho nuevo del step")
 }
 
 // ── Aislamiento de ambiente (regresión de R-22) ─────────────────────────────
@@ -319,7 +441,7 @@ func TestRunCommand_AmbientesAislados(t *testing.T) {
 	h := newHarness(t)
 
 	require.Equal(t, cli.ExitSucceeded, h.run(withEnvironment("sand")).exitCode)
-	assert.Equal(t, "vexsand-demo-app", h.storedVars("sand", "supply")["acr_name"])
+	assert.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
 
 	h.resetLog()
 	result := h.run(withEnvironment("prod"))
@@ -335,10 +457,10 @@ func TestRunCommand_AmbientesAislados(t *testing.T) {
 	// `Scope`, y el caso que lo fija sin depender del material de variables es
 	// `TestNewCacheKey_ElAmbienteNoSePuedeCaerDeLaClave`.
 	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
-	assert.Equal(t, "vexprod-demo-app", h.storedVars("prod", "supply")["acr_name"])
+	assert.Equal(t, "vexprod-demo-app", h.storedVars("prod", "02-supply")["acr_name"])
 
 	// Los dos almacenes conviven: prod no pisó a sand.
-	assert.Equal(t, "vexsand-demo-app", h.storedVars("sand", "supply")["acr_name"])
+	assert.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
 }
 
 // ── Precedencia de variables (canario del orden de chainStepHandlers) ───────
@@ -346,7 +468,7 @@ func TestRunCommand_AmbientesAislados(t *testing.T) {
 func TestRunCommand_PrecedenciaDeclaradoSobreAlmacenado(t *testing.T) {
 	h := newHarness(t)
 	correHastaEstable(t, h)
-	require.Equal(t, "vexsand-demo-app", h.storedVars("sand", "supply")["acr_name"])
+	require.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
 
 	// El almacén tiene registry_prefix=vexsand. El pipelinecode ahora declara
 	// otro valor: gana lo declarado porque los handlers 01/02 (almacén) corren
@@ -359,7 +481,7 @@ func TestRunCommand_PrecedenciaDeclaradoSobreAlmacenado(t *testing.T) {
 
 	// CANARIO: intercambiar dos handlers en chainStepHandlers pone esto en rojo.
 	assert.Equal(t, []string{"02-supply"}, h.ranSteps())
-	assert.Equal(t, "vexsand2-demo-app", h.storedVars("sand", "supply")["acr_name"])
+	assert.Equal(t, "vexsand2-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
 }
 
 // ── Invariante de variable (spec 03) ────────────────────────────────────────
@@ -392,7 +514,7 @@ func TestRunCommand_VariableDeclaradaSinValor(t *testing.T) {
 	// El almacén distingue «declarada y vacía» de «no declarada»: la clave
 	// existe con valor vacío. Y no aparece la entrada anónima —eso lo comprueba
 	// además `assertNingunaVariableAnonima` tras cada ejecución del harness.
-	stored := h.storedVars("sand", "supply")
+	stored := h.storedVars("sand", "02-supply")
 	assert.NotContains(t, stored, "")
 	require.Contains(t, stored, "instance_count")
 	assert.Equal(t, "", stored["instance_count"])
@@ -512,7 +634,7 @@ func TestRunCommand_OutputConGrupoVacio(t *testing.T) {
 
 	// El step falló: su estado se borra para que la próxima ejecución lo
 	// reintente en vez de saltarlo.
-	assert.Empty(t, h.storedVars("sand", "supply"))
+	assert.Empty(t, h.storedVars("sand", "02-supply"))
 }
 
 // ── Validación del pipelinecode (spec 04) ───────────────────────────────────
@@ -602,7 +724,7 @@ func TestRunCommand_StepSinComandosNiSeEjecutaNiPersisteEstado(t *testing.T) {
 		"un step saltado por falta de comandos no deja estado de re-ejecución")
 	assert.Len(t, h.cacheEntries(), 1,
 		"ni entrada de caché: sólo la del paso que sí corrió")
-	assert.Empty(t, h.storedVars("sand", "supply"),
+	assert.Empty(t, h.storedVars("sand", "02-supply"),
 		"tampoco el almacén: registry_prefix estaba declarado, pero nada lo consumió")
 
 	// Segunda corrida: vuelve a saltarse por la MISMA razón. Si hubiera

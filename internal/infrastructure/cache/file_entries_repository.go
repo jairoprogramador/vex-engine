@@ -1,9 +1,9 @@
-// Package cache es el almacén de entradas de caché en disco.
+// Package cache es el ÍNDICE en disco de contenido → registro de estado.
 //
-// Sustituye a `infrastructure/step/status/`, que eran 1108 líneas en 16
-// archivos: cuatro repositorios de archivo casi idénticos, cuatro DTOs, cuatro
-// implementaciones de Supabase, un cliente HTTP y un compuesto que sólo existía
-// para borrar los otros cuatro en bloque.
+// Hereda el layout que la spec 10 construyó para las entradas de caché; lo que
+// cambia con la spec 11 es qué contiene y para qué sirve. No participa en
+// ninguna decisión del motor: borrar este directorio entero no cambia una sola.
+// La verdad vive en `infrastructure/state`, y esto se reconstruye recorriéndola.
 package cache
 
 import (
@@ -26,9 +26,9 @@ import (
 // cajones, que es de sobra para lo que un caché local acumula.
 const shardLen = 2
 
-// entryFileExt es `.json` y no `.gob` a propósito: el caché es lo que un humano
-// mira cuando el motor decide saltarse un paso y no entiende por qué. Un gob no
-// es inspeccionable ni portable, y aquí la portabilidad importa porque desde la
+// entryFileExt es `.json` y no `.gob` a propósito: esto es lo que un humano mira
+// cuando quiere saber si un contenido ya corrió alguna vez. Un gob no es
+// inspeccionable ni portable, y aquí la portabilidad importa porque desde la
 // spec 16 estas entradas se comparten entre máquinas.
 const entryFileExt = ".json"
 
@@ -38,10 +38,10 @@ var _ domCache.Entries = (*FileEntriesRepository)(nil)
 // contenido: `<base>/<versión>/<2 primeros del hash>/<resto>.json`.
 //
 // La ruta NO lleva ni el proyecto, ni el pipeline, ni el ambiente, ni el paso:
-// los cuatro están DENTRO del hash. Es lo que hace que volver a un estado ya
-// ejecutado acierte —la entrada de aquel estado sigue en su sitio, con su
-// nombre— en vez de haber sido pisada por la última escritura, que era el
-// defecto (b) de la spec 10 §1.
+// los cuatro están DENTRO del hash. Esa es la propiedad que lo hace útil como
+// índice —«¿este contenido exacto corrió ALGUNA vez?» se responde con un
+// `stat`— y es también la que lo inhabilita para decidir, porque la decisión
+// pregunta por una POSICIÓN y no por un contenido.
 type FileEntriesRepository struct {
 	basePath string
 	writer   persistence.AtomicFileWriter
@@ -80,17 +80,22 @@ func (r *FileEntriesRepository) Get(_ *context.Context, key domCache.CacheKey) (
 	}
 	defer file.Close()
 
+	// ILEGIBLE ⇒ AUSENTE, y es una decisión, no una omisión (spec 11 §5.6).
+	//
+	// Hasta la spec 10 esto era un error, y con razón: la entrada ERA la
+	// respuesta a «¿hay que re-ejecutar?», así que confundir «rota» con «no
+	// consta» habría sido fail-open silencioso sobre una decisión real. Desde la
+	// 11 no decide nada y es derivable, así que una entrada rota es exactamente
+	// una entrada que todavía no se ha reconstruido. El almacén de registros
+	// sostiene la asimetría contraria: allí ilegible es error.
 	var dto FileCacheEntryDTO
 	if err := json.NewDecoder(file).Decode(&dto); err != nil {
-		if errors.Is(err, io.EOF) {
-			return domCache.Entry{}, false, nil
-		}
-		return domCache.Entry{}, false, fmt.Errorf("file entries repository: decodificar %s: %w", path, err)
+		return domCache.Entry{}, false, nil
 	}
 
 	entry, err := dto.ToDomain()
 	if err != nil {
-		return domCache.Entry{}, false, fmt.Errorf("file entries repository: %s: %w", path, err)
+		return domCache.Entry{}, false, nil
 	}
 	return entry, true, nil
 }

@@ -69,7 +69,12 @@ huella. Lo que esta especificación exige es que la lista esté **escrita**, no
 dónde vive; un test la fija contra esta tabla.
 
 Todo lo demás participa, incluidas `environment`, `project_name`,
-`project_organization`, `project_team`, `project_id` y `shared_workdir`.
+`project_organization`, `project_team` y `project_id`.
+
+> La lista anterior mencionaba también `shared_workdir`, que el motor declaraba
+> y no asignaba nunca (D6). La spec 11 la elimina. **La regla no cambia** —una
+> variable que no existe no entraba en ninguna huella— y por eso el token sigue
+> siendo `vars-v1`.
 
 > Que `environment` participe **no es lo que aísla los ambientes**. El
 > aislamiento lo da el campo `Scope` de la `cache_key`, que lleva el ambiente por

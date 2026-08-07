@@ -7,11 +7,13 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/application/usecase"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	pipDom "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
+	stateDom "github.com/jairoprogramador/vex-engine/internal/domain/state"
 	stepDom "github.com/jairoprogramador/vex-engine/internal/domain/step"
 	cacheInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/cache"
 	cmdInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/command"
 	pippInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
 	sharedInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/shared"
+	stateInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/state"
 	stepInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step"
 )
 
@@ -69,11 +71,19 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	projectsBasePath := filepath.Join(cfg.RootVexPath, VexHomeDirName, "projects")
 	pipelinesBasePath := filepath.Join(cfg.RootVexPath, VexHomeDirName, "pipelines")
 
-	// El caché NO cuelga de `projects/`: está direccionado por contenido, y el
-	// proyecto es una de las siete dimensiones que van dentro del hash, no un
-	// tramo de la ruta (spec 10 §5.1). Que el directorio sea aparte hace además
-	// visible su regla de vida: se puede borrar entero sin consecuencias, cosa
-	// que `projects/` —donde vive el almacén de variables— no admite.
+	// Las dos tiendas, y los dos directorios existen separados para que sus
+	// reglas de vida se vean desde `ls`:
+	//
+	//   state/  es la VERDAD. Un registro por ejecución real de un step, nunca
+	//           sobrescrito, con los identificadores de recursos que existen de
+	//           verdad en la nube. No se borra nunca (spec 11).
+	//   cache/  es el ÍNDICE. Derivable, desechable, y no participa en ninguna
+	//           decisión: `rm -rf` sobre él no cambia lo que el motor decide.
+	//
+	// Ninguno cuelga de `projects/`: el índice está direccionado por contenido y
+	// el proyecto va dentro del hash, y el almacén de registros lo lleva como
+	// primer tramo pero con su propio esquema de rutas.
+	stateBasePath := filepath.Join(cfg.RootVexPath, VexHomeDirName, "state")
 	cacheBasePath := filepath.Join(cfg.RootVexPath, VexHomeDirName, "cache")
 
 	// --- Infrastructure: pipeline ---
@@ -97,30 +107,35 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	// el agregado (startedAt/finishedAt) y el cálculo de versión (spec 07 §5.1).
 	clock := sharedInfra.NewSystemClock()
 
-	var varsStoreRepo stepDom.VarsStoreRepository
+	// --- Infrastructure: almacén de registros de step (spec 11) ---
+	//
+	// El adaptador de Supabase sobrevive al cambio de puerto, y no de milagro: en
+	// modo remoto la máquina de Fly es efímera, así que un almacén de archivo no
+	// guardaría nada y un ARN extraído allí se perdería en cada ejecución —que es
+	// exactamente el daño que esta spec existe para impedir—. Lo que NO puede
+	// hacer es historia: la edge function guarda el último conjunto por (ámbito,
+	// step), así que sus registros vienen sin atribuir y ningún step revive en
+	// remoto. Es el mismo comportamiento que desde la spec 10, no uno nuevo. Se
+	// retira en la spec 16.
+	var records stateDom.Records
 	if args.Mode != ModeLocal {
-		varsStoreRepo = stepInfra.NewSupabaseVarsStoreRepository(
+		records = stateInfra.NewSupabaseRecordsRepository(
 			args.StepStoreVarsEndpoint, args.LogToken, args.ExecutionID,
 		)
 	} else {
-		varsStoreRepo = stepInfra.NewFileVarsStoreRepository(projectsBasePath)
+		records = stateInfra.NewFileRecordsRepository(stateBasePath)
 	}
+	recordIDs := stateInfra.NewULIDRecordIDFactory()
+
 	pipelineVarsRepo := stepInfra.NewPipelineVarsRepository()
 	pipelineCommandRepo := stepInfra.NewPipelineCommandRepository()
 
-	// --- Infrastructure: caché de re-ejecución ---
+	// --- Infrastructure: índice de contenido → registro ---
 	//
-	// UN repositorio, y sin rama por modo. Aquí había cuatro repositorios × dos
-	// implementaciones —archivo y Supabase— seleccionados por `args.Mode`; los
-	// cuatro de Supabase se borran con la spec 10, lo que deja las edge functions
-	// `status-*` sin cliente (su retirada va con la spec 26) y con los cuatro se
-	// van los `--step-{code,inst,time,vars}-endpoint`, que ya no lee nadie.
-	//
-	// Consecuencia declarada: **el modo remoto pierde caché desde esta spec**,
-	// no desde la 16. La máquina de Fly es efímera, así que este repositorio
-	// arranca frío en cada ejecución. Es una degradación de RENDIMIENTO, no de
-	// correctitud: un caché frío ejecuta de más, nunca de menos. Quien devuelve
-	// el caché compartido es la spec 16, con un destino de estado explícito.
+	// De archivo y sin rama por modo, como desde la spec 10. Que en remoto
+	// arranque frío daba igual entonces —el caché es una optimización— y da más
+	// igual ahora: desde la spec 11 este índice no decide nada, así que estar
+	// vacío no cambia ninguna decisión ni en local ni en remoto.
 	entries := cacheInfra.NewFileEntriesRepository(cacheBasePath)
 
 	// --- Infrastructure: command (shell, filesystem) ---
@@ -147,16 +162,21 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	// `PolicyBuilder` que las elegía por nombre de paso. Los tres tipos
 	// desaparecieron con la spec 10: la decisión es «¿existe esta clave?», y para
 	// eso no hay nada que registrar ni que componer.
-	// El orden importa: los dos handlers de almacén cargan ANTES que las
+	// El orden importa: los dos handlers de estado cargan ANTES que las
 	// variables declaradas por el pipelinecode, de modo que lo declarado gana
 	// sobre lo almacenado.
+	//
+	// Y el handler 04 recibe `records`, no `entries`: la decisión de re-ejecutar
+	// lee el último registro de la clave de posición y NO consulta el índice
+	// (spec 11 §5.5). Que el índice no llegue hasta aquí es lo que impide que
+	// vuelva a ser una tienda con estado.
 	stepHead := chainStepHandlers(
-		stepDom.NewVarsStoreSharedHandler(varsStoreRepo),
-		stepDom.NewVarsStoreStepHandler(varsStoreRepo),
+		stepDom.NewVarsStoreSharedHandler(records),
+		stepDom.NewVarsStoreStepHandler(records),
 		stepDom.NewVarsHandler(pipelineVarsRepo),
-		stepDom.NewStepRunnerHandler(pipelineCommandRepo, entries),
+		stepDom.NewStepRunnerHandler(pipelineCommandRepo, records),
 	)
-	executableStep := stepDom.NewStepExecutable(stepHead, varsStoreRepo, entries)
+	executableStep := stepDom.NewStepExecutable(stepHead, records, recordIDs, entries)
 
 	// --- Domain: command handler chain ---
 	fileInterpolator := command.NewFileInterpolator(fileSystem)

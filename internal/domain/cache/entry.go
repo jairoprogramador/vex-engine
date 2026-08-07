@@ -1,65 +1,52 @@
 package cache
 
-import "time"
+import (
+	"fmt"
 
-// DefaultTTL es cuánto vale una entrada antes de caducar.
-//
-// Son los 30 días que la regla de tiempo aplicaba SÓLO al paso `test`. Ahora
-// aplican a todos, que es la otra cara de la pérdida de granularidad que la
-// spec 10 §5.3 acepta a cambio de correctitud: la selección de comprobaciones
-// por nombre de paso estaba cableada en el motor, y eso es justo lo que P1
-// deroga. La spec 15 devuelve la granularidad declarada por el pipeline.
-//
-// El TTL NO es material de la clave: el tiempo no es propiedad del contenido.
-// Volver a ejecutar por caducidad produce EXACTAMENTE la misma clave, y la
-// entrada nueva sustituye a la vieja en su sitio.
-const DefaultTTL = 30 * 24 * time.Hour
+	"github.com/jairoprogramador/vex-engine/internal/domain/state"
+)
 
-// Provenance es quién escribió una entrada y cuándo.
+// Entry es una entrada del ÍNDICE: un puntero de contenido a posición.
 //
-// Sin esto, «se salta porque ya está en caché» con una clave opaca deja sin
-// respuesta la pregunta «¿cuándo se probó esto por última vez?» — que ES la
-// afirmación de valor del motor. La spec 17 la amplía con `deployment_id` y
-// `attempt`; aquí basta con que el hecho se guarde en vez de perderse.
-type Provenance struct {
-	ExecutionID string
-	At          time.Time
-}
-
-// Entry es una entrada de caché: de SOLA PRESENCIA.
+//	«¿este contenido exacto ya corrió alguna vez, y cuál fue el registro?»
 //
-// No guarda resultado reutilizable. Guarda que *este contenido exacto ya se
-// ejecutó con éxito aquí*, quién lo hizo y hasta cuándo vale. El contenido
-// reutilizable —el almacén de variables— se queda donde está hasta la spec 11, y
-// se queda a propósito: tiene reglas de borrado OPUESTAS. El caché se puede
-// borrar entero sin consecuencias; un ARN guardado en el almacén es la pista de
-// un recurso real y no se borra nunca.
+// Hasta la spec 10 esto era una entrada de sola presencia con un TTL, y era LA
+// respuesta a «¿hay que re-ejecutar?». Ya no: desde la spec 11 esa decisión lee
+// el ÚLTIMO registro de la clave de estado, y este índice **no participa en
+// ella**. Borrarlo entero no cambia una sola decisión del motor.
+//
+// Dos cosas se fueron con el cambio de papel, y las dos por el mismo motivo
+// —eran estado propio de una estructura que tiene que ser derivable—:
+//
+//   - `ExpiresAt` y el TTL de 30 días. La expiración es una regla sobre el
+//     registro (su edad), no sobre el índice; se declara en el pipelinecode con
+//     la spec 15.
+//   - `Provenance`. Vive en el registro, que es donde el hecho ocurrió.
+//
+// Lo que queda es exactamente lo que hace falta para reconstruirlo recorriendo
+// los registros: a qué clave de estado y a qué registro apunta este contenido.
 type Entry struct {
-	// ExpiresAt es nil cuando la entrada no caduca.
-	ExpiresAt  *time.Time
-	ProducedBy Provenance
+	StateKey state.Key
+	RecordID state.RecordID
 }
 
-// NewEntry construye la entrada que deja un paso que acaba de terminar bien.
+// NewEntry compone la entrada que apunta al registro que un step acaba de
+// dejar.
 //
-// El instante lo pone el llamador y viene del puerto `shared.Clock` (spec 07):
-// no hay `time.Now()` en el dominio, y por eso los dos lados del borde de los 30
-// días se pueden probar sin esperar treinta días.
-func NewEntry(producedBy Provenance, ttl time.Duration) Entry {
-	if ttl <= 0 {
-		return Entry{ProducedBy: producedBy}
+// Un puntero incompleto es un ERROR y no una entrada degradada: apuntar a
+// ninguna parte es peor que no apuntar, porque un índice con entradas rotas deja
+// de ser reconstruible sin distinguir cuáles lo están.
+func NewEntry(stateKey state.Key, recordID state.RecordID) (Entry, error) {
+	if stateKey.IsZero() {
+		return Entry{}, fmt.Errorf("cache: la entrada de índice no tiene clave de estado")
 	}
-	expiresAt := producedBy.At.Add(ttl)
-	return Entry{ExpiresAt: &expiresAt, ProducedBy: producedBy}
+	if recordID.IsZero() {
+		return Entry{}, fmt.Errorf("cache: la entrada de índice no apunta a ningún registro")
+	}
+	return Entry{StateKey: stateKey, RecordID: recordID}, nil
 }
 
-// IsExpired dice si la entrada ya no vale a fecha de `now`.
-//
-// El borde es exclusivo: una entrada expira CUANDO se alcanza su instante de
-// expiración, no después. Es la misma frontera que comparaba la regla de tiempo.
-func (e Entry) IsExpired(now time.Time) bool {
-	if e.ExpiresAt == nil {
-		return false
-	}
-	return !now.Before(*e.ExpiresAt)
+// IsZero indica que no hay entrada.
+func (e Entry) IsZero() bool {
+	return e.StateKey.IsZero() || e.RecordID.IsZero()
 }
