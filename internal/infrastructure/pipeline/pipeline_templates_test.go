@@ -17,6 +17,7 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	domPipeline "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
 	infraPipeline "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
+	infraStep "github.com/jairoprogramador/vex-engine/internal/infrastructure/step"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,8 +45,9 @@ func TestPipelinecodeReal_PasaLaValidacionSinModificarse(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, entries, "el template tiene que declarar steps")
 
+			configs := infraStep.NewPipelineStepConfigRepository()
 			require.NoError(t,
-				domPipeline.NewPipelineStructureValidator().Validate(entries),
+				domPipeline.NewPipelineStructureValidator(configs).Validate(&ctx, path, entries),
 				"la estructura de steps del template tiene que ser válida sin tocarla")
 
 			stepNames, err := domPipeline.NewStepNames(entries)
@@ -55,13 +57,27 @@ func TestPipelinecodeReal_PasaLaValidacionSinModificarse(t *testing.T) {
 				nombresDeSteps(stepNames),
 				"y en este orden")
 
-			// Y ningún ambiente se llama `shared` (§5.4). El nombre reservado se
-			// comprueba en el handler 03; aquí lo que se fija es que el template no
-			// lo declare.
+			// Aquí se comprobaba que ningún ambiente se llamara `shared` (spec 04
+			// §5.4). La spec 13 §5.5 DEROGA esa reserva —no queda ninguna palabra
+			// reservada— así que el template ya no tiene nada que evitar.
 			environments, err := infraPipeline.NewPipelineEnvironmentRepository().Get(&ctx, path)
 			require.NoError(t, err)
 			require.NotEmpty(t, environments)
-			assert.NotContains(t, environments, command.SharedScopeName)
+
+			// EL ESTADO DE LOS TEMPLATES HOY, y es el residuo declarado de la
+			// spec 13 §6: ninguno declara `config.yaml` todavía, así que sus steps se
+			// ejecutan SIEMPRE y no persisten registro. Más lento que antes, nunca
+			// incorrecto. Lo cierra la spec 24, que parte `02-supply` en dos steps
+			// —uno de ámbito de proyecto para el ACR, otro de ambiente— y les pone su
+			// declaración. Cuando llegue, este bloque se pone en rojo y la decisión se
+			// hace visible.
+			for _, stepName := range stepNames {
+				config, err := configs.Get(&ctx, path, stepName.FullName())
+				require.NoError(t, err, "un config.yaml presente tiene que declarar un ámbito válido")
+				assert.False(t, config.IsDeclared(),
+					"%s ya declara ámbito: llegó la spec 24 y este test tiene que decirlo",
+					stepName.FullName())
+			}
 
 			// Un `commands.yaml` vacío daría `skipped{no_commands}` en vez de
 			// ejecutar el step (§5.3): ninguno de los cuatro lo está.

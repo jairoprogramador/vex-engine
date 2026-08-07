@@ -39,7 +39,7 @@ func TestBaseExecutable_UnExecFallidoDejaLaPlantillaEnSuContenidoOriginal(t *tes
 	require.NoError(t, os.WriteFile(ruta, []byte(original), 0o644))
 
 	vars := command.NewExecutionVariableMap()
-	prefijo, err := command.NewVariable("registry_prefix", "vexsand", false, command.OriginDeclared)
+	prefijo, err := command.NewVariable("registry_prefix", "vexsand", command.OriginDeclared)
 	require.NoError(t, err)
 	vars.Add(prefijo)
 

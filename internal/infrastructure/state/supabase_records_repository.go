@@ -35,8 +35,9 @@ var supabaseStoreRetryBackoff = []time.Duration{
 	2 * time.Second,
 }
 
-// supabaseStoreVarDTO transporta un par nombre/valor. El flag `shared` no viaja:
-// lo reconstruye el ÁMBITO de la clave al leer.
+// supabaseStoreVarDTO transporta un par nombre/valor, que desde la spec 13 es
+// todo lo que una variable es. El flag `shared` no viajaba y se reconstruía del
+// ÁMBITO de la clave al leer; ya no hay nada que reconstruir.
 type supabaseStoreVarDTO struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
@@ -108,12 +109,14 @@ func (r *SupabaseRecordsRepository) Last(
 		return domState.StepRecord{}, false, nil
 	}
 
-	// El ámbito reconstruye la marca: el ámbito de proyecto es el que hasta la
-	// spec 13 se llamaba `shared`.
-	isShared := key.Scope().IsProject()
+	// Aquí se reconstruía `isShared` del ámbito de la clave —el de proyecto es el
+	// que hasta la spec 13 se llamaba `shared`—. Era la mitad del defecto que la
+	// spec 02 tuvo que corregir: este adaptador lo deducía y el de archivo lo
+	// perdía, así que el mismo proyecto producía huellas distintas según dónde
+	// corriera. Retirado el campo, la asimetría no puede volver.
 	variables := make([]command.Variable, 0, len(result.Variables))
 	for _, dto := range result.Variables {
-		variable, err := command.NewVariable(dto.Name, dto.Value, isShared, command.OriginState)
+		variable, err := command.NewVariable(dto.Name, dto.Value, command.OriginState)
 		if err != nil {
 			return domState.StepRecord{}, false, fmt.Errorf(
 				"supabase records get: crear variable %q: %w", dto.Name, err)

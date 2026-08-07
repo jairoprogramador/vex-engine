@@ -98,7 +98,16 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	pipelineClonerRepo := pippInfra.NewPipelineClonerRepository(pipelinesBasePath)
 	pipelineEnvRepo := pippInfra.NewPipelineEnvironmentRepository()
 	pipelineStepRepo := pippInfra.NewPipelineStepRepository()
-	pipelineStructureValidator := pipDom.NewPipelineStructureValidator()
+
+	// El lector de `steps/NN-x/config.yaml` tiene UN dueño y dos consumidores
+	// (spec 13): el validador de estructura, que exige antes del primer step que
+	// un `config.yaml` presente declare un ámbito del vocabulario cerrado; y el
+	// handler 03 de la cadena de step, que necesita el ámbito para saber dónde
+	// consultar y dónde escribir. Dos lecturas de un archivo diminuto que ya está
+	// en disco local, a cambio de que la regla de vocabulario esté escrita una
+	// sola vez.
+	pipelineStepConfigRepo := stepInfra.NewPipelineStepConfigRepository()
+	pipelineStructureValidator := pipDom.NewPipelineStructureValidator(pipelineStepConfigRepo)
 	pipelineWorkdirRepo := pippInfra.NewPipelineWorkdirRepository(projectsBasePath)
 	projectTagRepo := pippInfra.NewProjectTagRepository()
 	contentFingerprint := pippInfra.NewContentFingerprint()
@@ -169,27 +178,30 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	// para que lo declarado, al escribir después, lo pisara.
 	//
 	// Pero el orden NO es indiferente, y la spec 12 §5.3 —que mandaba mover el
-	// handler 03 delante de los dos del almacén— se retira por eso (§10, H1). El
-	// handler 03 no solo AÑADE variables: las RESUELVE, interpolando `${var.…}`
+	// handler de las declaradas delante del almacén— se retira por eso (§10, H1).
+	// Ese handler no solo AÑADE variables: las RESUELVE, interpolando `${var.…}`
 	// contra el mapa acumulado tal como esté en ese instante. Cargarlo primero deja
 	// fuera de su vista el registro del propio step, y un literal declarado que
 	// interpole un nombre que solo vive ahí falla con «variable faltante». El
-	// resultado de la precedencia es el mismo en los dos órdenes, así que mover el
-	// 03 no compraba nada y costaba eso.
+	// resultado de la precedencia es el mismo en los dos órdenes, así que moverlo
+	// no compraba nada y costaba eso.
 	//
 	// Por tanto: se carga de menor a mayor COMPLETITUD del mapa —almacén primero,
-	// declaradas después—, y quien gana lo dice `Origin`. Los archivos conservan
-	// sus números porque siguen nombrando el mismo handler.
+	// declaradas después—, y quien gana lo dice `Origin`.
 	//
-	// Y el handler 04 recibe `records`, no `entries`: la decisión de re-ejecutar
+	// Y el handler 03 recibe `records`, no `entries`: la decisión de re-ejecutar
 	// lee el último registro de la clave de posición y NO consulta el índice
 	// (spec 11 §5.5). Que el índice no llegue hasta aquí es lo que impide que
 	// vuelva a ser una tienda con estado.
+	//
+	// Son TRES handlers desde la spec 13, no cuatro: los dos del almacén se
+	// colapsan en uno que lee los dos ámbitos —el de proyecto y el del ambiente—,
+	// porque el ámbito declarado decide dónde se ESCRIBE y no qué se puede leer
+	// (§5.4). Los archivos se renumeraron con ellos: el número dice la posición.
 	stepHead := chainStepHandlers(
-		stepDom.NewVarsStoreSharedHandler(records),
-		stepDom.NewVarsStoreStepHandler(records),
+		stepDom.NewVarsStoreHandler(records),
 		stepDom.NewVarsHandler(pipelineVarsRepo),
-		stepDom.NewStepRunnerHandler(pipelineCommandRepo, records),
+		stepDom.NewStepRunnerHandler(pipelineCommandRepo, pipelineStepConfigRepo, records),
 	)
 	executableStep := stepDom.NewStepExecutable(stepHead, records, recordIDs, entries)
 

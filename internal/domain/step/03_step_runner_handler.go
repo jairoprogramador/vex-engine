@@ -24,6 +24,7 @@ const (
 	reasonChanged      = "el contenido del step cambió desde la última ejecución"
 	reasonExpired      = "el último registro del step ha caducado"
 	reasonUndetermined = "no se pudo determinar si ya se ejecutó"
+	reasonNoScope      = "el step no declara ámbito en su config.yaml: no hay dónde recordarlo"
 )
 
 // defaultMaxAge es cuánto vale el último registro antes de exigir una revisión.
@@ -43,6 +44,7 @@ const defaultMaxAge = 30 * 24 * time.Hour
 type StepRunnerHandler struct {
 	StepBaseHandler
 	commandRepository PipelineCommandRepository
+	configRepository  StepConfigRepository
 	records           state.Records
 }
 
@@ -50,11 +52,13 @@ var _ StepHandler = (*StepRunnerHandler)(nil)
 
 func NewStepRunnerHandler(
 	commandRepository PipelineCommandRepository,
+	configRepository StepConfigRepository,
 	records state.Records) StepHandler {
 
 	return &StepRunnerHandler{
 		StepBaseHandler:   StepBaseHandler{Next: nil},
 		commandRepository: commandRepository,
+		configRepository:  configRepository,
 		records:           records,
 	}
 }
@@ -78,6 +82,17 @@ func (h *StepRunnerHandler) Handle(ctx *context.Context, request *StepRequestHan
 		}
 		return nil
 	}
+
+	// El ámbito se lee AQUÍ, después de saber que hay algo que ejecutar y antes
+	// de decidir si ejecutarlo: es el dato que dice DÓNDE se consulta y dónde se
+	// escribirá (spec 13). Que un `config.yaml` presente declare un `scope` del
+	// vocabulario cerrado ya lo comprobó el validador de la spec 04 antes del
+	// primer step, así que un error aquí es de lectura, no de vocabulario.
+	config, err := h.configRepository.Get(ctx, request.PipelineLocalPath(), request.StepFullName())
+	if err != nil {
+		return fmt.Errorf("cargar la configuración de %s: %w", request.StepNameExe(), err)
+	}
+	request.SetStepConfig(config)
 
 	// AQUÍ desapareció el `policyBuilder.Build` que abortaba la ejecución ante
 	// un step con nombre desconocido (spec 05 §5.2). No se sustituyó por nada:
@@ -151,10 +166,22 @@ func (h *StepRunnerHandler) decide(
 	// La clave de POSICIÓN se compone antes que nada: sin ella no hay dónde leer
 	// ni dónde escribir, y eso no es una duda que ejecutar resuelva. Es un
 	// pipelinecode que no se puede almacenar, y se dice así.
-	key, err := request.EnvironmentStateKey()
+	//
+	// Es la clave del ámbito DECLARADO (spec 13 §5.4). Hasta la spec 13 era
+	// siempre la del ambiente; para un step `scope: project` ahora es otra, que es
+	// justo lo que hace que dos ambientes puedan compartirla.
+	key, declarado, err := request.StateKey()
 	if err != nil {
 		return cache.CacheKey{}, false, "", fmt.Errorf(
 			"componer la clave de estado de %s: %w", request.StepNameExe(), err)
+	}
+
+	// Sin `config.yaml` no hay ámbito, luego no hay clave, luego no hay dónde
+	// constar: se ejecuta SIEMPRE y no se persiste nada (spec 13 §5.3). Se sale
+	// con huella cero a propósito —no sólo evita el registro, evita también la
+	// entrada de índice, que apunta a un registro que no va a existir.
+	if !declarado {
+		return cache.CacheKey{}, true, reasonNoScope, nil
 	}
 
 	last, found, err := h.records.Last(ctx, key)

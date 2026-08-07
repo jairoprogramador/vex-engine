@@ -1,0 +1,3 @@
+# El step declara a qué ámbito pertenece (spec 13). Sin este archivo el step se
+# ejecutaría siempre y no persistiría registro.
+scope: environment

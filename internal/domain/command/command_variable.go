@@ -2,13 +2,17 @@ package command
 
 import "errors"
 
+// CommandVariable es lo que un comando extrajo de su propio stdout.
+//
+// Perdió `isShared` con la spec 13 §5.6, por la misma razón que `Variable`: el
+// ámbito lo declara el step, así que una variable no puede tener uno distinto
+// del de su step.
 type CommandVariable struct {
-	name     string
-	value    string
-	isShared bool
+	name  string
+	value string
 }
 
-func NewCommandVariable(name, value string, isShared bool) (CommandVariable, error) {
+func NewCommandVariable(name, value string) (CommandVariable, error) {
 	if name == "" {
 		return CommandVariable{}, errors.New("el nombre de la variable generada no puede estar vacío")
 	}
@@ -17,14 +21,9 @@ func NewCommandVariable(name, value string, isShared bool) (CommandVariable, err
 	}
 
 	return CommandVariable{
-		isShared: isShared,
-		name:     name,
-		value:    value,
+		name:  name,
+		value: value,
 	}, nil
-}
-
-func (ve CommandVariable) IsShared() bool {
-	return ve.isShared
 }
 
 func (ve CommandVariable) Name() string {

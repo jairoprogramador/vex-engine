@@ -42,9 +42,16 @@ func NewCacheMaterial(request *StepRequestHandler, commands []command.Command) (
 	return cache.Material{
 		Subject:  request.ProjectUrl(),
 		Pipeline: request.PipelineUrl(),
-		// Hasta la spec 15 el ámbito es siempre el ambiente. El campo se llama
-		// Scope y no Environment porque desde la 15 puede valer "shared", y
-		// cambiarlo entonces invalidaría todas las claves ya emitidas.
+		// Esta dimensión sigue siendo el AMBIENTE, también para un step
+		// `scope: project`, y la spec 13 no la toca (§6: no toca la huella).
+		//
+		// Consecuencia declarada, y conviene tenerla escrita: un step de ámbito de
+		// proyecto desplegado a dos ambientes escribe y lee la MISMA clave de
+		// estado —eso ya funciona— pero no revive el registro del otro ambiente,
+		// porque su huella lleva el ambiente aquí y además `environment` es una
+		// variable del mapa acumulado. La lectura compartida, que es lo que §5.4
+		// promete, sí ocurre. El salto compartido llega con la spec 27, que saca
+		// las dimensiones de DIRECCIÓN de la huella (§5.2bis).
 		Scope:        request.Environment(),
 		Step:         request.StepNameExe(),
 		Instructions: instructions,
@@ -95,9 +102,20 @@ func variableMaterialOf(variables *command.ExecutionVariableMap) []fingerprint.V
 			continue
 		}
 		material = append(material, fingerprint.VariableMaterial{
-			Name:   variable.Name(),
-			Value:  variable.Value(),
-			Shared: variable.IsShared(),
+			Name:  variable.Name(),
+			Value: variable.Value(),
+			// `Shared` queda FIJO en su valor cero, y ésa es la forma de no tocar la
+			// huella al retirar `isShared` del dominio (spec 13 §6).
+			//
+			// `vars-v1` está CONGELADA: su §3.2 exige tres campos por entrada, así
+			// que quitar el tercero sería una regla distinta y obligaría a un
+			// `vars-v2` con su propia especificación. No hace falta, porque el valor
+			// que llegaba aquí era `false` para toda variable que existió: el
+			// mecanismo que ponía `true` —el primer segmento de `workdir`— nunca se
+			// activó en ningún template (spec 13 §1), y el ámbito de proyecto sólo
+			// recibía el conjunto vacío. O sea: ninguna huella se mueve.
+			//
+			// El campo muere con la regla en la spec 27, que retira `vars-v1`.
 		})
 	}
 	return material

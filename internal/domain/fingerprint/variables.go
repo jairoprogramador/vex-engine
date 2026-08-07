@@ -19,8 +19,15 @@ const VariablesVersion = "vars-v1"
 // separa: el material serializa `strconv.Quote(Value)`, y `Quote("")` es `""`,
 // no ausencia (spec 03 §5.3).
 type VariableMaterial struct {
-	Name   string
-	Value  string
+	Name  string
+	Value string
+
+	// Shared es CONSTANTE `false` desde la spec 13: el ámbito dejó de ser un
+	// atributo de la variable y pasó a ser del step. El campo sigue aquí porque
+	// la regla está congelada —§3.2 exige tres campos por entrada— y quitarlo
+	// sería un `vars-v2` con su propia especificación, a cambio de nada: el valor
+	// `true` no era alcanzable en ninguna ejecución real, así que ninguna huella
+	// ya emitida se mueve. Muere con la regla en la spec 27.
 	Shared bool
 }
 

@@ -295,12 +295,16 @@ func TestRunCommand_BorrarElIndiceNoCambiaNingunaDecision(t *testing.T) {
 }
 
 // Aislamiento por ámbito: lo que un step deja en el ámbito de un AMBIENTE no se
-// lee desde otro, y el ámbito de PROYECTO existe aparte, sin ambiente en su
-// clave.
+// lee desde otro, y el ámbito de PROYECTO es otra clave.
 //
 // El aislamiento es el mismo que la spec 10 compró metiendo el ambiente en el
 // hash. Lo que cambia es de dónde sale: ahora viaja en la clave de posición, así
 // que no puede caerse de ningún hash por descuido.
+//
+// LA SEGUNDA MITAD CAMBIA CON LA SPEC 13 y conviene mirar el diff: hasta aquí
+// `02-supply` escribía DOS registros —uno de proyecto, vacío, y otro del
+// ambiente— porque el motor no sabía cuál era su ámbito. Ahora el step lo
+// declara (`scope: environment` en su config.yaml) y escribe UNO.
 func TestRunCommand_ElEstadoSeAislaPorAmbito(t *testing.T) {
 	h := newHarness(t)
 
@@ -309,15 +313,182 @@ func TestRunCommand_ElEstadoSeAislaPorAmbito(t *testing.T) {
 
 	assert.Empty(t, h.storedVars("prod", "02-supply"),
 		"lo del ámbito de un ambiente no se lee desde otro")
-	assert.Empty(t, h.sharedVars("02-supply"),
-		"y el ámbito de proyecto es otra clave: el fixture no produce variables compartidas")
+	assert.Empty(t, h.projectVars("02-supply"),
+		"y el ámbito de proyecto no se toca: el step declara el del ambiente")
 
-	// El registro del ámbito de proyecto se escribe igualmente —el hecho que
-	// guarda es «este step corrió», no «este step produjo algo»— y vive bajo
-	// `project/`, sin ambiente en la ruta.
 	registros := strings.Join(h.persistedStepState("02-supply"), "\n")
-	assert.Contains(t, registros, filepath.Join("project", "02-supply"))
 	assert.Contains(t, registros, filepath.Join("environment", "sand", "02-supply"))
+	assert.NotContains(t, registros, filepath.Join("project", "02-supply"),
+		"un step, un ámbito, un registro: la bifurcación desapareció con un `if`")
+}
+
+// ── El step declara su ámbito (spec 13) ─────────────────────────────────────
+
+// EL CASO QUE DA NOMBRE A LA SPEC: `scope` decide DÓNDE vive el registro, y sólo
+// eso. El mismo pipelinecode, el mismo step, la misma huella; una línea de
+// `config.yaml` de diferencia y el registro cambia de sitio.
+func TestRunCommand_ElAmbitoDeclaradoDecideDondeViveElRegistro(t *testing.T) {
+	t.Run("scope: project", func(t *testing.T) {
+		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml", "scope: project\n"))
+
+		require.Equal(t, cli.ExitSucceeded, h.run(withEnvironment("sand")).exitCode)
+
+		assert.Equal(t, "vexsand-demo-app", h.projectVars("02-supply")["acr_name"])
+		assert.Empty(t, h.storedVars("sand", "02-supply"),
+			"nada bajo el ambiente: el step declaró que su trabajo es del proyecto")
+
+		registros := strings.Join(h.persistedStepState("02-supply"), "\n")
+		assert.Contains(t, registros, filepath.Join("project", "02-supply"))
+		assert.NotContains(t, registros, filepath.Join("environment", "sand", "02-supply"))
+	})
+
+	t.Run("scope: environment", func(t *testing.T) {
+		h := newHarness(t)
+
+		require.Equal(t, cli.ExitSucceeded, h.run(withEnvironment("sand")).exitCode)
+
+		assert.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
+		assert.Empty(t, h.projectVars("02-supply"))
+	})
+}
+
+// LA RUPTURA DECLARADA de §5.7, hecha ejecutable. Un `workdir` cuyo primer
+// segmento es `shared` marcaba las variables del comando como compartidas y las
+// mandaba al ámbito de proyecto. Ya no: el ámbito lo declara el step, y este
+// declara el del ambiente.
+//
+// Ningún template real estaba en este caso —los tres usan `./terraform/shared`,
+// cuyo primer segmento es `.`— así que el cambio observable en producción es
+// CERO. Lo que se rompe es una regla que nunca llegó a aplicarse.
+func TestRunCommand_UnWorkdirLlamadoSharedYaNoComparte(t *testing.T) {
+	h := newHarness(t,
+		withPipelineFile("steps/02-supply/shared/terraform/.keep", ""),
+		withPipelineFile("steps/02-supply/commands.yaml", `
+- name: provision
+  cmd: echo '02-supply acr_name = "desde-shared"' | tee -a "$VEX_TEST_LOG"
+  workdir: shared/terraform
+  outputs:
+    - name: acr_name
+      probe: acr_name = "([^"]+)"
+`))
+
+	result := h.run(withEnvironment("sand"))
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Equal(t, "desde-shared", h.storedVars("sand", "02-supply")["acr_name"],
+		"HOY iría al ámbito de proyecto: era el único workdir que activaba el mecanismo")
+	assert.Empty(t, h.projectVars("02-supply"),
+		"y `shared` deja de ser un nombre de directorio con significado para el motor")
+}
+
+// LECTURA CRUZADA (§5.4): se leen los dos ámbitos, se escribe en uno.
+//
+// Es el caso que motiva la spec entera. `01-test` declara ámbito de proyecto y
+// publica `artifact_name`; `02-supply` es de ambiente y lo consume. Desde `prod`
+// se ve lo que `01-test` dejó desplegando a `sand` —el ACR pertenece al
+// proyecto—, mientras que lo que `02-supply` produjo en `sand` no cruza.
+func TestRunCommand_UnStepDeAmbienteVeLoQueProdujoUnStepDeProyecto(t *testing.T) {
+	h := newHarness(t, withPipelineFile("steps/01-test/config.yaml", "scope: project\n"))
+
+	require.Equal(t, cli.ExitSucceeded, h.run(withEnvironment("sand")).exitCode)
+	require.Equal(t, "demo-app", h.projectVars("01-test")["artifact_name"],
+		"01-test escribe en el ámbito de proyecto, sin ambiente en su clave")
+	require.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
+
+	// Y ahora el mismo step de proyecto deja de producirlo: la ÚNICA fuente de
+	// `artifact_name` pasa a ser su registro de ámbito de proyecto, escrito
+	// desplegando a `sand`.
+	h.commitPipelineFile("steps/01-test/commands.yaml",
+		"- name: build\n  cmd: echo \"01-test BUILD\" | tee -a \"$VEX_TEST_LOG\"\n")
+
+	h.resetLog()
+	result := h.run(withEnvironment("prod"))
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Equal(t, `02-supply acr_name = "vexprod-demo-app"`, h.logLines()[1],
+		"prod ve el ámbito de proyecto aunque lo escribiera sand")
+
+	// La otra mitad: lo del ambiente NO cruza. `acr_name` lo produjo 02-supply en
+	// `sand` y su registro vive bajo `environment/sand`.
+	assert.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
+	assert.Equal(t, "vexprod-demo-app", h.storedVars("prod", "02-supply")["acr_name"])
+}
+
+// §5.3, y es la mitad fácil de perder: SIN `config.yaml` el step se ejecuta
+// SIEMPRE y `state/` no gana un solo archivo por él.
+//
+// Las dos cosas son la misma decisión. Ejecutar siempre es el default seguro
+// —ejecutar de más nunca produce un despliegue que no ocurrió—, y no escribir es
+// lo que impide inventarle un ámbito: asignarle `environment` por defecto sería
+// la deducción implícita que esta spec retira, sólo que en el otro archivo.
+func TestRunCommand_UnStepSinConfigSeEjecutaSiempreYNoPersiste(t *testing.T) {
+	h := newHarness(t, withoutPipelineFile("steps/02-supply/config.yaml"))
+
+	// Control: 01-test sí declara, así que la ausencia de abajo se ve.
+	for range 3 {
+		h.resetLog()
+		result := h.run()
+		require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+		assert.Contains(t, h.ranSteps(), "02-supply",
+			"sin ámbito no hay dónde constar que corrió, así que vuelve a correr")
+	}
+
+	assert.Empty(t, h.persistedStepState("02-supply"),
+		"ni un registro: el motor no le inventa un ámbito")
+	assert.Empty(t, h.storedVars("sand", "02-supply"))
+	assert.Empty(t, h.projectVars("02-supply"))
+	assert.NotEmpty(t, h.persistedStepState("01-test"),
+		"control: el step que SÍ declara deja el suyo")
+
+	// Sus variables siguen viajando en el mapa acumulado de la corrida: lo que no
+	// ocurre es que crucen de una ejecución a la siguiente. `${var.artifact_name}`
+	// lo produjo 01-test en ESTA corrida —o lo cargó de su registro, que sí
+	// existe— y 02-supply lo interpola igual que siempre.
+	assert.Contains(t, h.logLines(), `02-supply acr_name = "vexsand-demo-app"`)
+}
+
+// Un `scope` fuera del vocabulario cerrado aborta ANTES del primer step, con un
+// mensaje que nombra el directorio. Es la misma disciplina que la spec 04: un
+// pipelinecode roto descubierto a mitad del despliegue llega tarde, porque los
+// steps anteriores ya tuvieron efectos reales.
+func TestRunCommand_UnAmbitoInvalidoAbortaAntesDelPrimerStep(t *testing.T) {
+	casos := []struct {
+		nombre    string
+		contenido string
+		enElError string
+	}{
+		{
+			nombre:    "un ámbito inventado",
+			contenido: "scope: shared\n",
+			enElError: "shared",
+		},
+		{
+			nombre:    "config.yaml presente sin scope",
+			contenido: "# sin nada declarado\n",
+			enElError: "no declara 'scope'",
+		},
+		{
+			nombre:    "config.yaml vacío",
+			contenido: "",
+			enElError: "no declara 'scope'",
+		},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nombre, func(t *testing.T) {
+			h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml", caso.contenido))
+
+			result := h.run()
+
+			assert.Equal(t, cli.ExitFailed, result.exitCode)
+			assert.Contains(t, result.stderr, "estructura del pipelinecode inválida")
+			assert.Contains(t, result.stderr, "steps/02-supply/config.yaml",
+				"el error nombra al culpable")
+			assert.Contains(t, result.stderr, caso.enElError)
+			assert.Empty(t, h.ranSteps(),
+				"la validación corre antes del primer step: ningún despliegue queda a medias")
+		})
+	}
 }
 
 // DOS PIPELINES, UN PROYECTO: comparten clave de estado y NO se reviven entre
@@ -852,19 +1023,40 @@ func TestRunCommand_EstructuraDeStepsInvalida(t *testing.T) {
 	}
 }
 
-func TestRunCommand_AmbienteLlamadoShared(t *testing.T) {
-	// `shared` es el ámbito del almacén compartido y ocupa la misma posición que
-	// el ambiente en la ruta del almacén: declararlo como ambiente lo pisaría
-	// (spec 04 §5.4).
-	h := newHarness(t, withPipelineFile("environments.yaml",
-		"- name: Compartido\n  value: shared\n- name: Sandbox\n  value: sand\n"))
+// EL DIFF DE D9, y conviene mirarlo: este test se llamaba
+// `TestRunCommand_AmbienteLlamadoShared` y afirmaba lo CONTRARIO.
+//
+// La spec 04 §5.4 reservó `shared` porque el ámbito del almacén compartido
+// ocupaba la misma posición que el ambiente en la ruta, y un ambiente así
+// llamado lo pisaba. La spec 11 cambió la clave —el ámbito de ambiente viaja
+// SIEMPRE prefijado, `environment:<nombre>`— y la 13 §5.5 saca la conclusión:
+// **no queda ninguna palabra reservada**. Un ambiente `shared` da
+// `environment/shared` y uno `project` da `environment/project`; ninguno
+// colisiona con el ámbito de proyecto, que vive en `project/`.
+//
+// Es el resultado que la spec 04 no podía dar: aquella arregló la colisión
+// prohibiendo un nombre; ésta la elimina cambiando la clave, que es la
+// corrección que no le cuesta nada al usuario.
+func TestRunCommand_NingunaPalabraDelUsuarioEstaReservada(t *testing.T) {
+	for _, ambiente := range []string{"shared", "project"} {
+		t.Run(ambiente, func(t *testing.T) {
+			h := newHarness(t,
+				withPipelineFile("environments.yaml",
+					"- name: Reservado\n  value: "+ambiente+"\n- name: Sandbox\n  value: sand\n"),
+				withPipelineFile("variables/"+ambiente+"/supply.yaml",
+					"- name: registry_prefix\n  value: vexraro\n"))
 
-	result := h.run(withEnvironment("sand"))
+			result := h.run(withEnvironment(ambiente))
 
-	assert.Equal(t, cli.ExitFailed, result.exitCode)
-	assert.Contains(t, result.stderr, "'shared' está reservado")
-	assert.Empty(t, h.ranSteps(),
-		"se rechaza el environments.yaml entero, aunque el ambiente pedido sea otro")
+			require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+			assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
+
+			assert.Equal(t, "vexraro-demo-app", h.storedVars(ambiente, "02-supply")["acr_name"],
+				"su registro va a environment/%s y no pisa nada", ambiente)
+			assert.Empty(t, h.projectVars("02-supply"),
+				"el ámbito de proyecto vive en project/, sin prefijo que colisione")
+		})
+	}
 }
 
 func TestRunCommand_StepSinComandosNiSeEjecutaNiPersisteEstado(t *testing.T) {
@@ -983,7 +1175,13 @@ func TestRunCommand_StepDesconocidoSeEjecutaYLaCorridaSiguienteLoSalta(t *testin
   cmd: echo "05-notify AVISANDO" | tee -a "$VEX_TEST_LOG"
 `
 
-	h := newHarness(t, withPipelineFile(notifyCmd, notifyBody))
+	// Declara ámbito como cualquier otro step: lo que este caso mide es que el
+	// motor no necesita conocer su NOMBRE, no que un step sin `config.yaml`
+	// persista (spec 13 §5.3, y de eso habla
+	// `TestRunCommand_UnStepSinConfigSeEjecutaSiempreYNoPersiste`).
+	h := newHarness(t,
+		withPipelineFile(notifyCmd, notifyBody),
+		withPipelineFile("steps/05-notify/config.yaml", "scope: environment\n"))
 
 	result := h.run(withStep("notify"))
 

@@ -51,15 +51,15 @@ func TestStepRecord_UnaHuellaVaciaNuncaRevive(t *testing.T) {
 // ni con quien lo lee, así que nadie puede modificarlo por debajo. La
 // inmutabilidad ES la implementación del append-only.
 func TestStepRecord_EsInmutable(t *testing.T) {
-	original := []command.Variable{variable(t, "acr_name", "acme.azurecr.io", false)}
+	original := []command.Variable{variable(t, "acr_name", "acme.azurecr.io")}
 	registro := registroDePrueba(t, "ck-v1:aaa", original)
 
-	original[0] = variable(t, "acr_name", "otro.azurecr.io", false)
+	original[0] = variable(t, "acr_name", "otro.azurecr.io")
 	leidas := registro.Variables()
 	require.Len(t, leidas, 1)
 	assert.Equal(t, "acme.azurecr.io", leidas[0].Value())
 
-	leidas[0] = variable(t, "acr_name", "tercero.azurecr.io", false)
+	leidas[0] = variable(t, "acr_name", "tercero.azurecr.io")
 	assert.Equal(t, "acme.azurecr.io", registro.Variables()[0].Value())
 }
 
@@ -89,7 +89,7 @@ func TestStepRecord_LaProcedenciaEsObligatoria(t *testing.T) {
 // exactamente las correctas: conserva las variables y no concede nada.
 func TestStepRecord_SinAtribuirConservaLasVariablesYNoRevive(t *testing.T) {
 	registro := state.NewUnattributedRecord(
-		[]command.Variable{variable(t, "acr_name", "acme.azurecr.io", false)})
+		[]command.Variable{variable(t, "acr_name", "acme.azurecr.io")})
 
 	require.Len(t, registro.Variables(), 1)
 	assert.True(t, registro.ID().IsZero(), "no puede entrar en el índice")
@@ -113,9 +113,9 @@ func idDePrueba(t *testing.T, at time.Time) state.RecordID {
 	return id
 }
 
-func variable(t *testing.T, nombre, valor string, compartida bool) command.Variable {
+func variable(t *testing.T, nombre, valor string) command.Variable {
 	t.Helper()
-	v, err := command.NewVariable(nombre, valor, compartida, command.OriginRuntime)
+	v, err := command.NewVariable(nombre, valor, command.OriginRuntime)
 	require.NoError(t, err)
 	return v
 }

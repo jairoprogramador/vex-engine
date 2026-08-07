@@ -50,7 +50,7 @@ func comandoDePrueba(t *testing.T, opts ...command.CommandOption) command.Comman
 
 func variable(t *testing.T, name, value string) command.Variable {
 	t.Helper()
-	v, err := command.NewVariable(name, value, false, command.OriginDeclared)
+	v, err := command.NewVariable(name, value, command.OriginDeclared)
 	require.NoError(t, err)
 	return v
 }
@@ -157,7 +157,7 @@ func TestNewCacheMaterial_ProduceUnaClaveEstable(t *testing.T) {
 func TestNewCacheMaterial_ElOrigenNoEntraEnLaHuellaDeVariables(t *testing.T) {
 	huellaCon := func(origen command.Origin) string {
 		material := materialDe(t, nil, func(contexto *command.ExecutionContext) {
-			v, err := command.NewVariable("acr_name", "acme.azurecr.io", false, origen)
+			v, err := command.NewVariable("acr_name", "acme.azurecr.io", origen)
 			require.NoError(t, err)
 			contexto.AddAccumulatedVar(v)
 		})

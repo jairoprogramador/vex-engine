@@ -7,8 +7,13 @@ package step_test
 // `chainStepHandlers` en `internal/interfaces/cli/factory.go` y siguiendo el
 // orden de cuatro handlers: una regla de negocio viviendo en la configuración de
 // la infraestructura. Ahora vive en `command.ExecutionVariableMap.Add`, sobre el
-// enum ordenado `command.Origin`, y estos casos lo miden con los handlers 01, 02
-// y 03 REALES armados en las seis permutaciones posibles.
+// enum ordenado `command.Origin`, y estos casos lo miden con los handlers 01 y
+// 02 REALES armados en las dos permutaciones posibles.
+//
+// Eran tres handlers y seis permutaciones hasta la spec 13, que colapsa los dos
+// del almacén en uno solo. El orden ENTRE ÁMBITOS —proyecto primero, ambiente
+// después— pasa a ser interno a ese handler y se mide igual, con un nombre que
+// los dos aportan: `en_ambos`.
 //
 // Se prueba aquí y no en el harness de integración porque construir la cadena en
 // otro orden desde allí exigiría un punto de extensión en `BuildRunCommand` que
@@ -42,6 +47,11 @@ func TestVarsChain_ElOrdenDeLosHandlersYaNoDecideQuienGana(t *testing.T) {
 		"solo_proyecto":  "del-ambito-proyecto",
 		"solo_ambiente":  "del-ambito-ambiente",
 		"solo_inyectada": "demo-app",
+		// Los DOS ámbitos del almacén aportan este nombre con el mismo origen
+		// (`OriginState`), así que gana el que llega después — y el handler carga
+		// proyecto primero, ambiente después (spec 13 §5.4). Es la regla de
+		// igualdad de `Add`, no el cableado.
+		"en_ambos": "del-ambito-ambiente",
 	}
 
 	for _, orden := range permutacionesDeCadena() {
@@ -59,8 +69,7 @@ func TestVarsChain_ElOrdenDeLosHandlersYaNoDecideQuienGana(t *testing.T) {
 				varDePrueba(t, nombre, "inyectada-homonima", command.OriginInjected))
 
 			cadena := orden.armar(
-				domStep.NewVarsStoreSharedHandler(registrosConVariables(t)),
-				domStep.NewVarsStoreStepHandler(registrosConVariables(t)),
+				domStep.NewVarsStoreHandler(registrosConVariables(t)),
 				domStep.NewVarsHandler(varsDeclaradasDePrueba{}),
 			)
 
@@ -76,39 +85,34 @@ func TestVarsChain_ElOrdenDeLosHandlersYaNoDecideQuienGana(t *testing.T) {
 
 type ordenDeCadena struct {
 	nombre string
-	// armar recibe los tres handlers en el orden almacén-proyecto,
-	// almacén-ambiente, declaradas y los encadena en el suyo.
+	// armar recibe los dos handlers en el orden almacén, declaradas y los
+	// encadena en el suyo.
 	armar func(handlers ...domStep.StepHandler) domStep.StepHandler
 }
 
-// permutacionesDeCadena devuelve las seis formas de encadenar los tres
-// handlers. La primera es la de producción —almacén primero, declaradas
-// después— y la segunda es la que la spec 12 §5.3 mandaba y su §10 retira.
+// permutacionesDeCadena devuelve las dos formas de encadenar los dos handlers.
+// La primera es la de producción —almacén primero, declaradas después— y la
+// segunda es la que la spec 12 §5.3 mandaba y su §10 retira.
 //
-// Lo que estos casos miden es QUIÉN GANA, y ahí las seis coinciden. Lo que NO
-// son es una licencia para reordenar: el handler 03 resuelve interpolaciones
-// contra el mapa acumulado, así que cargarlo antes que el almacén le quita
-// material de vista. Eso lo fija
+// Lo que estos casos miden es QUIÉN GANA, y ahí las dos coinciden. Lo que NO son
+// es una licencia para reordenar: el handler de las declaradas resuelve
+// interpolaciones contra el mapa acumulado, así que cargarlo antes que el
+// almacén le quita material de vista. Eso lo fija
 // `TestRunCommand_UnLiteralPuedeInterpolarElRegistroDelPropioStep`.
 func permutacionesDeCadena() []ordenDeCadena {
-	nombres := []string{"declaradas", "almacen-proyecto", "almacen-ambiente"}
-	indices := [][3]int{
-		{1, 2, 0}, // el orden de producción
-		{2, 0, 1}, // el que la spec 12 §5.3 pedía, retirado por su §10
-		{0, 1, 2},
-		{0, 2, 1},
-		{1, 0, 2},
-		{2, 1, 0},
+	nombres := []string{"declaradas", "almacen"}
+	indices := [][2]int{
+		{1, 0}, // el orden de producción
+		{0, 1}, // el que la spec 12 §5.3 pedía, retirado por su §10
 	}
 
 	ordenes := make([]ordenDeCadena, 0, len(indices))
 	for _, idx := range indices {
-		nombre := nombres[idx[0]] + " → " + nombres[idx[1]] + " → " + nombres[idx[2]]
+		nombre := nombres[idx[0]] + " → " + nombres[idx[1]]
 		ordenes = append(ordenes, ordenDeCadena{
 			nombre: nombre,
 			armar: func(handlers ...domStep.StepHandler) domStep.StepHandler {
-				encadenados := []domStep.StepHandler{
-					handlers[idx[0]], handlers[idx[1]], handlers[idx[2]]}
+				encadenados := []domStep.StepHandler{handlers[idx[0]], handlers[idx[1]]}
 				for i := 0; i < len(encadenados)-1; i++ {
 					encadenados[i].SetNext(encadenados[i+1])
 				}
@@ -123,7 +127,7 @@ func permutacionesDeCadena() []ordenDeCadena {
 
 func varDePrueba(t *testing.T, nombre, valor string, origen command.Origin) command.Variable {
 	t.Helper()
-	v, err := command.NewVariable(nombre, valor, false, origen)
+	v, err := command.NewVariable(nombre, valor, origen)
 	require.NoError(t, err)
 	return v
 }
@@ -152,6 +156,9 @@ func (r *registrosDePrueba) Last(_ *context.Context, key domState.Key) (domState
 	return domState.NewUnattributedRecord([]command.Variable{
 		varDePrueba(r.t, "acr_name", "almacenada-homonima", command.OriginState),
 		varDePrueba(r.t, nombrePropio, valor, command.OriginState),
+		// El nombre que los DOS ámbitos aportan: mide el orden interno del
+		// handler, que dejó de ser el orden de la cadena con la spec 13.
+		varDePrueba(r.t, "en_ambos", valor, command.OriginState),
 	}), true, nil
 }
 
@@ -167,11 +174,11 @@ type varsDeclaradasDePrueba struct{}
 var _ domStep.VarsPipelineRepository = varsDeclaradasDePrueba{}
 
 func (varsDeclaradasDePrueba) Get(_ *context.Context, _, _, _ string) ([]command.Variable, error) {
-	declarada, err := command.NewVariable("acr_name", "literal-homonimo", false, command.OriginDeclared)
+	declarada, err := command.NewVariable("acr_name", "literal-homonimo", command.OriginDeclared)
 	if err != nil {
 		return nil, err
 	}
-	propia, err := command.NewVariable("solo_declarada", "literal", false, command.OriginDeclared)
+	propia, err := command.NewVariable("solo_declarada", "literal", command.OriginDeclared)
 	if err != nil {
 		return nil, err
 	}

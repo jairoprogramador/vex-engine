@@ -32,6 +32,17 @@ type StepRequestHandler struct {
 	// porque las cadenas difieren en el prefijo.
 	stepFingerprint cache.CacheKey
 
+	// stepConfig es lo que el step declara sobre sí mismo en su `config.yaml`
+	// (spec 13). Vive aquí por la misma razón que la huella: es estado de ESTA
+	// cadena y muere con ella.
+	//
+	// Lo carga el handler 03 justo antes de decidir, que es el primer momento en
+	// que hace falta. Hasta entonces vale `NoStepConfig()`, y esa NO es una
+	// suposición peligrosa: significa «no declara ámbito», y de ahí se sigue que
+	// no se escribe nada — la dirección segura del olvido, igual que
+	// `OriginDeclared` es el valor cero de `Origin`.
+	stepConfig StepConfig
+
 	// executed distingue «este step ejecutó sus comandos» de «este step
 	// revivió». Los dos terminan en éxito y sólo uno es un hecho nuevo.
 	//
@@ -49,6 +60,7 @@ func NewStepRequestHandler(executionContext *command.ExecutionContext, stepName 
 		stepName:         stepName,
 		stepStatus:       command.StepFailure,
 		skipReason:       SkipReasonNone,
+		stepConfig:       NoStepConfig(),
 		executionContext: executionContext,
 	}
 	return requestHandler
@@ -153,17 +165,49 @@ func (rh *StepRequestHandler) IndexKey() (cache.CacheKey, bool) {
 	return rh.stepFingerprint, !rh.stepFingerprint.IsZero()
 }
 
-// ProjectStateKey y EnvironmentStateKey son las DOS claves de posición bajo las
-// que este step recuerda lo que dejó.
+// SetStepConfig y StepConfig transportan lo que el step declara sobre sí mismo
+// desde el handler que lo lee hasta el `StepExecutable` que persiste el
+// resultado.
+func (rh *StepRequestHandler) SetStepConfig(stepConfig StepConfig) {
+	rh.stepConfig = stepConfig
+}
+
+func (rh *StepRequestHandler) StepConfig() StepConfig {
+	return rh.stepConfig
+}
+
+// StateKey es la clave de posición del ámbito que el step DECLARA: el único
+// sitio donde escribe, y el que consulta para saber si ya se ejecutó aquí
+// (spec 13 §5.4).
 //
-// Son dos, y no una, sólo hasta la spec 13: mientras el ámbito no lo declare el
-// step, un mismo step puede producir variables comunes al proyecto —las que hoy
-// se marcan `shared`— y variables propias del ambiente, y las primeras tienen
-// que seguir siendo visibles desde cualquier ambiente. Cuando el step declare UN
-// ámbito, una de las dos desaparece y con ella la bifurcación entera.
+// La segunda salida es FALSA cuando el step no tiene `config.yaml`. No es un
+// error ni una clave degradada: es un step que no declara ámbito, y por tanto
+// uno que se ejecuta siempre y no persiste registro (§5.3). Inventarle uno
+// —`environment` por defecto, digamos— sería la misma deducción implícita que
+// esta spec retira, sólo que en otro archivo.
 //
-// La decisión de re-ejecutar consulta SIEMPRE la del ambiente: es la que
-// responde «¿este step ya se ejecutó AQUÍ?».
+// Hasta la spec 13 aquí había DOS claves y la decisión de re-ejecutar consultaba
+// SIEMPRE la del ambiente. Con el ámbito declarado queda una, y para un step
+// `scope: project` es otra distinta de la que se consultaba antes.
+func (rh *StepRequestHandler) StateKey() (state.Key, bool, error) {
+	if !rh.stepConfig.IsDeclared() {
+		return state.Key{}, false, nil
+	}
+	scope, err := rh.stepConfig.Scope().StateScope(rh.Environment())
+	if err != nil {
+		return state.Key{}, false, err
+	}
+	key, err := state.NewKey(rh.ProjectUrl(), scope, rh.StepFullName())
+	if err != nil {
+		return state.Key{}, false, err
+	}
+	return key, true, nil
+}
+
+// ProjectStateKey y EnvironmentStateKey son las dos claves que la CARGA
+// consulta, y sólo la carga: un step lee los dos ámbitos y escribe en uno
+// (spec 13 §5.4). Que sigan siendo dos no es el residuo que la spec 13 borra
+// —ése era escribir dos registros— sino la asimetría que la spec establece.
 func (rh *StepRequestHandler) ProjectStateKey() (state.Key, error) {
 	return state.NewKey(rh.ProjectUrl(), state.NewProjectScope(), rh.StepFullName())
 }

@@ -43,10 +43,6 @@ func (rh *CommandRequestHandler) AddCommandVar(commandVar CommandVariable) {
 	rh.commandVars = append(rh.commandVars, commandVar)
 }
 
-func (rh *CommandRequestHandler) CommandWorkdirIsShared() bool {
-	return rh.command.Workdir().IsShared()
-}
-
 func (rh *CommandRequestHandler) CommandNormalizedStdout() string {
 	return rh.commandResult.NormalizedStdout()
 }

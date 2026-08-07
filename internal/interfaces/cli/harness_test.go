@@ -161,6 +161,15 @@ func withPipelineFile(relPath, content string) harnessOption {
 	}
 }
 
+// withoutPipelineFile borra un archivo del pipelinecode materializado. Existe
+// para el caso de la spec 13 §5.3 —un step SIN `config.yaml`—, que es una
+// AUSENCIA y no se puede montar escribiendo nada.
+func withoutPipelineFile(relPath string) harnessOption {
+	return func(h *harness) {
+		require.NoError(h.t, os.Remove(filepath.Join(h.pipelineDir, relPath)))
+	}
+}
+
 func newHarness(t *testing.T, opts ...harnessOption) *harness {
 	t.Helper()
 	installGitTransport()
@@ -375,9 +384,9 @@ func (h *harness) storedVars(environment, stepID string) map[string]string {
 	return h.recordVars(scope, stepID)
 }
 
-// sharedVars lee el ÚLTIMO registro del ámbito de PROYECTO: lo que hasta la
-// spec 13 se marca como `shared` y es común a todos los ambientes.
-func (h *harness) sharedVars(stepID string) map[string]string {
+// projectVars lee el ÚLTIMO registro del ámbito de PROYECTO: lo que produce un
+// step que declara `scope: project` y es común a todos los ambientes (spec 13).
+func (h *harness) projectVars(stepID string) map[string]string {
 	h.t.Helper()
 	return h.recordVars(state.NewProjectScope(), stepID)
 }

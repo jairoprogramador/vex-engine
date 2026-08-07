@@ -45,7 +45,7 @@ func (h *InitVarsHandler) Handle(ctx *context.Context, request *PipelineRequestH
 		{command.VarEnvironment, request.Environment()},
 		{command.VarToolName, "vex"},
 	} {
-		if err := h.addInitVariable(request, initVar.name, initVar.value, false); err != nil {
+		if err := h.addInitVariable(request, initVar.name, initVar.value); err != nil {
 			return err
 		}
 	}
@@ -67,8 +67,8 @@ func (h *InitVarsHandler) Handle(ctx *context.Context, request *PipelineRequestH
 // `project_name` guardado en una corrida anterior ya no puede pisar al que se
 // acaba de calcular. Hasta la spec 12 sí podía, y lo único que lo evitaba era
 // que las volátiles no se persisten — la protección era la lista, no el orden.
-func (h *InitVarsHandler) addInitVariable(request *PipelineRequestHandler, name, value string, isShared bool) error {
-	variable, err := command.NewVariable(name, value, isShared, command.OriginInjected)
+func (h *InitVarsHandler) addInitVariable(request *PipelineRequestHandler, name, value string) error {
+	variable, err := command.NewVariable(name, value, command.OriginInjected)
 	if err != nil {
 		return fmt.Errorf("crear variable de ejecución %q: %w", name, err)
 	}

@@ -43,7 +43,7 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 			executionContext.ResetFileSessions()
 			stepWorkdir := filepath.Join(executionContext.Workdir(), "steps", executionContext.StepFullName())
 			stepWorkdirVariable, err := command.NewVariable(
-				command.VarStepWorkdir, stepWorkdir, false, command.OriginInjected)
+				command.VarStepWorkdir, stepWorkdir, command.OriginInjected)
 			if err != nil {
 				return fmt.Errorf("crear variable de step workdir: %w", err)
 			}
@@ -88,8 +88,9 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 				//
 				// Lo que la spec 11 cambia es QUÉ se escribe y con qué regla de
 				// vida: un REGISTRO nuevo por ejecución real, que no sustituye a
-				// ninguno, más una entrada de índice que apunta a él.
-				s.appendRecords(request, executionContext)
+				// ninguno, más una entrada de índice que apunta a él. Lo que cambia
+				// la spec 13 es DÓNDE: uno solo, bajo el ámbito que el step declara.
+				s.appendRecord(request, executionContext)
 
 			default:
 				// Un step fallido no borra nada porque no había escrito nada: la
@@ -124,29 +125,40 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 	)
 }
 
-// appendRecords deja constancia de que ESTE step acaba de ejecutarse aquí, y de
+// appendRecord deja constancia de que ESTE step acaba de ejecutarse aquí, y de
 // lo que produjo.
 //
-// Escribe DOS registros mientras el ámbito no lo declare el step (spec 13): uno
-// bajo el ámbito de proyecto —lo que hasta entonces se marca como `shared`— y
-// otro bajo el del ambiente. No es una desviación de «un registro por ejecución
-// real»: son dos claves distintas, porque hoy un mismo step puede producir
-// variables de los dos ámbitos y las de proyecto tienen que seguir siendo
-// visibles desde cualquier ambiente. Cuando el step declare UN ámbito, esto se
-// colapsa a una sola escritura y el segundo registro desaparece con la
-// bifurcación.
+// UN registro, bajo el ámbito que el step DECLARA (spec 13 §5.4). Aquí se
+// escribían dos —uno de proyecto con las variables marcadas `shared` y otro del
+// ambiente con el resto— porque un mismo step podía producir de los dos ámbitos
+// y no había forma de saber cuál era el suyo. Con el ámbito declarado la
+// bifurcación desaparece con un `if`, no con una migración: el step tiene una
+// identidad, luego un sitio donde recordarse.
 //
-// Los dos se escriben aunque el conjunto de variables esté vacío: el hecho que
-// el registro guarda es «este step corrió», no «este step produjo algo», y un
+// Un step SIN `config.yaml` no escribe nada. No es un caso de error: es la
+// consecuencia de §5.3 —no declara ámbito, luego no hay dónde— y lo que impide
+// que el motor le invente uno.
+//
+// Se escribe aunque el conjunto de variables esté vacío: el hecho que el
+// registro guarda es «este step corrió», no «este step produjo algo», y un
 // registro vacío es además la única forma de expresar «este ámbito ya no tiene
 // variables» — lo que en el almacén viejo obligaba a guardar una lista vacía.
 //
 // Ningún fallo de escritura tumba el step: el despliegue ocurrió, y convertir
 // «no pude guardar» en «el despliegue falló» sería mentir en la dirección
 // peligrosa (spec 09 §9.6). Lo que sí ocurre es que se dice en voz alta.
-func (s *StepExecutable) appendRecords(
+func (s *StepExecutable) appendRecord(
 	request *StepRequestHandler,
 	executionContext *command.ExecutionContext) {
+
+	key, declarado, err := request.StateKey()
+	if err != nil {
+		s.warn(executionContext, err)
+		return
+	}
+	if !declarado {
+		return
+	}
 
 	// El instante sale del reloj inyectable a través del agregado (spec 07): no
 	// hay `time.Now()` en el dominio, y por eso los dos lados del borde de la
@@ -155,35 +167,21 @@ func (s *StepExecutable) appendRecords(
 		ExecutionID: executionContext.ExecutionID().String(),
 		At:          executionContext.StartedAt(),
 	}
-	fingerprint := request.StepFingerprint()
 
-	projectKey, err := request.ProjectStateKey()
-	if err != nil {
-		s.warn(executionContext, err)
-	} else {
-		s.appendRecord(executionContext, projectKey,
-			scopeVariables(executionContext, true), fingerprint, producedBy)
-	}
-
-	environmentKey, err := request.EnvironmentStateKey()
-	if err != nil {
-		s.warn(executionContext, err)
-		return
-	}
-	recordID := s.appendRecord(executionContext, environmentKey,
-		scopeVariables(executionContext, false), fingerprint, producedBy)
+	recordID := s.writeRecord(executionContext, key,
+		persistableVariables(executionContext), request.StepFingerprint(), producedBy)
 
 	// El índice apunta a un registro que YA existe: si el registro no se pudo
 	// escribir, no hay a qué apuntar y no se escribe entrada. Un índice con
 	// punteros rotos dejaría de ser reconstruible sin distinguir cuáles lo están.
 	if !recordID.IsZero() {
-		s.putIndexEntry(request, executionContext, environmentKey, recordID)
+		s.putIndexEntry(request, executionContext, key, recordID)
 	}
 }
 
-// appendRecord escribe un registro y devuelve su identificador, o el
+// writeRecord escribe un registro y devuelve su identificador, o el
 // identificador cero si no se pudo escribir.
-func (s *StepExecutable) appendRecord(
+func (s *StepExecutable) writeRecord(
 	executionContext *command.ExecutionContext,
 	key state.Key,
 	variables []command.Variable,
@@ -255,12 +253,14 @@ func (s *StepExecutable) warn(executionContext *command.ExecutionContext, err er
 	executionContext.Emit(fmt.Sprintf("advertencia: %v", err))
 }
 
-// scopeVariables es el conjunto que va a un registro: el mapa acumulado no
-// volátil, partido por ámbito.
+// persistableVariables es el conjunto que va al registro: el mapa acumulado no
+// volátil, entero.
 //
-// El filtro de volátiles NO está escrito aquí a mano: era la misma lista que
-// filtra la huella de variables, duplicada en dos archivos sin nada que las
-// mantuviera sincronizadas (spec 10). Hay un solo dueño, y está especificado en
+// Perdió el parámetro `shared` con la spec 13: ya no hay dos registros que
+// repartir, así que no hay nada que repartir. El único filtro que queda es el de
+// volátiles, y NO está escrito aquí a mano: era la misma lista que filtra la
+// huella de variables, duplicada en dos archivos sin nada que las mantuviera
+// sincronizadas (spec 10). Hay un solo dueño, y está especificado en
 // `fingerprint/SPEC-VARIABLES-v1.md` §3.1.
 //
 // Desapareció con el modelo la comparación previa por `reflect.DeepEqual`: en un
@@ -269,10 +269,10 @@ func (s *StepExecutable) warn(executionContext *command.ExecutionContext, err er
 // El orden por nombre es para el humano que abre el archivo: un mapa de Go se
 // recorre en orden aleatorio, y sin ordenar dos registros con las mismas
 // variables se verían distintos en un diff. No es material de ninguna huella.
-func scopeVariables(executionContext *command.ExecutionContext, shared bool) []command.Variable {
+func persistableVariables(executionContext *command.ExecutionContext) []command.Variable {
 	variables := executionContext.FilteredAccumulatedVars(
 		func(variable command.Variable) bool {
-			return variable.IsShared() == shared && !command.IsVolatileVar(variable.Name())
+			return !command.IsVolatileVar(variable.Name())
 		}).ToSlice()
 
 	slices.SortFunc(variables, func(a, b command.Variable) int {

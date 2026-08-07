@@ -22,12 +22,14 @@ pipeline-repo/
 ├── environments.yaml
 ├── steps/
 │   ├── 01-test/
-│   │   └── commands.yaml
+│   │   ├── commands.yaml
+│   │   └── config.yaml          # lo que el step declara de sí mismo (sección 8)
 │   ├── 02-supply/
 │   │   ├── commands.yaml
+│   │   ├── config.yaml
 │   │   └── terraform/...        # archivos auxiliares del step
 │   └── NN-<nombre>/
-│       └── commands.yaml
+│       └── commands.yaml        # sin config.yaml: se ejecuta siempre, no persiste
 └── variables/
     ├── sand/
     │   ├── supply.yaml
@@ -57,11 +59,14 @@ Lista de ambientes.
 - `value` — **identificador único** del ambiente. Es lo único que el motor lee: es la
   clave real que usa el resto del pipeline (nombre de carpeta en `variables/`, clave del
   estado de re-ejecución, valor de la variable `${var.environment}`).
-- `value` **no puede ser `shared`**: es el nombre del ámbito del almacén compartido y ocupa
-  esa misma posición en la ruta, así que un ambiente así declarado lo pisaría. Declararlo
-  hace fallar la ejecución (spec 04 §5.4). *(Está decidido que esta reserva se retire: el
-  ámbito de ambiente pasa a viajar prefijado y deja de poder colisionar — ver P13 en la
-  sección 9.)*
+- `value` **no tiene ninguna palabra reservada**. Hasta la spec 13 no podía ser `shared`,
+  porque el ámbito del almacén compartido ocupaba esa misma posición en la ruta y un
+  ambiente así declarado lo pisaba (spec 04 §5.4). El ámbito de ambiente viaja ahora
+  **siempre prefijado** en la clave de estado —`environment:<nombre>`— así que `shared` da
+  `environment:shared` y `project` da `environment:project`, y ninguno colisiona con el
+  ámbito de proyecto. **D9 queda derogada.** Lo que sí se sigue validando es el nombre:
+  `/`, `\`, `:`, `.` y `..` lo hacen fallar, porque el ámbito es un tramo de ruta del
+  almacén.
 - `name` y `description` — documentación. El motor no los usa.
 
 **Sobre el orden.** El motor usa el orden para una sola cosa: si la invocación no indica
@@ -81,8 +86,15 @@ Reglas que sí impone:
   ignoraba en silencio, o pasaba sin ejecutar nada.
 - Dos steps no pueden declarar el mismo orden (`02-a` y `02-b`): también es error de
   validación.
+- Si el step tiene `config.yaml`, tiene que declarar un `scope` del vocabulario cerrado
+  (sección 8). No tenerlo es legítimo; tenerlo y no declarar nada válido es error de
+  validación, con el archivo nombrado en el mensaje.
 - El orden de ejecución es el orden **numérico** del prefijo, ordenado explícitamente por el
   dominio y no heredado del orden en que el sistema de archivos lista el directorio.
+
+Las tres reglas se comprueban **enteras y antes del primer step**: descubrir un typo a mitad
+del despliegue llega tarde, porque los steps anteriores ya tuvieron efectos reales. Y no
+cortan en el primer fallo — se reportan todos los problemas de una vez.
 
 ### variables/
 
@@ -144,6 +156,13 @@ Si el step copiado vive en `.../workdirs/<pipeline>/<entorno>/steps/02-supply`, 
 **Si `workdir` está vacío o es `"."`, el comando se ejecuta en el directorio del proyecto**,
 no en el del step. Es lo que permite que `01-test` corra `mvn clean verify` sobre el código
 del proyecto sin declarar nada.
+
+`workdir` significa **dos cosas y sólo dos**: el directorio de ejecución y la base contra la
+que se resuelven los `templates`. Hasta la spec 13 significaba una tercera —el ámbito del
+almacén, deducido de su primer segmento— y ése es exactamente el modo de fallo que la
+retirada cierra: un mismo string decidiendo tres cosas independientes es cómo se llega a que
+cambiar una rompa otra en silencio. Un directorio llamado `shared` ya no le dice nada al
+motor.
 
 Los `templates`, en cambio, se resuelven **siempre** contra el directorio del step más el
 `workdir` — nunca contra el del proyecto. Un comando sin `workdir` que declare
@@ -248,8 +267,8 @@ Tres consecuencias:
   proyecto.
 
 **El orden en que la cadena alimenta el mapa dejó de decidir quién gana**, y lo fijan
-`TestVarsChain_ElOrdenDeLosHandlersYaNoDecideQuienGana` —las seis permutaciones con los
-handlers reales— y las 24 de `TestExecutionVariableMap_Add_ElOrdenDeLlegadaNoCambiaElResultado`.
+`TestVarsChain_ElOrdenDeLosHandlersYaNoDecideQuienGana` —las permutaciones con los handlers
+reales— y las 24 de `TestExecutionVariableMap_Add_ElOrdenDeLlegadaNoCambiaElResultado`.
 
 Pero el orden **no es indiferente**, y la spec 12 §5.3 —que mandaba adelantar el handler 03—
 se retira por eso (§9.1 de esa spec). El handler 03 no solo añade las variables declaradas:
@@ -317,31 +336,33 @@ comando.
 
 ### 5.2 Cadena de step — una vez por step
 
-1. **Cargar el último registro del ámbito de proyecto** de ese step y añadir sus variables.
-2. **Cargar el último registro del ámbito del ambiente** de ese step y añadir las suyas.
-3. **Cargar y resolver las variables declaradas** del step para ese ambiente.
-4. **Decidir si el step se re-ejecuta** (sección 7) y, si procede, recorrer sus comandos
-   entrando en la cadena de comando por cada uno.
+1. **Cargar el almacén**: el último registro del ámbito de **proyecto** de ese step y,
+   después, el del ámbito del **ambiente**, añadiendo las variables de los dos.
+2. **Cargar y resolver las variables declaradas** del step para ese ambiente.
+3. **Leer el `config.yaml` del step** (sección 8) y **decidir si se re-ejecuta**
+   (sección 7); si procede, recorrer sus comandos entrando en la cadena de comando por cada
+   uno.
+
+**Se leen los dos ámbitos y se escribe en uno.** El ámbito que el step declara decide
+**dónde vive su registro**, no qué puede ver: un step de ambiente ve lo que dejó un step de
+ámbito de proyecto, y por eso dos despliegues a ambientes distintos comparten el ACR.
 
 Al terminar:
 
-- **Si el step ejecutó y tuvo éxito** → se añaden **dos registros nuevos** (sección 7.3),
-  uno por ámbito, con el mapa acumulado partido en dos: lo marcado como compartido va al
-  ámbito de proyecto, el resto al del ambiente. Quedan excluidas las seis variables
-  volátiles —`project_version`, `project_revision`, `project_revision_full`, `tool_name`,
+- **Si el step ejecutó y tuvo éxito** → se añade **un registro nuevo** (sección 7.3), bajo
+  el ámbito que el step declara, con el mapa acumulado menos las seis variables volátiles
+  —`project_version`, `project_revision`, `project_revision_full`, `tool_name`,
   `project_workdir` y `step_workdir`—, que son las mismas que la huella de variables
-  excluye, de una sola lista. Después se indexa el registro del ambiente.
+  excluye, de una sola lista. Después se indexa ese registro.
+- **Si el step no declara ámbito** (no tiene `config.yaml`) → no se escribe nada, y el step
+  se ejecuta en todas las corridas.
 - **Si el step revivió** → no se escribe nada. Revivir no es un hecho nuevo del step, es la
   constatación de uno viejo.
 - **Si el step falló** → no se escribe nada. No hay registro que borrar porque no llegó a
   escribirse: consultar no modifica nada, y el único momento de escritura es el primer punto.
 
-Cada registro guarda el mapa acumulado **completo** de su ámbito, no solo lo que ese step
-produjo. El registro de `deploy` contiene también lo que produjo `supply`.
-
-**Son dos ámbitos y no uno sólo mientras el step no declare el suyo** (P13): hoy un mismo
-step puede producir variables comunes al proyecto y variables del ambiente, y las primeras
-tienen que seguir siendo visibles desde cualquier ambiente.
+El registro guarda el mapa acumulado **completo**, no solo lo que ese step produjo. El
+registro de `deploy` contiene también lo que produjo `supply`.
 
 ### 5.3 Cadena de comando — una vez por comando
 
@@ -462,7 +483,7 @@ de versión y su especificación normativa** en `internal/domain/fingerprint/`:
 | Huella | Token | Material |
 |---|---|---|
 | instrucciones | `inst-v1:` | por comando y **en el orden declarado**: `name`, `cmd`, `workdir`, `show`, la lista de `templates` y la de outputs (`name` + `probe`). **No** entra `description` |
-| variables | `vars-v1:` | el mapa acumulado, ordenado, con nombre + valor + si es compartida, **menos las seis volátiles** de la sección 5.2 |
+| variables | `vars-v1:` | el mapa acumulado, ordenado, con nombre + valor + un tercer campo constante `false`, **menos las seis volátiles** de la sección 5.2 |
 | código | `v1:` | el árbol del proyecto: una entrada por archivo visible, con su contenido, su bit de ejecución y el destino de los enlaces |
 
 Tres cosas que conviene no perder de vista:
@@ -505,7 +526,7 @@ re-ejecución, nunca un despliegue omitido.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "record_id": "01KZBF3MG0000G40R40M30E209",
   "step_fingerprint": "ck-v1:6d12da1d…",
   "variables": [{ "name": "acr_name", "value": "acmeregistry.azurecr.io" }],
@@ -532,9 +553,16 @@ $HOME/.vex/cache/<versión de la clave>/<2 primeros del hash>/<resto>.json
 Sus consumidores son de consulta.
 
 El registro **se escribe después de que el step termina bien**, desde un único sitio y una
-sola vez, y sólo si el step **ejecutó**: un step que revive no escribe nada. Un step que
-empieza y no termina —incluidos `SIGKILL`, un OOM o un corte de luz— tampoco, y la corrida
-siguiente lo vuelve a ejecutar.
+sola vez, bajo el **ámbito que el step declara** (sección 8), y sólo si el step **ejecutó**:
+un step que revive no escribe nada. Un step que empieza y no termina —incluidos `SIGKILL`,
+un OOM o un corte de luz— tampoco, y la corrida siguiente lo vuelve a ejecutar. Un step que
+no declara ámbito tampoco escribe, y por eso se ejecuta en todas las corridas.
+
+**Los registros con `"schema_version": 1` se siguen leyendo.** Lo que la versión 2 quitó es
+el campo `shared` de cada variable, y el lector ya no tiene dónde ponerlo: el ámbito lo dice
+la clave bajo la que está el registro. Rechazarlos habría dejado huérfanos los
+identificadores de recursos que existen de verdad en la nube. Una versión **desconocida**
+sigue siendo un error, que es la asimetría de la sección 7.4.
 
 ### 7.4 Cuando el motor no puede averiguarlo
 
@@ -572,39 +600,76 @@ siguiente lo salta.
 
 ---
 
-## 8. Ámbito `shared`
+## 8. El step declara su ámbito
 
-`shared` no es un ambiente: es una marca sobre las variables que un comando produce. Las
-marcadas como compartidas se guardan en un ámbito propio y quedan visibles **desde todos
-los ambientes**, en vez de asociarse solo a aquel en el que se ejecutó el comando.
+Un step declara en su propia configuración a qué ámbito pertenece. Exactamente uno, nunca
+dos, nunca ninguno de forma implícita.
+
+```yaml
+# steps/01-acr/config.yaml
+scope: project
+```
+
+`scope` admite **exactamente dos valores**, y el vocabulario es cerrado: un ámbito
+inventado no tendría dónde persistirse, así que cualquier otro valor es un error de
+pipelinecode.
+
+| Valor | Significado | Dónde vive el registro |
+|---|---|---|
+| `project` | el trabajo es común a todos los ambientes del proyecto | `project/` |
+| `environment` | el trabajo es propio del ambiente en ejecución | `environment/<nombre>/` |
 
 Es lo que permite que un recurso común a todos los ambientes —un registro de contenedores,
 por ejemplo— se cree una sola vez y que los tres ambientes lean su nombre.
 
-**Cómo se marca hoy:** el motor mira el **primer segmento** de la ruta de `workdir`. Si es
-exactamente `shared`, las variables de ese comando se marcan como compartidas.
+**Un step, un ámbito.** Si un step necesita los dos, **se parte en dos steps**, secuenciados
+por su prefijo numérico:
 
-```yaml
-workdir: "shared/terraform"     # ✅ primer segmento = "shared"  → compartida
-workdir: "./terraform/shared"   # ❌ primer segmento = "."       → NO compartida
+```
+steps/
+  01-acr/          scope: project        (crea el registro de contenedores)
+  02-provision/    scope: environment    (crea recursos propios del ambiente)
 ```
 
-> **Estado real.** Los tres pipelines de `Vex/pipelines` escriben `./terraform/shared`, así
-> que hoy **el mecanismo no se activa en ninguno** y las variables del bloque compartido se
-> guardan duplicadas, una copia por ambiente. Que eso no cause un recurso duplicado se debe
-> a que el backend de terraform del bloque compartido omite el ambiente en su clave de
-> estado — es una convención del pipelinecode, no una garantía del motor. La marca va a
-> cambiar a un campo explícito *(ver P2 en la sección 9)*.
+La regla no necesita nada más: el orden numérico ya garantiza que `01-acr` corra —o reviva—
+antes de que `02-provision` lo necesite, el step se sigue identificando por su ruta y no hay
+dos bloques dentro de un step que ordenar.
 
-Hoy `shared` no es más que eso: una marca sobre variables y un ámbito de almacén. No tiene
-ejecución propia ni decisión de re-ejecución propia — sus comandos son comandos del step
-como cualquier otro.
+**Sin `config.yaml` el step no declara ámbito**, y de ahí se sigue todo: **se ejecuta
+siempre, y no escribe registro de estado**. Ejecutar siempre es el default seguro —ejecutar
+de más nunca produce un despliegue que no ocurrió— y no escribir es lo que impide que el
+motor le invente un ámbito. Sus variables siguen viajando en el mapa acumulado de la
+corrida; lo que no ocurre es que crucen de una ejecución a la siguiente. Es el mismo
+criterio que un step sin comandos, que es `skipped{no_commands}` y tampoco persiste estado.
 
-> **Todo este mecanismo está decidido que desaparezca.** Ni la marca por `workdir`, ni la
-> marca por comando, ni la palabra `shared`. El ámbito pasa a declararse **por step**, en un
-> `config.yaml` propio, con dos valores —`project` y `environment`— y la regla de que **un
-> step tiene exactamente uno**: si necesita los dos, se parte en dos steps. Ver P13 en la
-> sección 9.
+**La validación corre antes del primer step.** Un `config.yaml` presente cuyo `scope` falta
+o está fuera del vocabulario aborta la ejecución con un mensaje que nombra el directorio,
+como cualquier otra regla de estructura del pipelinecode (sección 2).
+
+> **De dónde viene esto, porque es un mecanismo que se sustituyó entero.** Hasta la spec 13
+> el ámbito era una marca sobre cada *variable*, deducida del **primer segmento** de la ruta
+> de `workdir`: si era exactamente `shared`, las variables de ese comando se guardaban en un
+> ámbito común. Los tres pipelines de `Vex/pipelines` escriben `./terraform/shared`, cuyo
+> primer segmento es `.`, así que **el mecanismo nunca llegó a activarse en ninguno**. Que
+> eso no causara un recurso duplicado se debía a que el backend de terraform del bloque
+> compartido omite el ambiente en su clave de estado — una convención del pipelinecode, no
+> una garantía del motor.
+>
+> Se retira sin dejar azúcar de compatibilidad: `workdir: shared/x` ya no comparte nada, y
+> `shared` deja de ser una palabra con significado para el motor, tanto como directorio como
+> nombre de ambiente. Dos mecanismos para lo mismo es exactamente cómo se llega a que uno
+> esté muerto y nadie lo note, que es lo que pasó.
+
+> **Estado de los templates.** Los tres de `Vex/pipelines` **todavía no declaran
+> `config.yaml`**, así que sus steps se ejecutan siempre y no persisten registro: más lento
+> que antes, nunca incorrecto. Lo cierra la spec 24, que parte `02-supply` en dos.
+
+> **Límite vivo.** La lectura cruzada entre ambientes funciona —un step de ambiente ve lo que
+> produjo uno de ámbito de proyecto—, pero un step `scope: project` **no revive todavía** el
+> registro que escribió desplegando a otro ambiente: su huella lleva el ambiente, tanto en la
+> dimensión `ámbito` de la clave (sección 7.2) como en la variable `environment`. Se ejecuta
+> una vez por ambiente y escribe en el mismo sitio. Lo cierra la spec 27, al sacar de la
+> huella las dimensiones de dirección *(ver P16 en la sección 9)*.
 
 ---
 
@@ -620,7 +685,7 @@ a las que los planes ya referencian.
 |---|---|
 | Steps y re-ejecución | P1, P4, P10, **P14** |
 | Variables | P3, P7, P8 |
-| Ámbito del step | ~~P2~~, ~~P5~~, **P13** |
+| Ámbito del step | ~~P2~~, ~~P5~~, ~~**P13**~~ |
 | Identidad y procedencia | P9, P6, **P15** |
 | Dónde vive el estado | **P16**, **P17** |
 | Registro de despliegue | P11, P12 |
@@ -1050,7 +1115,20 @@ cliente real esperándolo; hasta entonces el modo remoto corre sin caché.
 > exactamente la razón de la tercera regla de arriba —`local` no puede ser un
 > no-op—, y con P16 gana peso.
 
-**P13 — El ámbito lo declara el step, y un step tiene exactamente uno.**
+**P13 — El ámbito lo declara el step, y un step tiene exactamente uno. — HECHO (spec 13).**
+El cuerpo de este documento lo describe en la sección 8; lo que queda aquí es el registro de
+lo que se decidió y por qué.
+
+> **Qué quedó fuera, y es lo único.** La lectura mira los dos ámbitos y la escritura sólo el
+> declarado, como se decidió. Lo que **no** ocurre todavía es que un step `scope: project`
+> revive entre ambientes: su huella lleva el ambiente por dos vías —la dimensión `ámbito` de
+> la clave de caché y la variable `environment` del mapa acumulado—, así que se ejecuta una
+> vez por ambiente aunque escriba y lea en el mismo sitio. La lectura cruzada, que es lo que
+> el caso del ACR necesita, sí funciona. Lo cierra P16 (spec 27).
+>
+> Y en producción el cambio observable es **cero** hasta la spec 24: ningún template declara
+> `config.yaml` todavía, así que sus steps se ejecutan siempre y no persisten registro.
+
 Cada step declara en un `config.yaml` propio a qué **ámbito** pertenece: `project` —el
 trabajo es común a todos los ambientes del proyecto— o `environment` —es propio del
 ambiente en ejecución—. Vocabulario cerrado; no hay tercer valor.
@@ -1260,7 +1338,7 @@ Ningún paso consulta `deployment_id`, `content_id` ni `parent`.
 | D6 | ~~La variable `shared_workdir` está declarada en el motor y no se asigna nunca~~ **Corregido (spec 11 §5.6): se elimina. Una variable que no existe no puede ser volátil ni no volátil, y conservarla era invitar a que alguien la asignara sin saber qué significaba** |
 | D7 | ~~**El orden de ejecución de los steps es lexicográfico, no numérico:** `os.ReadDir` ordena por nombre y `StepName.Order()` no se usa jamás para ordenar. Con prefijos de **dos** dígitos ambos órdenes coinciden y no se manifiesta —doce steps `01…12` salen en orden, verificado con test—. Se manifiesta en cuanto entra un prefijo de **un** dígito (D2/D3): `1-test, 10-promote, …, 2-supply`, y basta un directorio mal nombrado entre otros correctos~~ **Corregido (spec 04 §5.2): `NewStepNames` ordena por `Order()`. Con el prefijo validado a dos dígitos no había un orden roto que arreglar; lo que se gana es que el invariante esté enunciado en una línea en vez de deducido de que `os.ReadDir` ordena por nombre y de que `%02d` es de ancho fijo** |
 | D8 | Un campo vacío en los datos del proyecto produce una variable bajo la clave `""`: el error de construcción se ignora y la variable vacía se inserta igual. Esa entrada **entra en la huella de variables**, así que no es un log feo — es material de identidad contaminado. **Corregido al implementar (spec 03 §9.1): el mecanismo era real, el disparador no.** Ningún campo vacío del proyecto llega al handler —`create_execution.go:74-100` los valida antes—, así que la entrada anónima solo la producía un defecto del propio motor. El daño cotidiano era el inverso: un `variables/<env>/<step>.yaml` con `value: ""` **abortaba la ejecución entera** |
-| D9 | ~~Un ambiente llamado `shared` en `environments.yaml` pisa el almacén compartido. El ambiente se valida contra la lista, pero no contra nombres reservados~~ **Corregido (spec 04 §5.4): el handler 03 rechaza el `environments.yaml` que declare `value: "shared"`. Y luego DEROGADO por P13: el ámbito de ambiente pasa a viajar prefijado (`environment:<nombre>`), así que la colisión deja de existir y la prohibición sobra. La corrección no fue inútil —prohibió un nombre mientras la colisión existió—; lo que la deroga es haber eliminado la colisión** |
+| D9 | ~~Un ambiente llamado `shared` en `environments.yaml` pisa el almacén compartido. El ambiente se valida contra la lista, pero no contra nombres reservados~~ **Corregido (spec 04 §5.4): el handler 03 rechaza el `environments.yaml` que declare `value: "shared"`. Y luego DEROGADO (spec 13 §5.5): el ámbito de ambiente viaja prefijado (`environment:<nombre>`), así que la colisión dejó de existir y la comprobación del handler 03 se retiró. **No queda ninguna palabra reservada**, ni siquiera `project`. La corrección no fue inútil —prohibió un nombre mientras la colisión existió—; lo que la deroga es haber eliminado la colisión** |
 | D10 | ~~Un `Ctrl-C` mata la ejecución sin dejar rastro de cancelación: no hay manejador de señales y el mecanismo de cancelación que el motor declara no se invoca nunca. «Cancelado» e «interrumpido» son indistinguibles~~ **Corregido (spec 07 §5.4): `cmd/vexd` maneja `SIGINT`/`SIGTERM` cancelando el contexto de la ejecución, que queda registrada como `canceled` y sale con exit code 130. Es best-effort y así se documenta (sección 5.4): `SIGKILL` y OOM siguen plegando a «interrumpido», que es la respuesta honesta. De paso, el `cancelFn` que se guardaba sin llamar nunca obtuvo su `defer`** |
 | D11 | ~~Si el identificador de ejecución tiene menos de cuatro caracteres, la línea de log que lo abrevia provoca un panic~~ **Corregido (spec 07 §5.5): se abrevia solo a partir de ocho caracteres. El plan lo describía como «menos de 8»; el código panicaba con menos de 4 y solapaba las dos mitades entre 4 y 7** |
 | D12 | ~~El estado de la ejecución no se usa: `status` se queda en `queued` de principio a fin, `finishedAt` y `exitCode` son siempre `nil`, y el estado terminal lo deduce la CLI a partir del error devuelto~~ **Corregido (spec 07 §5.2): el use case invoca las transiciones y el agregado publica su estado terminal con sus instantes. Ver sección 5.4** |

@@ -23,10 +23,12 @@ func (h *VarsExtractorHandler) Handle(ctx *context.Context, request *CommandRequ
 		return fmt.Errorf("extraer variables de output: %w", err)
 	}
 
-	isShared := request.CommandWorkdirIsShared()
-
+	// Aquí se leía `request.CommandWorkdirIsShared()` para marcar cada variable
+	// con el ámbito deducido del primer segmento del workdir. Lo retira la
+	// spec 13 §5.6: el ámbito es del STEP, así que todas las variables que este
+	// comando produce ya lo tienen y la marca por variable sobraba.
 	for name, value := range vars {
-		commandVariable, err := NewCommandVariable(name, value, isShared)
+		commandVariable, err := NewCommandVariable(name, value)
 		if err != nil {
 			return fmt.Errorf("crear variable de comando: %w", err)
 		}
@@ -35,7 +37,7 @@ func (h *VarsExtractorHandler) Handle(ctx *context.Context, request *CommandRequ
 		// `OriginRuntime`: lo que el mundo real devolvió al ejecutar. Es la
 		// precedencia más alta, y por eso un literal declarado con el mismo nombre
 		// pasa a ser lo que dice ser, un valor por defecto (spec 12 §5.1).
-		executionVariable, err := NewVariable(name, value, isShared, OriginRuntime)
+		executionVariable, err := NewVariable(name, value, OriginRuntime)
 		if err != nil {
 			return fmt.Errorf("crear variable de ejecución: %w", err)
 		}

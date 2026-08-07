@@ -48,7 +48,7 @@ func (h *VarsHandler) Resolve(initialVars *command.ExecutionVariableMap, variabl
 	varsToResolve := command.NewExecutionVariableMap()
 
 	for _, v := range variablesToResolve {
-		variable, err := command.NewVariable(v.Name(), v.Value(), false, command.OriginDeclared)
+		variable, err := command.NewVariable(v.Name(), v.Value(), command.OriginDeclared)
 		if err != nil {
 			return nil, fmt.Errorf("crear variable de ejecución(pipeline): %w", err)
 		}
@@ -89,7 +89,7 @@ func (h *VarsHandler) Resolve(initialVars *command.ExecutionVariableMap, variabl
 			}
 
 			resolvedVar, err := command.NewVariable(
-				unresolvedVar.Name(), interpolatedValue, false, command.OriginDeclared)
+				unresolvedVar.Name(), interpolatedValue, command.OriginDeclared)
 			if err != nil {
 				return nil, fmt.Errorf("crear variable de ejecución(pipeline): %w", err)
 			}

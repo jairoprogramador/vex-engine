@@ -37,7 +37,11 @@ func (h *StepsLoaderHandler) Handle(ctx *context.Context, request *PipelineReque
 	// La estructura se valida ENTERA antes de construir un solo step: es el
 	// único punto donde el pipelinecode entra al modelo, y el único momento en
 	// que fallar no deja efectos a medias en la nube (spec 04 §5.1).
-	if err := h.validator.Validate(entries); err != nil {
+	//
+	// Desde la spec 13 el validador recibe también la ruta del pipelinecode: una
+	// de sus reglas habla de un ARCHIVO del step (`config.yaml`), no sólo del
+	// nombre de su directorio.
+	if err := h.validator.Validate(ctx, request.PipelineLocalPath(), entries); err != nil {
 		return fmt.Errorf("estructura del pipelinecode inválida: %w", err)
 	}
 

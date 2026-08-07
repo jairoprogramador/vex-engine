@@ -56,10 +56,19 @@ func IsVolatileVar(name string) bool {
 	return slices.Contains(volatileVarNames, name)
 }
 
+// Variable es un par nombre/valor del mapa acumulado, con la marca de dónde
+// vino.
+//
+// `isShared` vivía aquí y se retira con la spec 13 §5.6: el ámbito es del STEP,
+// así que la marca por variable era información duplicada —todas las que un step
+// produce tienen el suyo— y fue la fuente del defecto que la spec 02 tuvo que
+// corregir, cuando el adaptador de archivo la perdía y el mismo proyecto
+// producía una huella distinta según corriera en local o en remoto. Aquel
+// arreglo no se revierte: se queda sin objeto, porque el dato que se perdía ya
+// no viaja por aquí.
 type Variable struct {
-	name     string
-	value    string
-	isShared bool
+	name  string
+	value string
 
 	// origin es de dónde llegó el valor, y con ello su precedencia frente a otra
 	// fuente que aporte el mismo nombre (spec 12 §5.1).
@@ -92,16 +101,15 @@ var ErrVariableNameEmpty = errors.New("el nombre de la variable generada no pued
 // del enum es `OriginDeclared`, la precedencia MÁS BAJA, así que un llamador que
 // se olvide de declararlo produce una variable que no pisa a nadie en vez de una
 // que lo pisa todo. Es la dirección segura del olvido.
-func NewVariable(name, value string, isShared bool, origin Origin) (Variable, error) {
+func NewVariable(name, value string, origin Origin) (Variable, error) {
 	if name == "" {
 		return Variable{}, ErrVariableNameEmpty
 	}
 
 	return Variable{
-		name:     name,
-		value:    value,
-		isShared: isShared,
-		origin:   origin,
+		name:   name,
+		value:  value,
+		origin: origin,
 	}, nil
 }
 
@@ -111,10 +119,6 @@ func (ve *Variable) Name() string {
 
 func (ve *Variable) Value() string {
 	return ve.value
-}
-
-func (ve *Variable) IsShared() bool {
-	return ve.isShared
 }
 
 func (ve *Variable) Origin() Origin {

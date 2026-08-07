@@ -18,28 +18,29 @@ import (
 
 func TestNewVariable_Invariante(t *testing.T) {
 	t.Run("el nombre vacío sigue siendo un error", func(t *testing.T) {
-		_, err := command.NewVariable("", "us-east-1", false, command.OriginDeclared)
+		_, err := command.NewVariable("", "us-east-1", command.OriginDeclared)
 		require.ErrorIs(t, err, command.ErrVariableNameEmpty)
 	})
 
 	t.Run("el valor vacío ya NO es un error", func(t *testing.T) {
 		// Cierra D-A8: habilita el parámetro opcional que las specs del
 		// registro necesitan (`secrets_required`, `vex plan`).
-		variable, err := command.NewVariable("instance_count", "", false, command.OriginDeclared)
+		variable, err := command.NewVariable("instance_count", "", command.OriginDeclared)
 		require.NoError(t, err)
 
 		assert.Equal(t, "instance_count", variable.Name())
 		assert.Equal(t, "", variable.Value())
-		assert.False(t, variable.IsShared())
 	})
 
-	t.Run("el nombre, el ámbito y el origen se conservan", func(t *testing.T) {
-		variable, err := command.NewVariable("bucket", "artefactos", true, command.OriginRuntime)
+	t.Run("el nombre, el valor y el origen se conservan", func(t *testing.T) {
+		// El ÁMBITO ya no está en esta lista, y su ausencia es el entregable de la
+		// spec 13 §5.6: era un atributo por variable cuando es del STEP. Aquí se
+		// afirmaba `IsShared()`, que ya no existe.
+		variable, err := command.NewVariable("bucket", "artefactos", command.OriginRuntime)
 		require.NoError(t, err)
 
 		assert.Equal(t, "bucket", variable.Name())
 		assert.Equal(t, "artefactos", variable.Value())
-		assert.True(t, variable.IsShared())
 		assert.Equal(t, command.OriginRuntime, variable.Origin())
 	})
 }
@@ -99,7 +100,7 @@ func TestVolatileVarNames_EsLaListaDeLaEspecificacion(t *testing.T) {
 func TestNewVariable_DeclaradaYVaciaOcupaSuClave(t *testing.T) {
 	vars := command.NewExecutionVariableMap()
 
-	variable, err := command.NewVariable("instance_count", "", false, command.OriginDeclared)
+	variable, err := command.NewVariable("instance_count", "", command.OriginDeclared)
 	require.NoError(t, err)
 	vars.Add(variable)
 

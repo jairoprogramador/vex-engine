@@ -17,7 +17,7 @@ puede hacer es cambiar la regla y dejar el prefijo en `vars-v1:`.
 
 | Término | Significado |
 |---|---|
-| **variable** | un par nombre/valor del mapa acumulado, con su marca de ámbito compartido |
+| **variable** | un par nombre/valor del mapa acumulado (hasta la spec 13, con su marca de ámbito compartido) |
 | **mapa acumulado** | el conjunto de variables visible para un paso en el momento de decidir si se ejecuta |
 | **volátil** | variable que el motor **deriva** de la ejecución en curso, no declarada por nadie |
 | **entrada** | la cadena con la que una variable participa en la huella |
@@ -112,6 +112,16 @@ Q(nombre) ␞ Q(valor) ␞ <compartida>
 - `<compartida>` es `true` o `false`, sin comillas. Cambiar **sólo** el ámbito
   de una variable cambia la huella: dónde se guarda un valor es parte de lo que
   el paso consume.
+- **Desde la spec 13 el tercer campo es constante `false`.** El ámbito dejó de
+  ser un atributo de la variable y pasó a ser del *step*, declarado en su
+  `config.yaml`, así que el consumidor —`step.NewCacheMaterial`— ya no tiene un
+  valor variable que entregar. **La regla NO cambia**, y por eso el token sigue
+  siendo `vars-v1`: el campo sigue en la entrada, en su sitio, y ninguna huella
+  ya emitida se mueve. Se puede afirmar que no se mueve *ninguna* porque el
+  valor `true` no era alcanzable: lo ponía el primer segmento de `workdir`, un
+  mecanismo que ningún pipelinecode real activó nunca (spec 13 §1), y el ámbito
+  de proyecto sólo recibía el conjunto vacío. El campo desaparece con la regla
+  entera en la spec 27, que retira `vars-v1`.
 - `Q("")` es `""`, no ausencia: **«declarada y vacía» y «no declarada» son
   estados distintos** y la huella los separa (spec 03 §5.3).
 

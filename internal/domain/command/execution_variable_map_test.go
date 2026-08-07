@@ -19,7 +19,7 @@ import (
 
 func varDe(t *testing.T, nombre, valor string, origen command.Origin) command.Variable {
 	t.Helper()
-	v, err := command.NewVariable(nombre, valor, false, origen)
+	v, err := command.NewVariable(nombre, valor, origen)
 	require.NoError(t, err)
 	return v
 }
