@@ -42,6 +42,15 @@ func (h *VarsExtractorHandler) Handle(ctx *context.Context, request *CommandRequ
 			return fmt.Errorf("crear variable de ejecución: %w", err)
 		}
 		request.AddAccumulatedVars(executionVariable)
+
+		// Y se anota como PRODUCIDA por este step. Son dos destinos porque son dos
+		// preguntas distintas: el mapa acumulado responde «¿qué ve el step
+		// siguiente?» y esto responde «¿qué dejó éste?», que es lo único que su
+		// registro debe guardar (spec 14 §6). Hasta ahora el registro guardaba el
+		// mapa acumulado entero, así que un literal declarado volvía del almacén
+		// como `OriginState` en la corrida siguiente y editarlo dejaba de surtir
+		// efecto.
+		request.AddProducedVar(executionVariable)
 	}
 
 	if h.Next != nil {

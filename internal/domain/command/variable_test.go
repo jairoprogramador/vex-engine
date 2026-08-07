@@ -60,12 +60,15 @@ func TestOrigin_ElOrdenEsLaPrecedencia(t *testing.T) {
 		"un literal es un valor por defecto: lo almacenado gana (P3)")
 	assert.Less(t, command.OriginState, command.OriginInjected,
 		"un hecho de ESTA ejecución no lo pisa uno de una corrida anterior")
-	assert.Less(t, command.OriginInjected, command.OriginRuntime,
+	assert.Less(t, command.OriginInjected, command.OriginResolved,
+		"una declaración explícita del consumidor gana a lo que llega por ambiente")
+	assert.Less(t, command.OriginResolved, command.OriginRuntime,
 		"lo producido al ejecutar gana sobre todo")
 
 	assert.Equal(t, "declared", command.OriginDeclared.String())
 	assert.Equal(t, "state", command.OriginState.String())
 	assert.Equal(t, "injected", command.OriginInjected.String())
+	assert.Equal(t, "resolved", command.OriginResolved.String())
 	assert.Equal(t, "runtime", command.OriginRuntime.String())
 }
 

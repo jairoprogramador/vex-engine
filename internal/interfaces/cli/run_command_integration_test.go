@@ -24,8 +24,8 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
 )
 
-// correHastaEstable ejecuta hasta que ningún paso corre. Hoy hacen falta DOS
-// ejecuciones: ver TestRunCommand_ReejecucionSinCambios.
+// correHastaEstable ejecuta hasta que ningún paso corre. Hoy hacen falta TRES
+// ejecuciones, y por qué lo explica TestRunCommand_ReejecucionSinCambios.
 func correHastaEstable(t *testing.T, h *harness) {
 	t.Helper()
 	for i := 0; i < 5; i++ {
@@ -60,10 +60,17 @@ func TestRunCommand_EjecucionLimpia(t *testing.T) {
 	//     ambiente del repositorio de variables está bien inyectada.
 	assert.Equal(t, `02-supply acr_name = "vexsand-demo-app"`, h.logLines()[1])
 
-	// Y que el almacén de variables persistió lo extraído.
+	// Y que cada step persistió LO QUE ÉL PRODUJO, no todo lo que vio (spec 14
+	// §6). Hasta esta spec los dos registros llevaban el mapa acumulado entero, y
+	// de ahí salían los dos defectos que la spec cierra.
 	stored := h.storedVars("sand", "02-supply")
 	assert.Equal(t, "vexsand-demo-app", stored["acr_name"])
-	assert.Equal(t, "demo-app", stored["artifact_name"])
+	assert.NotContains(t, stored, "artifact_name",
+		"lo produjo 01-test: está en SU registro, y en el mapa acumulado durante la corrida")
+	assert.NotContains(t, stored, "registry_prefix",
+		"es un literal del pipelinecode: si se persistiera, editarlo dejaría de surtir efecto")
+
+	assert.Equal(t, "demo-app", h.storedVars("sand", "01-test")["artifact_name"])
 
 	// Las variables volátiles NO entran al almacén (step_executable.go).
 	assert.NotContains(t, stored, "project_version")
@@ -83,16 +90,25 @@ func TestRunCommand_ReejecucionSinCambios(t *testing.T) {
 	// DIVERGENCIA VIVA respecto de lo que la spec 01 §5.2 daba por hecho: la
 	// segunda ejecución idéntica NO se salta.
 	//
-	// Motivo: cada step guarda en el almacén las variables que él mismo
-	// produjo (`artifact_name`, `acr_name`). La ejecución siguiente las carga
-	// ANTES de evaluar la policy, así que la huella de variables que ve la
-	// regla ya no es la que se guardó, y el step se re-ejecuta exactamente una
-	// vez más. A partir de la tercera el punto es fijo.
+	// Motivo: cada step guarda en el almacén las variables que él mismo produjo
+	// (`artifact_name`, `acr_name`). La ejecución siguiente las carga ANTES de
+	// decidir, así que la huella de variables que se compara ya no es la que se
+	// guardó, y el step se re-ejecuta exactamente una vez más. A partir de la
+	// tercera el punto es fijo.
 	//
-	// Este test afirma el comportamiento ACTUAL. Las specs 12/14/20 —el literal
-	// como default y el consumidor declarando el origen— deberían volverlo
-	// verde en la segunda ejecución; cuando pase, este test se actualiza y el
-	// diff hace visible la corrección.
+	// La spec 14 acorta la cadena pero NO la corta: el registro dejó de guardar el
+	// mapa acumulado entero —así que un literal declarado ya no vuelve del
+	// almacén, ver `TestRunCommand_EditarUnLiteralVuelveASurtirEfecto`— pero lo
+	// que un step PRODUJO sigue guardándose, que es su razón de ser, y sigue
+	// entrando en la huella de la corrida siguiente porque el material de la
+	// huella es el mapa acumulado RESUELTO.
+	//
+	// Lo cierra la spec 27, cuando ese material pase de «acumulado resuelto» a
+	// «declarado» (§5.2): entonces las salidas de una corrida dejan de ser
+	// entradas de la siguiente. Las dos specs son necesarias —la 14 hace que
+	// «declarado» cubra también las variables que hoy aparecen de la nada, sin lo
+	// cual el material quedaría corto EN SILENCIO— y este test es el testigo:
+	// cuando la 27 llegue, la segunda ejecución se pondrá vacía.
 	h.resetLog()
 	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
 	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps(),
@@ -654,7 +670,8 @@ func TestRunCommand_LoProducidoEnEjecucionPisaAlLiteral(t *testing.T) {
 	// 01-test produce artifact_name=demo-app por `outputs`; 02-supply lo declara
 	// como literal en su variables/sand/supply.yaml. Gana el producido.
 	assert.Equal(t, `02-supply acr_name = "vexsand-demo-app"`, h.logLines()[1])
-	assert.Equal(t, "demo-app", h.storedVars("sand", "02-supply")["artifact_name"])
+	assert.Equal(t, "demo-app", h.storedVars("sand", "01-test")["artifact_name"],
+		"el valor vive en el registro de quien lo produjo (spec 14 §6)")
 }
 
 // El default sigue siendo un default: si nada produce el nombre, vale el
@@ -736,7 +753,11 @@ func TestRunCommand_ElAlmacenNoPisaLoInyectadoPorElMotor(t *testing.T) {
 	// `impostor`: un dato de ayer pisando un hecho de hoy.
 	assert.Contains(t, h.logLines(), "02-supply project_name=demo-app",
 		"un valor de una corrida anterior no puede pisar un hecho de ésta")
-	assert.Equal(t, "demo-app", h.storedVars("sand", "02-supply")["project_name"])
+
+	// Y el registro NUEVO ya no lo lleva: el step dejó de producirlo, así que
+	// dejó de ser un hecho suyo (spec 14 §6). El de la primera corrida sigue ahí
+	// —el almacén es append-only— pero el vigente es éste.
+	assert.NotContains(t, h.storedVars("sand", "02-supply"), "project_name")
 }
 
 // El canario de que el orden de `chainStepHandlers` dejó de ser normativo
@@ -789,22 +810,27 @@ func TestRunCommand_UnLiteralPuedeInterpolarElRegistroDelPropioStep(t *testing.T
 	assert.Contains(t, h.logLines(), "02-supply derivada=arn:aws:demo/x")
 }
 
-// La precedencia entre el almacén y lo declarado, invertida por la spec 12.
+// EDITAR UN LITERAL VUELVE A SURTIR EFECTO. Es el defecto que la spec 14 cierra,
+// y este test es su testigo: se llamaba `TestRunCommand_ElAlmacenPisaAlLiteral‐
+// Declarado` y afirmaba lo contrario.
 //
-// Hasta la 12 ganaba lo declarado y este test se llamaba
-// `TestRunCommand_PrecedenciaDeclaradoSobreAlmacenado`. Ahora gana el almacén,
-// que es lo que hace que un `terraform output` guardado ayer sobreviva a un
-// literal homónimo declarado como valor por defecto.
+// La cadena del defecto tenía dos eslabones y esta spec corta el primero:
 //
-// PÉRDIDA ACEPTADA Y VISIBLE: el registro persiste HOY el mapa acumulado
-// entero, no solo lo que el step produjo, así que un literal declarado entra en
-// el almacén en la primera corrida y vuelve como `OriginState` en la segunda.
-// Consecuencia: editar ese literal en el pipelinecode deja de surtir efecto —y
-// el step ni siquiera se re-ejecuta, porque la huella de variables tampoco
-// cambia—. Lo corrige la spec 14, al distinguir lo que un paso CONSUME de lo
-// que PRODUCE (ver `fingerprint/SPEC-VARIABLES-v1.md` §2). Este test fija el
-// borde: cuando la 14 llegue, se pone en rojo y la decisión se hace visible.
-func TestRunCommand_ElAlmacenPisaAlLiteralDeclarado(t *testing.T) {
+//	el registro guardaba el mapa acumulado ENTERO          ← la spec 14 lo corta
+//	  ⇒ el literal entraba en el almacén en la 1ª corrida
+//	  ⇒ volvía como `OriginState` en la 2ª, por encima de `OriginDeclared`
+//	  ⇒ el valor efectivo no cambiaba al editarlo
+//	  ⇒ la huella de variables tampoco, así que el step ni se re-ejecutaba
+//
+// La spec 12 no lo podía cerrar sola —invertir la precedencia es lo que lo hizo
+// visible— y la 27 tampoco: hashear la declaración en vez del valor resuelto hace
+// que editar un literal vuelva a RE-EJECUTAR el step, no que el literal vuelva a
+// GANAR. Hacen falta las dos, y el reparto es: la 27 arregla la identidad, ésta
+// arregla el valor.
+//
+// Los ~40 literales de `variables/<env>/deploy.yaml` de los templates estaban en
+// esta situación.
+func TestRunCommand_EditarUnLiteralVuelveASurtirEfecto(t *testing.T) {
 	h := newHarness(t)
 	correHastaEstable(t, h)
 	require.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
@@ -815,9 +841,246 @@ func TestRunCommand_ElAlmacenPisaAlLiteralDeclarado(t *testing.T) {
 	result := h.run()
 	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
 
-	assert.Empty(t, h.ranSteps(),
-		"la huella de variables no cambia porque el valor efectivo no cambia")
-	assert.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
+	assert.Contains(t, h.ranSteps(), "02-supply",
+		"el literal ya no vuelve del almacén, así que el valor efectivo cambia y con él la huella")
+	assert.Equal(t, `02-supply acr_name = "vexsand2-demo-app"`, h.logLines()[len(h.logLines())-1])
+	assert.Equal(t, "vexsand2-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
+}
+
+// La otra mitad de la spec 12, que NO cambia: lo que una ejecución anterior
+// produjo sigue ganando a un literal homónimo declarado como valor por defecto.
+// Es lo que hace que un `terraform output` guardado ayer sobreviva.
+//
+// Lo que la spec 14 le quita al almacén no es autoridad: es la copia de los
+// literales que acababan dentro de él sin que nadie los hubiera producido.
+func TestRunCommand_ElAlmacenSigueGanandoALoDeclarado(t *testing.T) {
+	h := newHarness(t, withPipelineFile("steps/02-supply/commands.yaml", `
+- name: provision
+  cmd: echo '02-supply acr_name = "de-la-nube"' | tee -a "$VEX_TEST_LOG"
+  outputs:
+    - name: acr_name
+      probe: acr_name = "([^"]+)"
+`))
+
+	// Corrida 1: el step produce `acr_name` y lo guarda en su registro.
+	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+	require.Equal(t, "de-la-nube", h.storedVars("sand", "02-supply")["acr_name"])
+
+	// El step deja de producirlo y alguien declara un literal con ese nombre. El
+	// almacén es ahora la única fuente que compite, y gana.
+	h.commitPipelineFile("variables/sand/supply.yaml",
+		"- name: registry_prefix\n  value: vexsand\n- name: acr_name\n  value: literal-por-defecto\n")
+	h.commitPipelineFile("steps/02-supply/commands.yaml",
+		"- name: usa\n  cmd: echo '02-supply acr_name=${var.acr_name}' | tee -a \"$VEX_TEST_LOG\"\n")
+
+	h.resetLog()
+	result := h.run()
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Contains(t, h.logLines(), "02-supply acr_name=de-la-nube",
+		"un literal es un valor por DEFECTO: no pisa un hecho que una corrida anterior registró")
+}
+
+// ── El consumidor declara el origen (spec 14) ───────────────────────────────
+//
+// Hasta esta spec una variable viajaba entre steps así: `01-test` la extraía del
+// stdout y la inyectaba en un mapa global plano, y tres steps más tarde alguien
+// la interpolaba POR NOMBRE. El consumidor no declaraba de dónde venía, sólo la
+// nombraba, y el acoplamiento se resolvía por orden de ejecución — o sea, no era
+// conocible antes de ejecutar, que es justo lo que la identidad necesita saber.
+
+const manifiestoV2 = "schema_version: 2\n"
+
+// La versión del formato existe para que añadir gramática no rompa a nadie en
+// silencio. Sin `vexpipeline.yaml` el pipelinecode está en la versión 1, y en la
+// 1 `resolve` no existe: el motor lo dice nombrando la versión que haría falta, y
+// lo dice ANTES del primer step.
+func TestRunCommand_SinManifiestoResolveSeRechaza(t *testing.T) {
+	h := newHarness(t, withPipelineFile("variables/sand/supply.yaml", `
+- name: registry_prefix
+  value: vexsand
+- name: artifact
+  resolve: step-output
+  from: "01-test"
+  key: artifact_name
+`))
+
+	result := h.run()
+
+	assert.Equal(t, cli.ExitFailed, result.exitCode)
+	assert.Contains(t, result.stderr, "schema_version: 2")
+	assert.Contains(t, result.stderr, "vexpipeline.yaml")
+	assert.Empty(t, h.ranSteps(), "falla en la carga: ningún step tuvo efectos reales")
+}
+
+// Con la versión declarada, la gramática funciona: el consumidor nombra el step
+// productor y el output, y puede llamar a la variable como quiera. El productor
+// deja de tener que saber quién lo lee — es el DIP aplicado al pipelinecode.
+func TestRunCommand_ConVersion2UnStepOutputSeResuelve(t *testing.T) {
+	h := newHarness(t,
+		withPipelineFile("vexpipeline.yaml", manifiestoV2),
+		withPipelineFile("variables/sand/supply.yaml", `
+- name: registry_prefix
+  value: vexsand
+- name: artefacto
+  resolve: step-output
+  from: "01-test"
+  key: artifact_name
+`),
+		withPipelineFile("steps/02-supply/commands.yaml", `
+- name: provision
+  cmd: echo '02-supply acr_name = "${var.registry_prefix}-${var.artefacto}"' | tee -a "$VEX_TEST_LOG"
+  outputs:
+    - name: acr_name
+      probe: acr_name = "([^"]+)"
+`))
+
+	result := h.run()
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Equal(t, `02-supply acr_name = "vexsand-demo-app"`, h.logLines()[1])
+}
+
+// Las dos validaciones de grafo de §5.4, vistas desde fuera. Las dos son
+// posibles sólo porque `from` hace explícito el grafo de dependencias, y las dos
+// mueven un fallo de EJECUCIÓN —a mitad del despliegue, con `test` ya ejecutado—
+// a un fallo de CARGA.
+func TestRunCommand_UnGrafoDeVariablesInvalidoAbortaAntesDelPrimerStep(t *testing.T) {
+	casos := []struct {
+		nombre    string
+		archivo   string
+		contenido string
+		enElError string
+		nota      string
+	}{
+		{
+			nombre:  "from apunta a un step posterior",
+			archivo: "variables/sand/test.yaml",
+			contenido: "- name: acr\n  resolve: step-output\n" +
+				"  from: \"02-supply\"\n  key: acr_name\n",
+			enElError: "no se ejecuta antes",
+			nota:      "HOY falla en runtime con «variable no existe», después de que 01-test corrió",
+		},
+		{
+			nombre:  "from apunta a un step que no existe",
+			archivo: "variables/sand/supply.yaml",
+			contenido: "- name: registry_prefix\n  value: vexsand\n" +
+				"- name: acr\n  resolve: step-output\n  from: \"07-inventado\"\n  key: acr_name\n",
+			enElError: "steps/07-inventado",
+		},
+		{
+			nombre:  "key que ningún outputs declara",
+			archivo: "variables/sand/supply.yaml",
+			contenido: "- name: registry_prefix\n  value: vexsand\n" +
+				"- name: acr\n  resolve: step-output\n  from: \"01-test\"\n  key: artefacto\n",
+			enElError: "key: artefacto",
+			nota:      "HOY lo resolvería otro step que casualmente declaró el mismo nombre",
+		},
+		{
+			nombre:  "un resolve inventado",
+			archivo: "variables/sand/supply.yaml",
+			contenido: "- name: registry_prefix\n  value: vexsand\n" +
+				"- name: acr\n  resolve: dynamic\n",
+			enElError: "'resolve: dynamic'",
+			nota:      "el vocabulario es cerrado: un genérico no discriminaría nada",
+		},
+		{
+			nombre:  "un step-output sin key",
+			archivo: "variables/sand/supply.yaml",
+			contenido: "- name: registry_prefix\n  value: vexsand\n" +
+				"- name: acr\n  resolve: step-output\n  from: \"01-test\"\n",
+			enElError: "'key'",
+			nota:      "los campos obligatorios de cada origen son un error, no un default",
+		},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nombre, func(t *testing.T) {
+			h := newHarness(t,
+				withPipelineFile("vexpipeline.yaml", manifiestoV2),
+				withPipelineFile(caso.archivo, caso.contenido))
+
+			result := h.run()
+
+			assert.Equal(t, cli.ExitFailed, result.exitCode, caso.nota)
+			assert.Contains(t, result.stderr, caso.enElError, caso.nota)
+			assert.Empty(t, h.ranSteps(),
+				"tiene que fallar antes del primer step: %s", caso.nota)
+		})
+	}
+}
+
+// Una versión de esquema que este motor no entiende es un error, y no una
+// interpretación a medias.
+func TestRunCommand_UnaVersionDeFormatoDesconocidaSeRechaza(t *testing.T) {
+	h := newHarness(t, withPipelineFile("vexpipeline.yaml", "schema_version: 99\n"))
+
+	result := h.run()
+
+	assert.Equal(t, cli.ExitFailed, result.exitCode)
+	assert.Contains(t, result.stderr, "schema_version: 99")
+	assert.Empty(t, h.ranSteps())
+}
+
+// `resolve: state` lee del registro del propio step bajo OTRO ámbito. Es la
+// mitad lectora de la asimetría de la spec 13 §5.4 —se leen los dos ámbitos, se
+// escribe en uno— dicha en voz alta en vez de ocurrir sola por el orden de dos
+// cargas.
+func TestRunCommand_UnaVariableDeEstadoSeResuelvePorDeclaracion(t *testing.T) {
+	h := newHarness(t,
+		withPipelineFile("vexpipeline.yaml", manifiestoV2),
+		withPipelineFile("steps/02-supply/config.yaml", "scope: project\n"))
+
+	// Corrida 1: 02-supply produce `acr_name` y lo registra en el ámbito de
+	// proyecto, que es el que declara.
+	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+	require.Equal(t, "vexsand-demo-app", h.projectVars("02-supply")["acr_name"])
+
+	// Corrida 2: lo consume por declaración, con otro nombre.
+	h.commitPipelineFile("variables/sand/supply.yaml", `
+- name: registry_prefix
+  value: vexsand
+- name: registro_anterior
+  resolve: state
+  scope: project
+  key: acr_name
+`)
+	h.commitPipelineFile("steps/02-supply/commands.yaml",
+		"- name: usa\n  cmd: echo '02-supply anterior=${var.registro_anterior}' | tee -a \"$VEX_TEST_LOG\"\n")
+
+	h.resetLog()
+	result := h.run()
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Contains(t, h.logLines(), "02-supply anterior=vexsand-demo-app")
+}
+
+// Y cuando la fuente NO produjo su valor, el error dice QUÉ FUENTE falló.
+//
+// Es la diferencia observable de §5.5: hasta esta spec el handler de variables
+// trataba todo fallo de interpolación como «aún no resoluble», sin distinguir un
+// error real de plantilla de una variable que llegaría más tarde. No podía
+// distinguirlos porque nadie había declarado cuál es cuál, así que las dos
+// terminaban en «variable no existe» — un mensaje que no dice a quién reclamarle.
+func TestRunCommand_UnaFuenteQueNoProduceNombraLaFuente(t *testing.T) {
+	h := newHarness(t,
+		withPipelineFile("vexpipeline.yaml", manifiestoV2),
+		withPipelineFile("steps/02-supply/config.yaml", "scope: project\n"),
+		withPipelineFile("variables/sand/supply.yaml", `
+- name: registry_prefix
+  value: vexsand
+- name: registro_anterior
+  resolve: state
+  scope: project
+  key: lb-arn
+`))
+
+	result := h.run()
+
+	assert.Equal(t, cli.ExitFailed, result.exitCode)
+	assert.Contains(t, result.stderr, "lb-arn", "el error nombra la CLAVE que falta")
+	assert.Contains(t, result.stderr, "project", "y el ámbito donde se buscó")
+	assert.NotContains(t, result.stderr, "variable no existe")
 }
 
 // ── Invariante de variable (spec 03) ────────────────────────────────────────
@@ -847,13 +1110,16 @@ func TestRunCommand_VariableDeclaradaSinValor(t *testing.T) {
 	assert.Equal(t, "02-supply instancias=[]", h.logLines()[2],
 		"la variable declarada y vacía interpola a cadena vacía")
 
-	// El almacén distingue «declarada y vacía» de «no declarada»: la clave
-	// existe con valor vacío. Y no aparece la entrada anónima —eso lo comprueba
-	// además `assertNingunaVariableAnonima` tras cada ejecución del harness.
+	// Lo que el almacén ya NO guarda desde la spec 14 es el literal: un registro
+	// dice qué produjo el step, y `instance_count` lo consumió (§6). Que
+	// «declarada y vacía» siga siendo distinto de «no declarada» se observa donde
+	// importa —en el material de la huella y en la interpolación de arriba—, no en
+	// una copia dentro del almacén; esa copia era justamente la que hacía que
+	// editar un literal dejara de surtir efecto.
 	stored := h.storedVars("sand", "02-supply")
 	assert.NotContains(t, stored, "")
-	require.Contains(t, stored, "instance_count")
-	assert.Equal(t, "", stored["instance_count"])
+	assert.NotContains(t, stored, "instance_count")
+	assert.Equal(t, "vexsand-demo-app", stored["acr_name"])
 }
 
 func TestRunCommand_CampoObligatorioDelProyectoSigueSiendoObligatorio(t *testing.T) {

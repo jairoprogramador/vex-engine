@@ -38,6 +38,23 @@ const (
 	// persisten— y no el orden; y esa lista ya demostró ser frágil (spec 11 §b).
 	OriginInjected
 
+	// OriginResolved es lo que satisfizo una DECLARACIÓN del consumidor: la
+	// variable que dice `resolve: step-output` o `resolve: state` y nombra su
+	// fuente (spec 14 §5.2).
+	//
+	// Su POSICIÓN importa poco y su EXISTENCIA importa mucho. Poco, porque una
+	// variable con `resolve` no compite: tiene un único proveedor por
+	// construcción, así que nunca hay dos candidatos para su nombre. Mucho,
+	// porque es lo que permite decir «esta la resolvió una declaración» sin mirar
+	// el cableado — y sobre eso se apoya que su VALOR no entre en la identidad y
+	// sí lo haga su declaración (§5.3).
+	//
+	// Va por encima del almacén y de lo inyectado —una declaración explícita gana
+	// a lo que llega por ambiente— y por debajo de runtime, que sigue ganando
+	// siempre: lo que el mundo real devolvió al ejecutar no lo puede pisar una
+	// resolución hecha antes de ejecutarlo.
+	OriginResolved
+
 	// OriginRuntime es lo extraído del stdout de un comando: lo que el mundo real
 	// devolvió AL EJECUTAR. Siempre gana.
 	OriginRuntime
@@ -51,6 +68,8 @@ func (o Origin) String() string {
 		return "state"
 	case OriginInjected:
 		return "injected"
+	case OriginResolved:
+		return "resolved"
 	case OriginRuntime:
 		return "runtime"
 	default:

@@ -68,9 +68,11 @@ func TestVarsChain_ElOrdenDeLosHandlersYaNoDecideQuienGana(t *testing.T) {
 			executionContext.AddAccumulatedVar(
 				varDePrueba(t, nombre, "inyectada-homonima", command.OriginInjected))
 
+			registros := registrosConVariables(t)
 			cadena := orden.armar(
-				domStep.NewVarsStoreHandler(registrosConVariables(t)),
-				domStep.NewVarsHandler(varsDeclaradasDePrueba{}),
+				domStep.NewVarsStoreHandler(registros),
+				domStep.NewVarsHandler(
+					varsDeclaradasDePrueba{}, domStep.NewDeclarationResolvers(registros)),
 			)
 
 			request := domStep.NewStepRequestHandler(executionContext, "supply")
@@ -167,20 +169,24 @@ func (r *registrosDePrueba) Append(*context.Context, domState.Key, domState.Step
 }
 
 // varsDeclaradasDePrueba es el `variables/<ambiente>/<paso>.yaml` del
-// pipelinecode. El repositorio real las construye ya con `OriginDeclared`; aquí
-// se hace lo mismo, porque el handler 03 las reconstruye para resolverlas.
+// pipelinecode.
+//
+// Devuelve DECLARACIONES desde la spec 14, no variables ya resueltas: el
+// repositorio real dejó de resolver por su cuenta y el handler 02 es quien
+// convierte cada declaración en un valor —los literales con `OriginDeclared`,
+// las que nombran una fuente con `OriginResolved`—.
 type varsDeclaradasDePrueba struct{}
 
 var _ domStep.VarsPipelineRepository = varsDeclaradasDePrueba{}
 
-func (varsDeclaradasDePrueba) Get(_ *context.Context, _, _, _ string) ([]command.Variable, error) {
-	declarada, err := command.NewVariable("acr_name", "literal-homonimo", command.OriginDeclared)
+func (varsDeclaradasDePrueba) Get(_ *context.Context, _, _, _ string) ([]domStep.VariableDeclaration, error) {
+	declarada, err := domStep.NewLiteralDeclaration("acr_name", "literal-homonimo")
 	if err != nil {
 		return nil, err
 	}
-	propia, err := command.NewVariable("solo_declarada", "literal", command.OriginDeclared)
+	propia, err := domStep.NewLiteralDeclaration("solo_declarada", "literal")
 	if err != nil {
 		return nil, err
 	}
-	return []command.Variable{declarada, propia}, nil
+	return []domStep.VariableDeclaration{declarada, propia}, nil
 }

@@ -41,6 +41,10 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 		func() error {
 			executionContext.Emit("Step " + executionContext.StepName() + " en ejecución")
 			executionContext.ResetFileSessions()
+			// La cuenta de lo PRODUCIDO se abre aquí, con la del step: lo que dejó
+			// el step anterior ya está en su registro y en el mapa acumulado, y
+			// arrastrarlo hasta éste sería volver al espacio plano (spec 14 §6).
+			executionContext.ResetProducedVars()
 			stepWorkdir := filepath.Join(executionContext.Workdir(), "steps", executionContext.StepFullName())
 			stepWorkdirVariable, err := command.NewVariable(
 				command.VarStepWorkdir, stepWorkdir, command.OriginInjected)
@@ -169,7 +173,7 @@ func (s *StepExecutable) appendRecord(
 	}
 
 	recordID := s.writeRecord(executionContext, key,
-		persistableVariables(executionContext), request.StepFingerprint(), producedBy)
+		producedVariables(request), request.StepFingerprint(), producedBy)
 
 	// El índice apunta a un registro que YA existe: si el registro no se pudo
 	// escribir, no hay a qué apuntar y no se escribe entrada. Un índice con
@@ -253,15 +257,32 @@ func (s *StepExecutable) warn(executionContext *command.ExecutionContext, err er
 	executionContext.Emit(fmt.Sprintf("advertencia: %v", err))
 }
 
-// persistableVariables es el conjunto que va al registro: el mapa acumulado no
-// volátil, entero.
+// producedVariables es el conjunto que va al registro: lo que ESTE step
+// PRODUJO, no todo lo que vio.
 //
-// Perdió el parámetro `shared` con la spec 13: ya no hay dos registros que
-// repartir, así que no hay nada que repartir. El único filtro que queda es el de
-// volátiles, y NO está escrito aquí a mano: era la misma lista que filtra la
-// huella de variables, duplicada en dos archivos sin nada que las mantuviera
-// sincronizadas (spec 10). Hay un solo dueño, y está especificado en
-// `fingerprint/SPEC-VARIABLES-v1.md` §3.1.
+// Es el reparto consume/produce de la spec 14 §6, y es la mitad sin la cual esta
+// spec no cierra ninguno de sus dos defectos. Aquí se persistía el mapa acumulado
+// ENTERO —se llamaba `persistableVariables`— y de ahí salían los dos:
+//
+//   - un literal declarado entraba en el almacén en la primera corrida y volvía
+//     como `OriginState` en la segunda, por encima de `OriginDeclared`, así que
+//     EDITARLO EN EL PIPELINECODE DEJABA DE SURTIR EFECTO —y el step ni se
+//     re-ejecutaba, porque la huella tampoco cambiaba— (spec 12 §9.2);
+//   - y las salidas de una corrida entraban como entradas de la siguiente, que es
+//     la raíz de que todo step con `outputs` se re-ejecute una vez de más. Esa
+//     mitad la termina de cerrar la spec 27, cuando el material de la huella pase
+//     de «acumulado resuelto» a «declarado»: aquí se le quita al almacén la copia
+//     de lo consumido, allí se le quita a la huella.
+//
+// Lo que el step consume no se pierde: viaja por el mapa acumulado durante la
+// corrida, y entre corridas vuelve de donde vino —el registro de su productor, o
+// el literal del pipelinecode—. Lo que deja de ocurrir es que cada step guarde
+// una copia de todo lo que pasó por delante.
+//
+// El filtro de volátiles se conserva aunque hoy ninguna salida pueda serlo —haría
+// falta un `probe` que capturara `project_version`—: la lista tiene un solo dueño
+// y está especificada en `fingerprint/SPEC-VARIABLES-v1.md` §3.1, y aplicarla
+// aquí es más barato que razonar cada vez sobre si alguien puede alcanzarla.
 //
 // Desapareció con el modelo la comparación previa por `reflect.DeepEqual`: en un
 // almacén append-only no hay nada que comparar antes de escribir, porque no se
@@ -269,8 +290,8 @@ func (s *StepExecutable) warn(executionContext *command.ExecutionContext, err er
 // El orden por nombre es para el humano que abre el archivo: un mapa de Go se
 // recorre en orden aleatorio, y sin ordenar dos registros con las mismas
 // variables se verían distintos en un diff. No es material de ninguna huella.
-func persistableVariables(executionContext *command.ExecutionContext) []command.Variable {
-	variables := executionContext.FilteredAccumulatedVars(
+func producedVariables(request *StepRequestHandler) []command.Variable {
+	variables := request.ProducedVars().Filter(
 		func(variable command.Variable) bool {
 			return !command.IsVolatileVar(variable.Name())
 		}).ToSlice()

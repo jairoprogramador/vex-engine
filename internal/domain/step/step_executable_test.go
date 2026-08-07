@@ -169,16 +169,20 @@ func TestStepExecutable_ElRegistroLlevaSuProcedenciaYSuHuella(t *testing.T) {
 	assert.False(t, registro.ID().IsZero())
 }
 
-// El registro lleva TODO lo no volátil del mapa acumulado, sin repartir: el
-// ámbito ya no es un atributo de cada variable, así que no hay por dónde
-// partirlo (spec 13 §5.6).
+// El registro lleva lo que el step PRODUJO, y sólo eso (spec 14 §6).
 //
-// Este test se llamaba `...SeParteEnDosAmbitosYFiltraLasVolatiles` y afirmaba
-// que `artifact_url` —marcada compartida— iba a un registro y `acr_name` a otro.
+// Este test cambió tres veces de sujeto, y el recorrido es la spec entera: hasta
+// la 13 afirmaba que `artifact_url` —marcada compartida— iba a un registro y
+// `acr_name` a otro; la 13 los unificó y pasó a afirmar «TODO lo no volátil del
+// mapa acumulado»; la 14 le quita al almacén la copia de lo CONSUMIDO. Es la
+// mitad sin la cual esta spec no cierra ninguno de sus dos defectos: mientras el
+// registro guardara el mapa entero, un literal declarado volvía del almacén como
+// `OriginState` y editarlo en el pipelinecode dejaba de surtir efecto.
+//
 // Lo que se conserva entero es el filtro de volátiles: las seis las deriva el
 // motor de la ejecución en curso, así que guardarlas sería guardar basura que la
 // corrida siguiente recalcularía distinta.
-func TestStepExecutable_ElRegistroLlevaElMapaAcumuladoSinLasVolatiles(t *testing.T) {
+func TestStepExecutable_ElRegistroLlevaLoQueElStepProdujo(t *testing.T) {
 	registros := &recordsEspia{}
 	ejecutable := nuevoEjecutable(handlerQueProduceVariables{}, registros, &entriesEspia{})
 
@@ -187,6 +191,9 @@ func TestStepExecutable_ElRegistroLlevaElMapaAcumuladoSinLasVolatiles(t *testing
 	require.Len(t, registros.anadidos, 1)
 	assert.Equal(t, []string{"acr_name", "artifact_url"}, nombresDe(registros.anadidos[0].registro),
 		"las dos van al mismo sitio: el ámbito lo declara el step, no la variable")
+
+	assert.NotContains(t, nombresDe(registros.anadidos[0].registro), "registry_prefix",
+		"lo que el step CONSUMIÓ no es un hecho suyo: sigue en el pipelinecode o en el registro de quien lo produjo")
 
 	for _, nombre := range command.VolatileVarNames() {
 		assert.NotContains(t, nombresDe(registros.anadidos[0].registro), nombre)
@@ -296,8 +303,13 @@ func declararAmbito(request *domStep.StepRequestHandler, scope domStep.Scope) er
 	return nil
 }
 
-// handlerQueProduceVariables deja dos variables en el mapa acumulado, que es lo
-// que el registro persiste al terminar el step.
+// handlerQueProduceVariables reproduce lo que la cadena de COMANDO deja tras un
+// step que corrió: dos variables extraídas del stdout —que van al mapa acumulado
+// Y a la cuenta de lo producido— y una consumida, que sólo pasa por el mapa.
+//
+// Los dos destinos son dos preguntas distintas (spec 14 §6): el mapa responde
+// «¿qué ve el step siguiente?» y lo producido responde «¿qué dejó éste?», que es
+// lo único que su registro guarda.
 type handlerQueProduceVariables struct{}
 
 func (handlerQueProduceVariables) Handle(_ *context.Context, request *domStep.StepRequestHandler) error {
@@ -312,8 +324,15 @@ func (handlerQueProduceVariables) Handle(_ *context.Context, request *domStep.St
 	if err != nil {
 		return err
 	}
-	request.AddAccumulatedVars(primera)
-	request.AddAccumulatedVars(segunda)
+	consumida, err := command.NewVariable("registry_prefix", "vexsand", command.OriginDeclared)
+	if err != nil {
+		return err
+	}
+	for _, variable := range []command.Variable{primera, segunda} {
+		request.AddAccumulatedVars(variable)
+		request.ProducedVars().Add(variable)
+	}
+	request.AddAccumulatedVars(consumida)
 	request.MarkStepExecuted()
 	return nil
 }

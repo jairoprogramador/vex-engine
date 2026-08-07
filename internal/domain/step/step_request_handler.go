@@ -43,6 +43,18 @@ type StepRequestHandler struct {
 	// `OriginDeclared` es el valor cero de `Origin`.
 	stepConfig StepConfig
 
+	// sourcedDeclarations son las variables que este step declara CON FUENTE
+	// (spec 14 §5.2): las que dicen `resolve: step-output` o `resolve: state`.
+	//
+	// Vive aquí por la misma razón que la huella y el `config.yaml`: es estado de
+	// ESTA cadena y muere con ella. Y es lo que permite que el material de
+	// identidad lleve la DECLARACIÓN de estas variables en vez de su valor
+	// resuelto (§5.3), que es la regla que gobierna el resto del catálogo.
+	//
+	// Los literales NO están aquí: los suyos ya viajan enteros dentro del mapa
+	// acumulado, porque su declaración y su valor son la misma cosa.
+	sourcedDeclarations []VariableDeclaration
+
 	// executed distingue «este step ejecutó sus comandos» de «este step
 	// revivió». Los dos terminan en éxito y sólo uno es un hecho nuevo.
 	//
@@ -94,6 +106,22 @@ func (rh *StepRequestHandler) AddCommand(command command.Command) {
 
 func (rh *StepRequestHandler) AccumulatedVars() *command.ExecutionVariableMap {
 	return rh.executionContext.AccumulatedVars()
+}
+
+// SetSourcedDeclarations y SourcedDeclarations transportan lo que el step declara
+// con `resolve` desde el handler que lo lee hasta el material de identidad.
+func (rh *StepRequestHandler) SetSourcedDeclarations(declarations []VariableDeclaration) {
+	rh.sourcedDeclarations = declarations
+}
+
+func (rh *StepRequestHandler) SourcedDeclarations() []VariableDeclaration {
+	return rh.sourcedDeclarations
+}
+
+// ProducedVars son las variables que ESTE step extrajo del stdout de sus
+// comandos: lo que produjo, frente a todo lo que consumió (spec 14 §6).
+func (rh *StepRequestHandler) ProducedVars() *command.ExecutionVariableMap {
+	return rh.executionContext.ProducedVars()
 }
 
 func (rh *StepRequestHandler) StartedAt() time.Time {

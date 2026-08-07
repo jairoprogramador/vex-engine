@@ -107,7 +107,19 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	// en disco local, a cambio de que la regla de vocabulario esté escrita una
 	// sola vez.
 	pipelineStepConfigRepo := stepInfra.NewPipelineStepConfigRepository()
-	pipelineStructureValidator := pipDom.NewPipelineStructureValidator(pipelineStepConfigRepo)
+
+	// El manifiesto de la raíz (`vexpipeline.yaml`) y los dos lectores del step
+	// entran al validador porque las dos reglas de la spec 14 son de CARGA: que un
+	// `resolve` exija `schema_version: 2`, y que el `from`/`key` de un
+	// `step-output` apunten a un step anterior que de verdad declara ese output.
+	// Las dos mueven un fallo que hoy ocurre a mitad del despliegue —con `test` y
+	// `supply` ya ejecutados— al momento en que fallar no deja efectos a medias.
+	pipelineManifestRepo := pippInfra.NewPipelineManifestRepository()
+	pipelineVarsRepo := stepInfra.NewPipelineVarsRepository()
+	pipelineCommandRepo := stepInfra.NewPipelineCommandRepository()
+
+	pipelineStructureValidator := pipDom.NewPipelineStructureValidator(
+		pipelineStepConfigRepo, pipelineManifestRepo, pipelineVarsRepo, pipelineCommandRepo)
 	pipelineWorkdirRepo := pippInfra.NewPipelineWorkdirRepository(projectsBasePath)
 	projectTagRepo := pippInfra.NewProjectTagRepository()
 	contentFingerprint := pippInfra.NewContentFingerprint()
@@ -135,9 +147,6 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		records = stateInfra.NewFileRecordsRepository(stateBasePath)
 	}
 	recordIDs := stateInfra.NewULIDRecordIDFactory()
-
-	pipelineVarsRepo := stepInfra.NewPipelineVarsRepository()
-	pipelineCommandRepo := stepInfra.NewPipelineCommandRepository()
 
 	// --- Infrastructure: índice de contenido → registro ---
 	//
@@ -198,9 +207,15 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	// colapsan en uno que lee los dos ámbitos —el de proyecto y el del ambiente—,
 	// porque el ámbito declarado decide dónde se ESCRIBE y no qué se puede leer
 	// (§5.4). Los archivos se renumeraron con ellos: el número dice la posición.
+	// El handler 02 recibe además los RESOLUTORES de declaraciones (spec 14
+	// §5.3'): uno por valor de `resolve`, elegidos por el vocabulario cerrado. El
+	// de `state` necesita `records` porque lee el registro del propio step bajo el
+	// ámbito declarado; el de `step-output` no necesita nada, porque lee del mapa
+	// acumulado — que es lo que el mapa acumulado pasa a ser con esta spec: una
+	// caché de resolución, no el modelo.
 	stepHead := chainStepHandlers(
 		stepDom.NewVarsStoreHandler(records),
-		stepDom.NewVarsHandler(pipelineVarsRepo),
+		stepDom.NewVarsHandler(pipelineVarsRepo, stepDom.NewDeclarationResolvers(records)),
 		stepDom.NewStepRunnerHandler(pipelineCommandRepo, pipelineStepConfigRepo, records),
 	)
 	executableStep := stepDom.NewStepExecutable(stepHead, records, recordIDs, entries)

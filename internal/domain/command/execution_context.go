@@ -19,6 +19,18 @@ type ExecutionContext struct {
 	step              Step
 	command           Command
 	fileSessions      []FileInterpolatorSession
+
+	// producedVars son las variables que el step EN CURSO extrajo del stdout de
+	// sus comandos. Es el otro lado del reparto consume/produce de la spec 14: el
+	// mapa acumulado dice qué ve un step, éste dice qué DEJÓ.
+	//
+	// Vive aquí, y no en el `StepRequestHandler`, porque quien lo alimenta es el
+	// handler 05 de la cadena de COMANDO y quien lo lee es el `StepExecutable` de
+	// la de step: cruza un borde de cadena, que es exactamente lo que este
+	// contexto compartido existe para hacer. Es estado POR STEP, no de la
+	// ejecución, y por eso se reinicia en el `before` del step junto a
+	// `fileSessions`, que tiene la misma vida y el mismo motivo.
+	producedVars *ExecutionVariableMap
 }
 
 // NewExecutionContext compone el contexto compartido entre las tres cadenas
@@ -41,6 +53,7 @@ func NewExecutionContext(
 		commandExecutable: commandExecutable,
 		stepExecutable:    stepExecutable,
 		fileSessions:      make([]FileInterpolatorSession, 0),
+		producedVars:      NewExecutionVariableMap(),
 	}
 }
 
@@ -148,6 +161,25 @@ func (ec *ExecutionContext) ResetFileSessions() {
 	ec.fileSessions = make([]FileInterpolatorSession, 0)
 }
 
+// ResetProducedVars abre la cuenta del step que empieza. Sin este reinicio lo
+// que produjo un step entraría en el registro del siguiente, que es justo el
+// espacio plano que la spec 14 desmonta.
+func (ec *ExecutionContext) ResetProducedVars() {
+	ec.producedVars = NewExecutionVariableMap()
+}
+
+// ProducedVars es lo que el step en curso ha extraído hasta ahora.
+func (ec *ExecutionContext) ProducedVars() *ExecutionVariableMap {
+	return ec.producedVars
+}
+
+// AddProducedVar anota una variable extraída del stdout de un comando de este
+// step. La llama el handler 05 de la cadena de comando, que es el único sitio
+// del motor donde una variable NACE de la ejecución.
+func (ec *ExecutionContext) AddProducedVar(variable Variable) {
+	ec.producedVars.Add(variable)
+}
+
 func (ec *ExecutionContext) ExecutionID() ExecutionID {
 	return ec.execution.ID()
 }
@@ -213,9 +245,11 @@ func (ec *ExecutionContext) RestoreFileSessions() error {
 	return nil
 }
 
-func (ec *ExecutionContext) FilteredAccumulatedVars(filter func(Variable) bool) *ExecutionVariableMap {
-	return ec.accumulatedVars.Filter(filter)
-}
+// Aquí vivía `FilteredAccumulatedVars`, y su único llamador era el que
+// componía el registro del step con el mapa acumulado entero. Muere con él
+// (spec 14 §6): lo que se persiste ahora es `ProducedVars`, así que no queda
+// ninguna razón para filtrar el acumulado desde fuera. El God Object se
+// desmonta un campo por spec.
 
 func (ec *ExecutionContext) AddAccumulatedVar(variable Variable) {
 	ec.accumulatedVars.Add(variable)

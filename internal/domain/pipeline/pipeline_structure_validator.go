@@ -8,6 +8,24 @@ import (
 	domStep "github.com/jairoprogramador/vex-engine/internal/domain/step"
 )
 
+// Pipelinecode es a QUÉ se le está pasando la validación: dónde está el
+// pipelinecode clonado y para qué ambiente se va a ejecutar.
+//
+// Es un struct y no dos parámetros sueltos porque la firma ya creció una vez
+// —la spec 13 le añadió la ruta, porque una regla suya habla de un ARCHIVO del
+// step y no sólo del nombre de su directorio— y vuelve a crecer aquí: las reglas
+// de la spec 14 leen `variables/<ambiente>/<paso>.yaml`, que sólo se sabe cuál es
+// con el ambiente en la mano. La spec 15 añade más reglas, y con un valor
+// nombrado eso deja de tocar la firma de todas.
+//
+// El ambiente es el EN EJECUCIÓN, no todos los del pipelinecode: un `prod` mal
+// escrito no debe impedir un despliegue a `sand`, que es trabajo que sí se puede
+// hacer bien.
+type Pipelinecode struct {
+	LocalPath   string
+	Environment string
+}
+
 // PipelineStructureValidator comprueba el invariante estructural del
 // pipelinecode: qué es un conjunto de steps ejecutable. Se invoca desde
 // `04_steps_loader_handler`, que es el punto donde el formato en disco entra al
@@ -15,7 +33,7 @@ import (
 // del despliegue es el peor momento posible, porque los steps anteriores ya
 // tuvieron efectos reales (spec 04 §4, opción C).
 type PipelineStructureValidator interface {
-	Validate(ctx *context.Context, pipelineLocalPath string, entries []StepEntry) error
+	Validate(ctx *context.Context, code Pipelinecode, entries []StepEntry) error
 }
 
 // StepStructureRule es una regla del invariante. Es una Specification y no un
@@ -23,18 +41,16 @@ type PipelineStructureValidator interface {
 // en el primer fallo, reporta todos los problemas estructurales de una vez
 // (spec 04 §5.3').
 //
-// La firma ganó la ruta del pipelinecode con la spec 13, y es la única
-// desviación de lo que aquella spec previó (§5.2'): una regla que «habla de un
-// archivo del step» no puede leerlo con el nombre del directorio a secas. Lo que
-// sí se conserva entero es su punto de extensión —recibe directorios, su
-// veredicto es un error y sólo sabe abortar—, así que la regla nueva entra sin
-// tocar las dos que ya estaban, que ignoran los dos parámetros nuevos.
+// Su punto de extensión se conserva entero desde la spec 04: recibe directorios,
+// su veredicto es un error y sólo sabe abortar. Lo que cambió dos veces es el
+// contexto que se le da —la ruta con la spec 13, el ambiente con la 14—, y desde
+// esta va en un `Pipelinecode` para que crecer deje de ser un cambio de firma.
 type StepStructureRule interface {
 	Name() string
-	IsSatisfiedBy(ctx *context.Context, pipelineLocalPath string, entries []StepEntry) error
+	IsSatisfiedBy(ctx *context.Context, code Pipelinecode, entries []StepEntry) error
 }
 
-// StepsStructureValidator compone las reglas. Las specs 05, 13 y 15 añaden
+// StepsStructureValidator compone las reglas. Las specs 05, 13, 14 y 15 añaden
 // reglas aquí sin tocar el repositorio ni el handler.
 type StepsStructureValidator struct {
 	rules []StepStructureRule
@@ -43,11 +59,18 @@ type StepsStructureValidator struct {
 var _ PipelineStructureValidator = (*StepsStructureValidator)(nil)
 
 // NewPipelineStructureValidator devuelve el validador con las reglas vigentes.
-func NewPipelineStructureValidator(configs domStep.StepConfigRepository) PipelineStructureValidator {
+func NewPipelineStructureValidator(
+	configs domStep.StepConfigRepository,
+	manifests ManifestRepository,
+	declarations domStep.VarsPipelineRepository,
+	commands domStep.PipelineCommandRepository) PipelineStructureValidator {
+
 	return NewStepsStructureValidator(
 		NewStepEntryFormatRule(),
 		NewUniqueStepOrderRule(),
 		NewStepScopeRule(configs),
+		NewDeclaredSourceVersionRule(manifests, declarations),
+		NewVariableGraphRule(declarations, commands),
 	)
 }
 
@@ -56,11 +79,11 @@ func NewStepsStructureValidator(rules ...StepStructureRule) *StepsStructureValid
 }
 
 func (v *StepsStructureValidator) Validate(
-	ctx *context.Context, pipelineLocalPath string, entries []StepEntry) error {
+	ctx *context.Context, code Pipelinecode, entries []StepEntry) error {
 
 	errs := make([]error, 0, len(v.rules))
 	for _, rule := range v.rules {
-		if err := rule.IsSatisfiedBy(ctx, pipelineLocalPath, entries); err != nil {
+		if err := rule.IsSatisfiedBy(ctx, code, entries); err != nil {
 			errs = append(errs, fmt.Errorf("[%s] %w", rule.Name(), err))
 		}
 	}

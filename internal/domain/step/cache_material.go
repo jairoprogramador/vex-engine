@@ -25,7 +25,8 @@ func NewCacheMaterial(request *StepRequestHandler, commands []command.Command) (
 		return cache.Material{}, fmt.Errorf("huella de las instrucciones: %w", err)
 	}
 
-	variables, err := fingerprint.ComputeVariables(variableMaterialOf(request.AccumulatedVars()))
+	variables, err := fingerprint.ComputeVariables(
+		variableMaterialOf(request.AccumulatedVars(), request.SourcedDeclarations()))
 	if err != nil {
 		return cache.Material{}, fmt.Errorf("huella de las variables: %w", err)
 	}
@@ -95,15 +96,51 @@ func instructionMaterialOf(commands []command.Command) []fingerprint.Instruction
 
 // variableMaterialOf aplica el filtro de volátiles de
 // `fingerprint/SPEC-VARIABLES-v1.md` §3.1 y traduce el resto.
-func variableMaterialOf(variables *command.ExecutionVariableMap) []fingerprint.VariableMaterial {
+//
+// Con una sustitución, y es LA regla de la spec 14 §5.3: de una variable que el
+// consumidor declaró con `resolve`, entra su DECLARACIÓN y no su valor resuelto.
+//
+//	entra:    name, resolve, from, key, scope, y el value literal cuando lo hay
+//	no entra: el valor resuelto, el instante, el actor, el orden real
+//
+// Las dos mitades importan. Que el valor no entre es lo que permite conocer la
+// identidad ANTES de ejecutar, que es la precondición dura de todo el registro:
+// un valor de runtime no se puede saber por adelantado, pero la declaración de
+// cómo se obtiene sí. Y que la declaración entre ENTERA es lo que la hace
+// discriminante — es el argumento contra el marcador genérico `dynamic: true`,
+// que habría producido la misma cadena para todos los casos, y una parte
+// constante de un hash no aporta identidad.
+//
+// La regla `vars-v1` no cambia y no tiene por qué: sigue hasheando el par
+// (nombre, valor) que se le da. Lo que cambia es la TRADUCCIÓN, que vive aquí
+// desde siempre precisamente para que las reglas se puedan especificar y validar
+// con vectores en memoria sin conocer el modelo de ejecución.
+func variableMaterialOf(
+	variables *command.ExecutionVariableMap,
+	declarations []VariableDeclaration) []fingerprint.VariableMaterial {
+
+	// Una declaración por nombre: el pipelinecode no puede declarar dos veces la
+	// misma variable en el mismo archivo sin que la segunda gane, y eso ya lo
+	// resuelve el mapa.
+	declared := make(map[string]string, len(declarations))
+	for _, declaration := range declarations {
+		declared[declaration.Name()] = declaration.Canonical()
+	}
+
 	material := make([]fingerprint.VariableMaterial, 0, len(*variables))
 	for _, variable := range *variables {
 		if command.IsVolatileVar(variable.Name()) {
 			continue
 		}
+
+		value := variable.Value()
+		if canonical, isDeclared := declared[variable.Name()]; isDeclared {
+			value = canonical
+		}
+
 		material = append(material, fingerprint.VariableMaterial{
 			Name:  variable.Name(),
-			Value: variable.Value(),
+			Value: value,
 			// `Shared` queda FIJO en su valor cero, y ésa es la forma de no tocar la
 			// huella al retirar `isShared` del dominio (spec 13 §6).
 			//

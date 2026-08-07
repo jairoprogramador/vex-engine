@@ -39,6 +39,13 @@ func (rh *CommandRequestHandler) AddAccumulatedVars(variable Variable) {
 	rh.executionContext.AccumulatedVars().Add(variable)
 }
 
+// AddProducedVar anota que esta variable la PRODUJO el step en curso, y no sólo
+// que ahora está en el mapa. Es la mitad que faltaba para poder distinguir lo que
+// un step consume de lo que deja (spec 14 §6).
+func (rh *CommandRequestHandler) AddProducedVar(variable Variable) {
+	rh.executionContext.AddProducedVar(variable)
+}
+
 func (rh *CommandRequestHandler) AddCommandVar(commandVar CommandVariable) {
 	rh.commandVars = append(rh.commandVars, commandVar)
 }

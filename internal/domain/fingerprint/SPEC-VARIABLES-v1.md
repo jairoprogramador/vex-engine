@@ -42,22 +42,38 @@ ejecución gana sobre todo (spec 12 §5.3)—.
 > huella hashea el mapa que se le da, no cómo se compuso, y por eso el token
 > sigue siendo `vars-v1`. Lo que cambia es qué valor hay en el mapa.
 
+> **De una variable con `resolve` entra su DECLARACIÓN, no su valor resuelto**
+> (spec 14 §5.3). La regla no cambia y por eso el token sigue siendo `vars-v1`:
+> lo que se sustituye es el campo `valor` que el consumidor —`step.NewCache‐
+> Material`— le entrega, que pasa a ser la forma canónica de
+> `step.VariableDeclaration` (`resolve`, `from`, `key`, `scope`). Es la regla que
+> gobierna el resto del catálogo: **en la identidad entra la declaración, nunca el
+> valor**; el valor resuelto se registra aparte, como hecho (spec 19). Un literal
+> no cambia: su declaración y su valor son la misma cosa, así que ninguna huella
+> ya emitida se mueve por esto.
+
 > **Límite conocido y vivo, heredado por esta regla.** El mapa incluye también
 > las variables que **el propio paso produjo** en una ejecución anterior y que se
 > guardaron en el almacén. Como se cargan *antes* de decidir, la huella de la
 > segunda corrida no coincide con la que se guardó en la primera, y todo paso con
 > `outputs` se re-ejecuta exactamente una vez de más antes de alcanzar un punto
 > fijo (spec 10 §1(d)). **No es un defecto de esta regla**: la regla hashea lo
-> que se le da. Lo corrige la spec 14, al distinguir lo que un paso consume de lo
-> que produce; cuando eso ocurra, el material de entrada cambia y esta regla
+> que se le da.
+>
+> La spec 14 acortó la cadena sin cortarla: el registro dejó de guardar el mapa
+> acumulado entero y pasó a guardar sólo **lo que el paso produjo**, así que lo
+> que vuelve del almacén son hechos suyos y no una copia de todo lo que vio. Lo
+> cierra la spec 27, cuando el material de esta huella pase de «acumulado
+> resuelto» a «declarado»; entonces el material de entrada cambia y esta regla
 > seguirá siendo la misma.
 >
-> Desde la spec 12 esa misma raíz tiene un segundo síntoma. El registro guarda el
-> mapa acumulado ENTERO, así que un literal declarado entra en el almacén en la
-> primera corrida y vuelve como `OriginState` en la segunda —por encima de
-> `OriginDeclared`—. Editar ese literal en el pipelinecode no cambia entonces el
-> valor efectivo, no cambia esta huella, y el paso revive. Se cierra con lo
-> mismo: separar lo consumido de lo producido.
+> **El segundo síntoma, en cambio, está cerrado.** Desde la spec 12 el registro
+> guardaba el mapa acumulado ENTERO, así que un literal declarado entraba en el
+> almacén en la primera corrida y volvía como `OriginState` en la segunda —por
+> encima de `OriginDeclared`—: editarlo en el pipelinecode no cambiaba el valor
+> efectivo, no cambiaba esta huella y el paso revivía. Al separar lo consumido de
+> lo producido (spec 14 §6), el literal ya no entra en el almacén, así que
+> editarlo vuelve a cambiar el valor efectivo y con él esta huella.
 
 ## 3. La regla
 

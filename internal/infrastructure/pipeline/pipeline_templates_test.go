@@ -46,8 +46,17 @@ func TestPipelinecodeReal_PasaLaValidacionSinModificarse(t *testing.T) {
 			require.NotEmpty(t, entries, "el template tiene que declarar steps")
 
 			configs := infraStep.NewPipelineStepConfigRepository()
-			require.NoError(t,
-				domPipeline.NewPipelineStructureValidator(configs).Validate(&ctx, path, entries),
+			validador := domPipeline.NewPipelineStructureValidator(
+				configs,
+				infraPipeline.NewPipelineManifestRepository(),
+				infraStep.NewPipelineVarsRepository(),
+				infraStep.NewPipelineCommandRepository())
+
+			// El ambiente entra en la validación desde la spec 14: las dos reglas de
+			// la gramática leen `variables/<ambiente>/<paso>.yaml`. Los tres templates
+			// declaran `sand`, y con él se comprueban.
+			codigo := domPipeline.Pipelinecode{LocalPath: path, Environment: "sand"}
+			require.NoError(t, validador.Validate(&ctx, codigo, entries),
 				"la estructura de steps del template tiene que ser válida sin tocarla")
 
 			stepNames, err := domPipeline.NewStepNames(entries)
