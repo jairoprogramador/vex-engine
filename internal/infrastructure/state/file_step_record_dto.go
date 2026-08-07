@@ -97,7 +97,16 @@ func (dto FileStepRecordDTO) ToDomain() (domState.StepRecord, error) {
 
 	variables := make([]command.Variable, 0, len(dto.Variables))
 	for _, variableDTO := range dto.Variables {
-		variable, err := command.NewVariable(variableDTO.Name, variableDTO.Value, variableDTO.Shared)
+		// `OriginState` nace AQUÍ, en el adaptador, y no en los handlers 01 y 02
+		// que consumen el registro: leer del almacén es lo que hace que un valor
+		// sea del almacén, y así los handlers siguen añadiendo la variable tal como
+		// se guardó sin fabricarle ninguna marca (spec 11, heredado por la 12).
+		//
+		// El registro NO persiste el origen: lo que se guardó fue un valor, y al
+		// volver a entrar en una ejecución nueva todo lo que viene de ahí es «de
+		// una corrida anterior», venga de un `outputs` o de un literal declarado.
+		variable, err := command.NewVariable(
+			variableDTO.Name, variableDTO.Value, variableDTO.Shared, command.OriginState)
 		if err != nil {
 			return domState.StepRecord{}, fmt.Errorf("variable %q: %w", variableDTO.Name, err)
 		}

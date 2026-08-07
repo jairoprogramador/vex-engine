@@ -162,9 +162,24 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	// `PolicyBuilder` que las elegía por nombre de paso. Los tres tipos
 	// desaparecieron con la spec 10: la decisión es «¿existe esta clave?», y para
 	// eso no hay nada que registrar ni que componer.
-	// El orden importa: los dos handlers de estado cargan ANTES que las
-	// variables declaradas por el pipelinecode, de modo que lo declarado gana
-	// sobre lo almacenado.
+	// El orden DEJÓ DE DECIDIR QUIÉN GANA (spec 12 §5.2'): la precedencia de
+	// variables vive en `command.ExecutionVariableMap.Add`, sobre el enum ordenado
+	// `command.Origin`, y quien intercambie dos de estos handlers no cambia qué
+	// valor prevalece. Hasta la spec 12 sí lo cambiaba: el almacén cargaba primero
+	// para que lo declarado, al escribir después, lo pisara.
+	//
+	// Pero el orden NO es indiferente, y la spec 12 §5.3 —que mandaba mover el
+	// handler 03 delante de los dos del almacén— se retira por eso (§10, H1). El
+	// handler 03 no solo AÑADE variables: las RESUELVE, interpolando `${var.…}`
+	// contra el mapa acumulado tal como esté en ese instante. Cargarlo primero deja
+	// fuera de su vista el registro del propio step, y un literal declarado que
+	// interpole un nombre que solo vive ahí falla con «variable faltante». El
+	// resultado de la precedencia es el mismo en los dos órdenes, así que mover el
+	// 03 no compraba nada y costaba eso.
+	//
+	// Por tanto: se carga de menor a mayor COMPLETITUD del mapa —almacén primero,
+	// declaradas después—, y quien gana lo dice `Origin`. Los archivos conservan
+	// sus números porque siguen nombrando el mismo handler.
 	//
 	// Y el handler 04 recibe `records`, no `entries`: la decisión de re-ejecutar
 	// lee el último registro de la clave de posición y NO consulta el índice

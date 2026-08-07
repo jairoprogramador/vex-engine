@@ -115,7 +115,7 @@ func idDePrueba(t *testing.T, at time.Time) state.RecordID {
 
 func variable(t *testing.T, nombre, valor string, compartida bool) command.Variable {
 	t.Helper()
-	v, err := command.NewVariable(nombre, valor, compartida)
+	v, err := command.NewVariable(nombre, valor, compartida, command.OriginRuntime)
 	require.NoError(t, err)
 	return v
 }

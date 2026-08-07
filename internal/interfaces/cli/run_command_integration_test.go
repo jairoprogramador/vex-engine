@@ -463,25 +463,190 @@ func TestRunCommand_AmbientesAislados(t *testing.T) {
 	assert.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
 }
 
-// ── Precedencia de variables (canario del orden de chainStepHandlers) ───────
+// ── Precedencia de variables (spec 12) ──────────────────────────────────────
 
-func TestRunCommand_PrecedenciaDeclaradoSobreAlmacenado(t *testing.T) {
+// EL caso que da nombre a la spec 12: un literal declarado es un valor por
+// DEFECTO, y en cuanto un step produce un valor para ese nombre el producido
+// manda para el resto de la ejecución.
+//
+// Hasta la spec 12 ganaba el literal, porque el handler 03 escribía después que
+// el 05 del step anterior sobre un mapa donde «el último gana». Es decir: el
+// pipeline no podía reaccionar a lo que él mismo producía.
+func TestRunCommand_LoProducidoEnEjecucionPisaAlLiteral(t *testing.T) {
+	h := newHarness(t, withPipelineFile("variables/sand/supply.yaml",
+		"- name: registry_prefix\n  value: vexsand\n- name: artifact_name\n  value: literal\n"))
+
+	result := h.run()
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	// 01-test produce artifact_name=demo-app por `outputs`; 02-supply lo declara
+	// como literal en su variables/sand/supply.yaml. Gana el producido.
+	assert.Equal(t, `02-supply acr_name = "vexsand-demo-app"`, h.logLines()[1])
+	assert.Equal(t, "demo-app", h.storedVars("sand", "02-supply")["artifact_name"])
+}
+
+// El default sigue siendo un default: si nada produce el nombre, vale el
+// literal. Es la otra mitad de la regla, y sin ella «lo declarado es un valor
+// por defecto» sería «lo declarado no sirve para nada».
+func TestRunCommand_ElLiteralValeCuandoNadieProduceEseNombre(t *testing.T) {
+	h := newHarness(t, withPipelineFile("steps/01-test/commands.yaml", `
+- name: build
+  cmd: echo "01-test BUILD SUCCESS" | tee -a "$VEX_TEST_LOG"
+  outputs:
+    - probe: BUILD SUCCESS
+`),
+		withPipelineFile("variables/sand/supply.yaml",
+			"- name: registry_prefix\n  value: vexsand\n- name: artifact_name\n  value: literal\n"))
+
+	result := h.run()
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Equal(t, `02-supply acr_name = "vexsand-literal"`, h.logLines()[1])
+}
+
+// Dos comandos del mismo step que producen la misma variable: gana el SEGUNDO.
+//
+// Es la igualdad de la spec 12 §5.2 —«precedencia mayor o IGUAL»— y no es un
+// detalle: sin ella un step no podría refinar un valor que él mismo acaba de
+// extraer, que es el comportamiento de hoy y hay que conservarlo.
+func TestRunCommand_DosComandosDelMismoStepElSegundoGana(t *testing.T) {
+	h := newHarness(t, withPipelineFile("steps/02-supply/commands.yaml", `
+- name: provision
+  cmd: echo '02-supply acr_name = "primero"' | tee -a "$VEX_TEST_LOG"
+  outputs:
+    - name: acr_name
+      probe: acr_name = "([^"]+)"
+- name: refina
+  cmd: echo '02-supply acr_name = "segundo"' | tee -a "$VEX_TEST_LOG"
+  outputs:
+    - name: acr_name
+      probe: acr_name = "([^"]+)"
+`))
+
+	result := h.run()
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Equal(t, "segundo", h.storedVars("sand", "02-supply")["acr_name"])
+}
+
+// El almacén NO pisa lo que el motor inyecta en ESTA ejecución.
+//
+// `project_name` viene del RequestInput y lo pone el handler 07. Si una corrida
+// anterior guardó otro valor bajo ese nombre, hasta la spec 12 el almacén —que
+// cargaba después— lo sobrescribía: un dato de ayer pisando un hecho de hoy. Lo
+// único que lo evitaba era que las volátiles no se persisten, y `project_name`
+// no es volátil.
+func TestRunCommand_ElAlmacenNoPisaLoInyectadoPorElMotor(t *testing.T) {
+	h := newHarness(t, withPipelineFile("steps/02-supply/commands.yaml", `
+- name: provision
+  cmd: echo '02-supply project_name = "impostor"' | tee -a "$VEX_TEST_LOG"
+  outputs:
+    - name: project_name
+      probe: project_name = "([^"]+)"
+`))
+
+	// Primera corrida: el step produce project_name=impostor y lo guarda. Dentro
+	// de esa misma corrida gana el producido, que es la regla de arriba.
+	result := h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	require.Equal(t, "impostor", h.storedVars("sand", "02-supply")["project_name"])
+
+	// El step deja de producirlo: ahora solo lo consume. El impostor sigue en el
+	// almacén, y es lo ÚNICO que aporta ese nombre aparte del handler 07.
+	h.commitPipelineFile("steps/02-supply/commands.yaml",
+		"- name: comprueba\n  cmd: echo '02-supply project_name=${var.project_name}' | tee -a \"$VEX_TEST_LOG\"\n")
+
+	h.resetLog()
+	result = h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	// Hasta la spec 12 el almacén cargaba DESPUÉS del handler 07 y esto decía
+	// `impostor`: un dato de ayer pisando un hecho de hoy.
+	assert.Contains(t, h.logLines(), "02-supply project_name=demo-app",
+		"un valor de una corrida anterior no puede pisar un hecho de ésta")
+	assert.Equal(t, "demo-app", h.storedVars("sand", "02-supply")["project_name"])
+}
+
+// El canario de que el orden de `chainStepHandlers` dejó de ser normativo
+// (spec 12 §5.2' y §7) NO vive aquí: construir la cadena en el orden viejo
+// exigiría un punto de extensión en `BuildRunCommand` que solo usarían los
+// tests. Vive donde la cadena se puede armar de las dos formas sin tocar el
+// cableado de producción, con los handlers 01, 02 y 03 REALES:
+// `TestVarsChain_ElOrdenDeLosHandlersYaNoDecideQuienGana`
+// (internal/domain/step), más las 24 permutaciones de
+// `TestExecutionVariableMap_Add_ElOrdenDeLlegadaNoCambiaElResultado`
+// (internal/domain/command).
+
+// La otra cara del canario: el orden de la cadena dejó de decidir QUIÉN GANA,
+// pero no es indiferente.
+//
+// El handler 03 no solo añade variables declaradas: las RESUELVE, interpolando
+// `${var.…}` contra el mapa acumulado tal como esté en ese instante. Si carga
+// antes que los handlers del almacén, el registro del PROPIO step queda fuera de
+// su vista y un literal que lo interpole falla con «variable faltante» — la
+// ejecución entera, no solo ese valor.
+//
+// Es el hallazgo que retira el reordenamiento que pedía la spec 12 §5.3 (ver su
+// §10, H1): con la precedencia en `Add` el resultado es el mismo en los dos
+// órdenes, así que mover el 03 no compraba nada y costaba esto.
+func TestRunCommand_UnLiteralPuedeInterpolarElRegistroDelPropioStep(t *testing.T) {
+	h := newHarness(t, withPipelineFile("steps/02-supply/commands.yaml", `
+- name: provision
+  cmd: echo '02-supply arn = "arn:aws:demo"' | tee -a "$VEX_TEST_LOG"
+  outputs:
+    - name: arn_propio
+      probe: arn = "([^"]+)"
+`))
+
+	// Corrida 1: 02-supply produce `arn_propio` y lo guarda en SU registro. Nadie
+	// más aporta ese nombre.
+	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+	require.Equal(t, "arn:aws:demo", h.storedVars("sand", "02-supply")["arn_propio"])
+
+	// Corrida 2: el step deja de producirlo y un literal declarado lo interpola.
+	// La única fuente de `arn_propio` es ahora el registro del propio step.
+	h.commitPipelineFile("variables/sand/supply.yaml",
+		"- name: registry_prefix\n  value: vexsand\n- name: derivada\n  value: \"${var.arn_propio}/x\"\n")
+	h.commitPipelineFile("steps/02-supply/commands.yaml",
+		"- name: usa\n  cmd: echo '02-supply derivada=${var.derivada}' | tee -a \"$VEX_TEST_LOG\"\n")
+
+	h.resetLog()
+	result := h.run()
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Contains(t, h.logLines(), "02-supply derivada=arn:aws:demo/x")
+}
+
+// La precedencia entre el almacén y lo declarado, invertida por la spec 12.
+//
+// Hasta la 12 ganaba lo declarado y este test se llamaba
+// `TestRunCommand_PrecedenciaDeclaradoSobreAlmacenado`. Ahora gana el almacén,
+// que es lo que hace que un `terraform output` guardado ayer sobreviva a un
+// literal homónimo declarado como valor por defecto.
+//
+// PÉRDIDA ACEPTADA Y VISIBLE: el registro persiste HOY el mapa acumulado
+// entero, no solo lo que el step produjo, así que un literal declarado entra en
+// el almacén en la primera corrida y vuelve como `OriginState` en la segunda.
+// Consecuencia: editar ese literal en el pipelinecode deja de surtir efecto —y
+// el step ni siquiera se re-ejecuta, porque la huella de variables tampoco
+// cambia—. Lo corrige la spec 14, al distinguir lo que un paso CONSUME de lo
+// que PRODUCE (ver `fingerprint/SPEC-VARIABLES-v1.md` §2). Este test fija el
+// borde: cuando la 14 llegue, se pone en rojo y la decisión se hace visible.
+func TestRunCommand_ElAlmacenPisaAlLiteralDeclarado(t *testing.T) {
 	h := newHarness(t)
 	correHastaEstable(t, h)
 	require.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
 
-	// El almacén tiene registry_prefix=vexsand. El pipelinecode ahora declara
-	// otro valor: gana lo declarado porque los handlers 01/02 (almacén) corren
-	// ANTES que el 03 (variables declaradas) y el mapa es "el último gana".
 	h.commitPipelineFile("variables/sand/supply.yaml", "- name: registry_prefix\n  value: vexsand2\n")
 
 	h.resetLog()
 	result := h.run()
 	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
 
-	// CANARIO: intercambiar dos handlers en chainStepHandlers pone esto en rojo.
-	assert.Equal(t, []string{"02-supply"}, h.ranSteps())
-	assert.Equal(t, "vexsand2-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
+	assert.Empty(t, h.ranSteps(),
+		"la huella de variables no cambia porque el valor efectivo no cambia")
+	assert.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
 }
 
 // ── Invariante de variable (spec 03) ────────────────────────────────────────

@@ -42,7 +42,8 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 			executionContext.Emit("Step " + executionContext.StepName() + " en ejecución")
 			executionContext.ResetFileSessions()
 			stepWorkdir := filepath.Join(executionContext.Workdir(), "steps", executionContext.StepFullName())
-			stepWorkdirVariable, err := command.NewVariable(command.VarStepWorkdir, stepWorkdir, false)
+			stepWorkdirVariable, err := command.NewVariable(
+				command.VarStepWorkdir, stepWorkdir, false, command.OriginInjected)
 			if err != nil {
 				return fmt.Errorf("crear variable de step workdir: %w", err)
 			}

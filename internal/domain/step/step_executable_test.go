@@ -262,11 +262,11 @@ func (h handlerQueFalla) SetNext(domStep.StepHandler) {}
 type handlerQueProduceVariables struct{}
 
 func (handlerQueProduceVariables) Handle(_ *context.Context, request *domStep.StepRequestHandler) error {
-	delAmbiente, err := command.NewVariable("acr_name", "vexsand-demo-app", false)
+	delAmbiente, err := command.NewVariable("acr_name", "vexsand-demo-app", false, command.OriginRuntime)
 	if err != nil {
 		return err
 	}
-	delProyecto, err := command.NewVariable("artifact_url", "s3://artefactos/demo", true)
+	delProyecto, err := command.NewVariable("artifact_url", "s3://artefactos/demo", true, command.OriginRuntime)
 	if err != nil {
 		return err
 	}
@@ -283,7 +283,7 @@ func (handlerQueProduceVariables) SetNext(domStep.StepHandler) {}
 type handlerQueSalta struct{}
 
 func (handlerQueSalta) Handle(_ *context.Context, request *domStep.StepRequestHandler) error {
-	variable, err := command.NewVariable("acr_name", "vexsand-demo-app", false)
+	variable, err := command.NewVariable("acr_name", "vexsand-demo-app", false, command.OriginDeclared)
 	if err != nil {
 		return err
 	}

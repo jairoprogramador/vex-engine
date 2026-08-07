@@ -50,7 +50,7 @@ func comandoDePrueba(t *testing.T, opts ...command.CommandOption) command.Comman
 
 func variable(t *testing.T, name, value string) command.Variable {
 	t.Helper()
-	v, err := command.NewVariable(name, value, false)
+	v, err := command.NewVariable(name, value, false, command.OriginDeclared)
 	require.NoError(t, err)
 	return v
 }
@@ -144,4 +144,31 @@ func TestNewCacheMaterial_ProduceUnaClaveEstable(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, primera.Equals(segunda))
+}
+
+// El ORIGEN de una variable no entra en la huella (spec 12 §5.5).
+//
+// Lo que identifica es el par (nombre, valor) resultante, no por dónde llegó:
+// dos ejecuciones que alcanzan el mismo valor por caminos distintos son la misma
+// configuración. Es la misma regla que P9 aplica al código —la huella
+// identifica, el commit documenta— y está escrita en
+// `fingerprint/SPEC-VARIABLES-v1.md` §4, que es donde la buscará quien lea la
+// especificación de la huella.
+func TestNewCacheMaterial_ElOrigenNoEntraEnLaHuellaDeVariables(t *testing.T) {
+	huellaCon := func(origen command.Origin) string {
+		material := materialDe(t, nil, func(contexto *command.ExecutionContext) {
+			v, err := command.NewVariable("acr_name", "acme.azurecr.io", false, origen)
+			require.NoError(t, err)
+			contexto.AddAccumulatedVar(v)
+		})
+		return material.Variables.String()
+	}
+
+	declarada := huellaCon(command.OriginDeclared)
+	for _, origen := range []command.Origin{
+		command.OriginState, command.OriginInjected, command.OriginRuntime,
+	} {
+		assert.Equal(t, declarada, huellaCon(origen),
+			"el origen %s cambió la huella", origen)
+	}
 }

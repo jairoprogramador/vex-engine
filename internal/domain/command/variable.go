@@ -60,6 +60,17 @@ type Variable struct {
 	name     string
 	value    string
 	isShared bool
+
+	// origin es de dónde llegó el valor, y con ello su precedencia frente a otra
+	// fuente que aporte el mismo nombre (spec 12 §5.1).
+	//
+	// NO entra en la huella de variables: lo que identifica es el par
+	// (nombre, valor) resultante, no por dónde llegó. Dos ejecuciones que llegan
+	// al mismo valor por caminos distintos son la misma configuración —la misma
+	// regla que P9 aplica al código: la huella identifica, el commit documenta—.
+	// Está escrito en `fingerprint/SPEC-VARIABLES-v1.md` §4, que es donde lo
+	// buscará quien lea la especificación de la huella.
+	origin Origin
 }
 
 // ErrVariableNameEmpty es el único invariante que le queda a Variable. Un
@@ -76,7 +87,12 @@ var ErrVariableNameEmpty = errors.New("el nombre de la variable generada no pued
 // «Declarada y vacía» y «no declarada» siguen siendo estados distintos: el
 // material canónico de la huella serializa Quote(name) y Quote(value), y
 // Quote("") es `""`, no ausencia.
-func NewVariable(name, value string, isShared bool) (Variable, error) {
+//
+// El `origin` es obligatorio y no tiene valor por defecto útil: el valor cero
+// del enum es `OriginDeclared`, la precedencia MÁS BAJA, así que un llamador que
+// se olvide de declararlo produce una variable que no pisa a nadie en vez de una
+// que lo pisa todo. Es la dirección segura del olvido.
+func NewVariable(name, value string, isShared bool, origin Origin) (Variable, error) {
 	if name == "" {
 		return Variable{}, ErrVariableNameEmpty
 	}
@@ -85,6 +101,7 @@ func NewVariable(name, value string, isShared bool) (Variable, error) {
 		name:     name,
 		value:    value,
 		isShared: isShared,
+		origin:   origin,
 	}, nil
 }
 
@@ -98,4 +115,8 @@ func (ve *Variable) Value() string {
 
 func (ve *Variable) IsShared() bool {
 	return ve.isShared
+}
+
+func (ve *Variable) Origin() Origin {
+	return ve.origin
 }

@@ -32,7 +32,10 @@ func (h *VarsExtractorHandler) Handle(ctx *context.Context, request *CommandRequ
 		}
 		request.AddCommandVar(commandVariable)
 
-		executionVariable, err := NewVariable(name, value, isShared)
+		// `OriginRuntime`: lo que el mundo real devolvió al ejecutar. Es la
+		// precedencia más alta, y por eso un literal declarado con el mismo nombre
+		// pasa a ser lo que dice ser, un valor por defecto (spec 12 §5.1).
+		executionVariable, err := NewVariable(name, value, isShared, OriginRuntime)
 		if err != nil {
 			return fmt.Errorf("crear variable de ejecución: %w", err)
 		}

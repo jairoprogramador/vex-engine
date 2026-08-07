@@ -113,7 +113,7 @@ func (r *SupabaseRecordsRepository) Last(
 	isShared := key.Scope().IsProject()
 	variables := make([]command.Variable, 0, len(result.Variables))
 	for _, dto := range result.Variables {
-		variable, err := command.NewVariable(dto.Name, dto.Value, isShared)
+		variable, err := command.NewVariable(dto.Name, dto.Value, isShared, command.OriginState)
 		if err != nil {
 			return domState.StepRecord{}, false, fmt.Errorf(
 				"supabase records get: crear variable %q: %w", dto.Name, err)

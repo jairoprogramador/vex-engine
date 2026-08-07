@@ -224,18 +224,48 @@ siguientes del mismo step y para todos los steps posteriores.
 
 ### 3.4 Precedencia
 
-Por cada step, el mapa se alimenta en este orden, y **el último en escribir gana**:
+Cada variable lleva su **origen** (`command.Origin`), y **el orden del enum ES la
+precedencia** (spec 12). `ExecutionVariableMap.Add` inserta si la variable no existe, o si su
+origen tiene precedencia **mayor o igual** que la de la ya presente:
 
 ```
-1. último registro del ámbito de proyecto    (de ejecuciones anteriores)
-2. último registro del ámbito del ambiente   (de ejecuciones anteriores)
-3. variables declaradas del step (pipeline)
-4. variables runtime extraídas durante ese step
+1. OriginDeclared   variables declaradas del step (pipeline)   ← el default
+2. OriginState      último registro del ámbito de proyecto, luego el del ambiente
+3. OriginInjected   las diez que el motor deriva de ESTA ejecución (handler 07)
+4. OriginRuntime    extraídas del stdout durante ese step       ← siempre gana
 ```
 
-Consecuencia hoy: una variable declarada en `variables/prod/deploy.yaml` **pisa** un valor
-que produjo el step `supply` en la misma corrida. Solo lo extraído dentro del propio step
-la sobrescribe a su vez. *(Esto está decidido que cambie — ver P3 en la sección 9.)*
+Tres consecuencias:
+
+- Un literal de `variables/prod/deploy.yaml` es un **valor por defecto**: en cuanto algo
+  produce ese nombre, el producido manda para el resto de la ejecución. Hasta la spec 12 era
+  al revés y el pipeline no podía reaccionar a lo que él mismo producía.
+- Un hecho de la ejecución actual (`project_revision`, `project_name`) **no** puede ser
+  pisado por un valor de una corrida anterior. Antes sí podía, y lo único que lo evitaba era
+  que las volátiles no se persisten — la protección era la lista, no el orden.
+- La **igualdad** permite actualizar: dos comandos del mismo step que producen la misma
+  variable, gana el segundo; y el ámbito del ambiente, que carga después, gana sobre el de
+  proyecto.
+
+**El orden en que la cadena alimenta el mapa dejó de decidir quién gana**, y lo fijan
+`TestVarsChain_ElOrdenDeLosHandlersYaNoDecideQuienGana` —las seis permutaciones con los
+handlers reales— y las 24 de `TestExecutionVariableMap_Add_ElOrdenDeLlegadaNoCambiaElResultado`.
+
+Pero el orden **no es indiferente**, y la spec 12 §5.3 —que mandaba adelantar el handler 03—
+se retira por eso (§9.1 de esa spec). El handler 03 no solo añade las variables declaradas:
+las **resuelve**, interpolando `${var.…}` contra el mapa acumulado tal como esté en ese
+instante. Cargarlo antes que el almacén le quita de la vista el registro del propio step, y
+un literal que dependa de él tumba la ejecución entera con «variable faltante». La cadena
+queda `01 → 02 → 03 → 04`: **el orden significa completitud del mapa, y quién gana lo dice
+`Origin`.** Lo fija `TestRunCommand_UnLiteralPuedeInterpolarElRegistroDelPropioStep`.
+
+> **Pérdida aceptada y viva.** El registro persiste hoy el mapa acumulado entero, no solo lo
+> que el step produjo, así que un literal declarado entra en el almacén en la primera corrida
+> y vuelve como `OriginState` en la segunda. Editarlo en el pipelinecode deja entonces de
+> surtir efecto —y el step ni se re-ejecuta, porque la huella de variables tampoco cambia—.
+> Es la misma raíz que el «se re-ejecuta una vez de más» de la sección 7, y lo corrige P7
+> (spec 14) al distinguir lo que un paso **consume** de lo que **produce**. Lo fija
+> `TestRunCommand_ElAlmacenPisaAlLiteralDeclarado`, que se pondrá en rojo cuando llegue.
 
 ### 3.5 Interpolación
 
@@ -677,18 +707,13 @@ clave del estado remoto de terraform. Es una convención no verificada dentro de
 de configuración: si alguien la añade, se crean tres recursos y nada lo señala. P2 mueve
 esa garantía del pipelinecode al motor.
 
-**P3 — Sobre un valor literal, la variable runtime siempre gana.**
+**P3 — Sobre un valor literal, la variable runtime siempre gana. — HECHO (spec 12).**
 Un `value` literal en `variables/<ambiente>/<step>.yaml` es un valor **por defecto**: en
 cuanto un comando produce una variable con ese nombre, el valor runtime manda para el resto
-de la ejecución. Requiere invertir el orden actual de la sección 3.4, moviendo las
-declaradas al principio:
-
-```
-1. variables declaradas del step (pipeline)   ← el default, primero
-2. variables del almacén, ámbito shared
-3. variables del almacén, ámbito del entorno
-4. variables runtime extraídas durante ese step
-```
+de la ejecución. La precedencia dejó de emerger del orden de los handlers y es una invariante
+de `ExecutionVariableMap.Add` sobre el enum ordenado `command.Origin`; el orden vigente y sus
+consecuencias están en la sección 3.4. Lo que queda de esta entrada es la frontera con P7,
+que sigue valiendo para quien llegue después.
 
 **Alcance, y su frontera con P7.** P3 es una regla de **precedencia**, y solo tiene sentido
 donde puede haber choque: dos fuentes que aportan un nombre y hay que decidir cuál vale. Eso

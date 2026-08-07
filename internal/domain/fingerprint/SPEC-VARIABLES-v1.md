@@ -28,9 +28,19 @@ Sea `Q(x)` la representación de `x` con la sintaxis de literal de cadena de Go
 ## 2. De dónde sale el material
 
 El mapa acumulado en el momento en que el paso decide si se ejecuta: las
-variables iniciales del motor, las cargadas del almacén (ámbitos `shared` y del
-paso) y las declaradas por el pipelinecode en `variables/<ambiente>/<paso>.yaml`,
-en ese orden de precedencia —lo declarado gana sobre lo almacenado—.
+declaradas por el pipelinecode en `variables/<ambiente>/<paso>.yaml`, las
+cargadas del almacén (ámbitos de proyecto y del ambiente), las variables
+iniciales del motor y las extraídas del stdout de un comando, **en ese orden de
+precedencia** —un literal declarado es un valor por DEFECTO y lo producido en
+ejecución gana sobre todo (spec 12 §5.3)—.
+
+> Hasta la spec 12 la precedencia era la contraria —lo declarado ganaba sobre lo
+> almacenado— y no estaba escrita en ningún sitio: emergía del orden de cuatro
+> handlers en `chainStepHandlers`. Ahora es una invariante de
+> `command.ExecutionVariableMap.Add` sobre el enum ordenado `command.Origin`, y
+> el orden de la cadena no la decide. **La regla de esta huella no cambia**: la
+> huella hashea el mapa que se le da, no cómo se compuso, y por eso el token
+> sigue siendo `vars-v1`. Lo que cambia es qué valor hay en el mapa.
 
 > **Límite conocido y vivo, heredado por esta regla.** El mapa incluye también
 > las variables que **el propio paso produjo** en una ejecución anterior y que se
@@ -41,6 +51,13 @@ en ese orden de precedencia —lo declarado gana sobre lo almacenado—.
 > que se le da. Lo corrige la spec 14, al distinguir lo que un paso consume de lo
 > que produce; cuando eso ocurra, el material de entrada cambia y esta regla
 > seguirá siendo la misma.
+>
+> Desde la spec 12 esa misma raíz tiene un segundo síntoma. El registro guarda el
+> mapa acumulado ENTERO, así que un literal declarado entra en el almacén en la
+> primera corrida y vuelve como `OriginState` en la segunda —por encima de
+> `OriginDeclared`—. Editar ese literal en el pipelinecode no cambia entonces el
+> valor efectivo, no cambia esta huella, y el paso revive. Se cierra con lo
+> mismo: separar lo consumido de lo producido.
 
 ## 3. La regla
 
@@ -139,6 +156,15 @@ distinto del de las otras dos reglas a propósito.
 - **El origen de una variable.** Que un valor venga del almacén, del
   pipelinecode o de un `outputs` anterior no cambia nada: lo que importa es el
   valor con el que se va a ejecutar. Quién lo puso es material de la spec 14.
+
+  Desde la spec 12 el origen existe como dato —`command.Origin`, el enum cuyo
+  orden ES la precedencia— y **sigue sin entrar aquí**: identifica el par
+  `(nombre, valor)` resultante, no su procedencia. Dos ejecuciones que llegan al
+  mismo valor por caminos distintos son la misma configuración. Es la misma
+  regla que P9 aplica al código: la huella identifica, el commit documenta.
+  Queda escrito aquí, y no solo en la spec 12, porque es aquí donde lo buscará
+  quien vuelva a hacerse la pregunta. Lo fija
+  `TestNewCacheMaterial_ElOrigenNoEntraEnLaHuellaDeVariables`.
 - **El ambiente como tal.** Ver el recuadro de §3.1: eso es campo de la clave.
 
 ## 5. Vectores

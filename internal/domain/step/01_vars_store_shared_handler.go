@@ -50,6 +50,11 @@ func (h *VarsStoreSharedHandler) Handle(ctx *context.Context, request *StepReque
 	// quien decidía si la marca sobrevivía al viaje: el de archivo la perdía y el
 	// de Supabase la deducía del scope, así que el mismo proyecto producía una
 	// huella distinta según dónde corriera (spec 02 §5.2).
+	//
+	// Lo mismo vale para el origen: llegan con `OriginState` puesto por el
+	// adaptador, y este handler tampoco se lo fabrica. Con eso, un cambio de
+	// precedencia no puede alterar de paso el ámbito de una variable — antes sí
+	// podía, porque las dos marcas se decidían en el mismo sitio.
 	for _, variable := range record.Variables() {
 		request.AddAccumulatedVars(variable)
 	}

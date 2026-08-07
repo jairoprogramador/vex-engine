@@ -336,7 +336,10 @@ func claveDeProyecto(t *testing.T, stepID string) domState.Key {
 
 func variable(t *testing.T, nombre, valor string, compartida bool) command.Variable {
 	t.Helper()
-	v, err := command.NewVariable(nombre, valor, compartida)
+	// El origen no viaja al registro y vuelve siempre como `OriginState`: lo que
+	// se guardó fue un valor (spec 12 §5.1). Aquí se construyen como producidas
+	// porque es lo que un step deja en el mapa acumulado.
+	v, err := command.NewVariable(nombre, valor, compartida, command.OriginRuntime)
 	require.NoError(t, err)
 	return v
 }

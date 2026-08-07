@@ -22,7 +22,23 @@ func (vs ExecutionVariableMap) ToSlice() []Variable {
 	return slice
 }
 
+// Add inserta la variable si no existe, o si su origen tiene precedencia mayor
+// o IGUAL que la de la ya presente (spec 12 §5.2).
+//
+// Aquí es donde `ExecutionVariableMap` deja de ser un mapa con métodos y pasa a
+// ser lo que siempre fue: el agregado que custodia la resolución de variables,
+// con su invariante propia. Antes sobrescribía a ciegas, así que la respuesta a
+// «¿qué valor gana?» solo se obtenía leyendo el orden de cuatro handlers en
+// `internal/interfaces/cli/factory.go`.
+//
+// La IGUALDAD importa y no es un descuido: dos comandos del mismo step que
+// producen la misma variable deben poder actualizarla —el segundo gana—, y lo
+// mismo vale para el paso siguiente que vuelve a leer el almacén. Es el
+// comportamiento de hoy y hay que conservarlo.
 func (vs ExecutionVariableMap) Add(variable Variable) {
+	if current, exists := vs[variable.Name()]; exists && variable.Origin() < current.Origin() {
+		return
+	}
 	vs[variable.Name()] = variable
 }
 
@@ -42,6 +58,11 @@ func (vs ExecutionVariableMap) AddAllMap(variables ExecutionVariableMap) {
 	}
 }
 
+// Equals compara `Variable` por igualdad de struct, así que desde la spec 12
+// dos mapas con los mismos pares (nombre, valor) llegados por caminos distintos
+// son DISTINTOS. No lo llama nadie —la comparación que decide re-ejecutar es la
+// de huellas, y ésa no mira el origen (`SPEC-VARIABLES-v1.md` §4)—, y queda
+// dicho para que el primero que lo use sepa qué está comparando.
 func (vs ExecutionVariableMap) Equals(other ExecutionVariableMap) bool {
 	if len(vs) != len(other) {
 		return false

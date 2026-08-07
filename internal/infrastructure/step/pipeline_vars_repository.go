@@ -40,7 +40,7 @@ func (r *pipelineVarsRepository) readVariablesFromFile(_ context.Context, filePa
 	// entrada sin `name:`, que es un pipelinecode mal escrito.
 	variables := make([]command.Variable, 0, len(variablesDTO))
 	for _, vDTO := range variablesDTO {
-		variable, err := command.NewVariable(vDTO.Name, vDTO.Value, false)
+		variable, err := command.NewVariable(vDTO.Name, vDTO.Value, false, command.OriginDeclared)
 		if err != nil {
 			return nil, fmt.Errorf("variable inválida '%s' en '%s': %w", vDTO.Name, filePath, err)
 		}

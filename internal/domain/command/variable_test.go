@@ -18,14 +18,14 @@ import (
 
 func TestNewVariable_Invariante(t *testing.T) {
 	t.Run("el nombre vacío sigue siendo un error", func(t *testing.T) {
-		_, err := command.NewVariable("", "us-east-1", false)
+		_, err := command.NewVariable("", "us-east-1", false, command.OriginDeclared)
 		require.ErrorIs(t, err, command.ErrVariableNameEmpty)
 	})
 
 	t.Run("el valor vacío ya NO es un error", func(t *testing.T) {
 		// Cierra D-A8: habilita el parámetro opcional que las specs del
 		// registro necesitan (`secrets_required`, `vex plan`).
-		variable, err := command.NewVariable("instance_count", "", false)
+		variable, err := command.NewVariable("instance_count", "", false, command.OriginDeclared)
 		require.NoError(t, err)
 
 		assert.Equal(t, "instance_count", variable.Name())
@@ -33,14 +33,39 @@ func TestNewVariable_Invariante(t *testing.T) {
 		assert.False(t, variable.IsShared())
 	})
 
-	t.Run("el nombre y el ámbito se conservan", func(t *testing.T) {
-		variable, err := command.NewVariable("bucket", "artefactos", true)
+	t.Run("el nombre, el ámbito y el origen se conservan", func(t *testing.T) {
+		variable, err := command.NewVariable("bucket", "artefactos", true, command.OriginRuntime)
 		require.NoError(t, err)
 
 		assert.Equal(t, "bucket", variable.Name())
 		assert.Equal(t, "artefactos", variable.Value())
 		assert.True(t, variable.IsShared())
+		assert.Equal(t, command.OriginRuntime, variable.Origin())
 	})
+}
+
+// El orden del `iota` ES la precedencia (spec 12 §5.1), así que es una decisión
+// del modelo y no un detalle de implementación: reordenar las constantes cambia
+// qué valor gana en cada ejecución del motor.
+//
+// El valor cero es `OriginDeclared`, la precedencia más baja, a propósito: un
+// llamador que olvide declarar el origen produce una variable que no pisa a
+// nadie en vez de una que lo pisa todo.
+func TestOrigin_ElOrdenEsLaPrecedencia(t *testing.T) {
+	assert.Equal(t, command.OriginDeclared, command.Origin(0),
+		"el valor cero es el default, no la autoridad")
+
+	assert.Less(t, command.OriginDeclared, command.OriginState,
+		"un literal es un valor por defecto: lo almacenado gana (P3)")
+	assert.Less(t, command.OriginState, command.OriginInjected,
+		"un hecho de ESTA ejecución no lo pisa uno de una corrida anterior")
+	assert.Less(t, command.OriginInjected, command.OriginRuntime,
+		"lo producido al ejecutar gana sobre todo")
+
+	assert.Equal(t, "declared", command.OriginDeclared.String())
+	assert.Equal(t, "state", command.OriginState.String())
+	assert.Equal(t, "injected", command.OriginInjected.String())
+	assert.Equal(t, "runtime", command.OriginRuntime.String())
 }
 
 // La lista de variables volátiles es NORMATIVA: está transcrita en
@@ -74,7 +99,7 @@ func TestVolatileVarNames_EsLaListaDeLaEspecificacion(t *testing.T) {
 func TestNewVariable_DeclaradaYVaciaOcupaSuClave(t *testing.T) {
 	vars := command.NewExecutionVariableMap()
 
-	variable, err := command.NewVariable("instance_count", "", false)
+	variable, err := command.NewVariable("instance_count", "", false, command.OriginDeclared)
 	require.NoError(t, err)
 	vars.Add(variable)
 

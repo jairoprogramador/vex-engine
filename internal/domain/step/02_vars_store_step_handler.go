@@ -10,9 +10,11 @@ import (
 // VarsStoreStepHandler carga lo que este step dejó en el ámbito del AMBIENTE en
 // ejecución.
 //
-// Corre DESPUÉS del handler 01 y ANTES del 03: lo declarado por el pipelinecode
-// gana sobre lo almacenado, y el ámbito de proyecto se carga antes que el del
-// ambiente. Los dos órdenes son intencionados y hay canarios que los fijan.
+// Corre DESPUÉS del handler 01, y eso ya no decide nada: desde la spec 12 los
+// dos ámbitos comparten posición en el enum `command.Origin`, así que el que
+// carga segundo gana por la regla de igualdad de `Add`, no por el cableado. El
+// orden de carga se conserva —proyecto, luego ambiente— porque es el de §5.3 y
+// porque lo específico debe llegar después de lo común.
 type VarsStoreStepHandler struct {
 	StepBaseHandler
 	records state.Records
