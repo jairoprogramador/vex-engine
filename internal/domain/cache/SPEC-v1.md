@@ -56,18 +56,50 @@ nuevo, que es indistinguible de un bug.
 | 4 | `step` | nombre del paso, sin el prefijo `NN-` | sí |
 | 5 | `instructions` | huella `inst-v1` de los comandos declarados | sí |
 | 6 | `variables` | huella `vars-v1` de las variables del paso | sí |
-| 7 | `code` | huella `v1` del árbol del proyecto | sí |
+| 7 | `code` | huella `v1` del árbol del proyecto | **condicional**, ver §3.1bis |
 
-**Los siete son obligatorios y ninguno es anulable.** Un material incompleto no
-produce una clave degradada: produce un **error**. La razón es que una clave
-compuesta con un hueco es perfectamente válida y colisiona con la de cualquier
-otro material al que le falte el mismo campo — y esa colisión se manifiesta como
-un paso que se salta sin haberse ejecutado jamás.
+**Ninguno es anulable por omisión.** Un material incompleto no produce una clave
+degradada: produce un **error**. La razón es que una clave compuesta con un hueco
+es perfectamente válida y colisiona con la de cualquier otro material al que le
+falte el mismo campo — y esa colisión se manifiesta como un paso que se salta sin
+haberse ejecutado jamás.
 
 Aguas arriba, «no se pudo componer la clave» significa **ejecutar el paso y no
 escribir entrada**. Y como *ausencia de entrada ⇒ ejecutar*, la semántica «sin
 evidencia ⇒ ejecutar» de la spec 05 §5.1 se conserva por construcción, sin
 código que la defienda.
+
+### 3.1bis `code` es condicional, y su ausencia se DECLARA (spec 15)
+
+Desde la spec 15 un paso declara en su `config.yaml` qué invalida su trabajo, y
+`state_changed: [pipeline]` dice que el código del proyecto **no forma parte de
+su identidad** — el caso cotidiano es un paso que crea un registro de
+contenedores, que no depende del código de la aplicación y que con «todo importa
+siempre» se re-ejecutaba en cada commit.
+
+Para ese material, `code` va **ausente y su ausencia va marcada**. Son dos
+condiciones, y las dos se comprueban:
+
+| Estado declarado | `code` | Veredicto |
+|---|---|---|
+| el paso vigila el proyecto | presente | válido |
+| el paso vigila el proyecto | ausente | **error** — es un hueco, no una decisión |
+| el paso NO lo vigila | ausente | válido; la línea 8 del material canónico es `Q("")` |
+| el paso NO lo vigila | presente | **error** — la forma canónica sería ambigua |
+
+**Esto no es una `ck-v2`, y el argumento es de inyectividad.** La regla de
+composición no cambia ni un byte: siguen siendo las ocho líneas de §5.1 en el
+mismo orden. Lo que cambia es el **dominio** de materiales aceptados, y se amplía
+sin remapear nada: `Q("")` no era producible antes —un `code` vacío era un
+error— y ninguna huella tiene la forma canónica vacía, así que
+
+- **ninguna clave emitida cambia de valor** (los vectores de §6 se conservan
+  literales), y
+- **ninguna clave nueva puede coincidir con una vieja**.
+
+La spec 27 sustituye `ck-v1` entera por `sf-v1`, donde el término del proyecto es
+condicional por diseño (`sf-v1(pipe-v1 [, v1])`); esto es esa forma, expresada
+con la regla que hay hoy.
 
 ### 3.2 `scope`, y por qué es un solo campo
 
@@ -84,15 +116,21 @@ producción se saltara, sin una sola señal.
 
 Es **un** campo y no un par `{environment, scope}`: serían redundantes mientras
 coinciden y ambiguos cuando difirieran. `shared` es palabra reservada como
-ambiente (spec 04), así que un solo campo no puede colisionar. Hasta la spec 15
-vale siempre el ambiente; está desde ya porque añadirlo después invalidaría todas
-las claves emitidas.
+ambiente (spec 04), así que un solo campo no puede colisionar. **Vale siempre el
+ambiente**, también para un paso que declara `scope: project` (spec 13): la
+dirección donde vive su registro es otra, pero su huella sigue llevando el
+ambiente aquí. Sacarlo es de la spec 27, que retira de la huella las cuatro
+dimensiones de DIRECCIÓN; está desde ya porque añadirlo después invalidaría
+todas las claves emitidas.
 
 ### 3.3 Lo que NO entra
 
-- **El tiempo.** El TTL no es propiedad del contenido: es metadato de expiración
-  de la entrada (§4). Volver a ejecutar por caducidad produce **exactamente la
-  misma clave**.
+- **El tiempo.** La expiración no es propiedad del contenido, así que volver a
+  ejecutar por caducidad produce **exactamente la misma clave**. Desde la
+  spec 15 la ventana la declara el paso (`max_age` en su `config.yaml`) y se
+  mide contra la edad de su último REGISTRO; hasta la 11 fue un `expires_at` en
+  la entrada, y entre la 11 y la 15 un TTL global de 30 días en el motor. Las
+  tres formas comparten esto: ninguna entra en el material.
 - **La máquina.** Ni rutas absolutas, ni el usuario, ni el sistema operativo. Es
   lo que hace que el caché compartido de la spec 16 signifique algo. Las tres
   variables de ruta absoluta se excluyen en la huella de variables
@@ -126,12 +164,20 @@ escribe nada antes.
 
 ```
 Entry {
-  expires_at   instante, o ausente si no caduca
-  produced_by  { execution_id, at }
+  state_key   la clave de posición del registro al que apunta
+  record_id   cuál de sus registros
 }
 ```
 
-**Las entradas son de SOLA PRESENCIA.** No guardan resultado reutilizable:
+> **La entrada cambió de papel dos veces y esta sección lo dice tarde.** Con la
+> spec 11 dejó de ser una afirmación —«esto ya se ejecutó»— y pasó a ser un
+> ÍNDICE: `contenido → {clave de estado, registro}`. Perdió `expires_at` y
+> `produced_by` con ello, y sobre todo perdió el voto: **el índice no participa
+> en ninguna decisión**, y `rm -rf` sobre él no cambia nada de lo que el motor
+> decide. Lo que sigue describe el papel que tuvo entre las specs 10 y 11, y se
+> conserva porque explica por qué las dos tiendas están separadas.
+
+**Las entradas eran de SOLA PRESENCIA.** No guardan resultado reutilizable:
 guardan que este contenido exacto ya se ejecutó con éxito aquí, quién lo hizo y
 hasta cuándo vale. El contenido reutilizable —el almacén de variables— vive
 aparte, y sigue viviendo aparte a propósito: los dos tienen **reglas de borrado
@@ -143,9 +189,11 @@ la spec 11, y merece serlo.
 clave opaca deja sin respuesta «¿cuándo se probó esto por última vez?», que es
 la afirmación de valor del motor.
 
-El TTL por defecto es de **30 días**. Una entrada caduca **cuando** se alcanza
-su instante de expiración, no después (borde exclusivo). Una entrada caducada
-manda ejecutar, y la entrada nueva ocupa el mismo sitio bajo la misma clave.
+El TTL por defecto era de **30 días**, y **ya no existe**: lo retiró la spec 15
+§5.7, después de que la 11 lo moviera de sujeto —de la entrada al registro—. Un
+paso sin `max_age` no caduca. Lo que se conserva de aquella regla es la frontera:
+un registro caduca **cuando** se alcanza su instante, no después (borde
+exclusivo).
 
 ## 5. La regla
 
@@ -161,7 +209,7 @@ Q(scope)
 Q(step)
 Q(instructions)          ← la forma canónica COMPLETA, "inst-v1:<hash>"
 Q(variables)             ← "vars-v1:<hash>"
-Q(code)                  ← "v1:<hash>"
+Q(code)                  ← "v1:<hash>", o "" si el paso no lo vigila (§3.1bis)
 ```
 
 - La primera línea es una cabecera fija. Existe para que una clave no pueda
@@ -224,9 +272,13 @@ code         = "v1:"      + "33" repetido 32 veces
    su hash igual, cambia la clave (§2).
 5. Comprobar que componer la misma clave dos veces da el mismo valor, y que
    componerla no escribe nada en ninguna parte.
+6. Comprobar §3.1bis en sus cuatro filas: que un `code` ausente y **declarado
+   ausente** produce clave, que esa clave difiere de la del mismo material con
+   `code`, y que las dos combinaciones contradictorias producen error.
 
 ## 8. Historia
 
 | Versión | Cambio |
 |---|---|
+| `ck-v1` | **Ampliación del dominio, no de la regla** (spec 15): `code` pasa a ser condicional y su ausencia se declara (§3.1bis). La composición de §5 no cambia, y la ampliación es inyectiva: ninguna clave emitida cambia de valor y ninguna nueva colisiona con una vieja. Por eso NO hay salto de versión |
 | `ck-v1` | Primera regla (spec 10). Sustituye a cuatro claves distintas —`(proyecto, pipeline, paso)` para instrucciones y código, `(proyecto, pipeline, ambiente, paso)` para variables y `(proyecto, ambiente, paso)`, sin pipeline, para tiempo— por una sola que lleva las siete dimensiones. El caché arranca **frío**: ninguna entrada del esquema anterior se encuentra, y no se escribe migrador porque el caché es desechable por definición |

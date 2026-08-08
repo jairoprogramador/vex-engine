@@ -47,8 +47,11 @@ type Material struct {
 	// Es UN campo y no un par {Environment, Scope}: serían redundantes mientras
 	// coinciden y ambiguos cuando difieran —¿qué significaría `Scope: "shared"`
 	// con un `Environment` no vacío?—. `shared` es palabra reservada (spec 04),
-	// así que un solo campo no puede colisionar. Hasta la spec 15 vale siempre
-	// el ambiente; añadirlo AHORA y no allí es lo que evita reemitir todas las
+	// así que un solo campo no puede colisionar. **Vale siempre el ambiente**,
+	// también para un paso que declara `scope: project` (spec 13): la dirección
+	// donde vive su registro es otra, pero su huella sigue llevando el ambiente
+	// aquí. Lo saca la spec 27, que retira de la huella las cuatro dimensiones de
+	// DIRECCIÓN; está desde la 10 porque añadirlo después reemitiría todas las
 	// claves.
 	Scope string
 
@@ -62,14 +65,43 @@ type Material struct {
 	// (vars-v1).
 	Variables fingerprint.Fingerprint
 
-	// Code es la huella del árbol del proyecto (v1, spec 08).
+	// Code es la huella del árbol del proyecto (v1, spec 08), y es el ÚNICO
+	// término condicional del material (spec 15 §5.2).
 	Code fingerprint.Fingerprint
+
+	// CodeExcluded declara que el código del proyecto NO forma parte de la
+	// identidad de este paso: es un step con `state_changed: [pipeline]`, que
+	// dice que su trabajo no depende del código de la aplicación —crear un
+	// registro de contenedores, por ejemplo—.
+	//
+	// # Por qué esto NO es una `ck-v2`
+	//
+	// La regla de composición no cambia ni un byte: siguen siendo ocho líneas en
+	// el mismo orden, y la línea del código sigue llevando `Q(Code.String())`.
+	// Lo que cambia es el DOMINIO de materiales aceptados, y lo hace de forma
+	// INYECTIVA: `Q("")` no era producible antes —un `Code` vacío era un error—
+	// y ninguna huella lleva la forma canónica vacía, así que ninguna clave
+	// emitida cambia de valor y ninguna clave nueva puede coincidir con una
+	// vieja. La spec 27 sustituye `ck-v1` entera por `sf-v1`, donde el término
+	// del proyecto es condicional por diseño; esto es esa forma, expresada con
+	// la regla que hay hoy.
+	//
+	// # Por qué un booleano en NEGATIVO
+	//
+	// Porque su valor cero es el SEGURO. Un `IncludesCode bool` dejaría que
+	// olvidarlo produjera una huella sin el código —un step que deja de
+	// re-ejecutarse ante un cambio de código, la peor omisión posible— mientras
+	// que olvidar éste produce una re-ejecución de más. El vacío del material
+	// nunca puede ser accidental: `Validate` exige que el hueco esté DECLARADO,
+	// que es la diferencia entre «no lo vigila» y «se compuso con un hueco».
+	CodeExcluded bool
 }
 
 // El TTL NO entra en el material: el tiempo no es propiedad del contenido. Es
 // metadato de expiración de la entrada — ver Entry.
 
-// Validate exige que las siete dimensiones estén presentes.
+// Validate exige que las siete dimensiones estén presentes — seis siempre, y la
+// séptima salvo que su ausencia esté DECLARADA (ver `CodeExcluded`).
 //
 // No es defensa contra el llamador distraído: es la única forma de que «no se
 // pudo componer el material» sea distinguible de «se compuso con un hueco». Un
@@ -77,6 +109,11 @@ type Material struct {
 // colisiona con la de cualquier otro material al que le falte el mismo campo, y
 // esa colisión se manifestaría como un paso que se salta sin haberse ejecutado
 // jamás — el peor fallo posible del motor.
+//
+// La excepción declarada no reabre esa puerta, y por eso es de doble sentido: un
+// material que excluye el código y a la vez lo trae también es un error. Sin esa
+// mitad, la forma canónica de un mismo step dependería de si alguien se acordó
+// de limpiar el campo, que es la ambigüedad que aquí se está evitando.
 func (m Material) Validate() error {
 	campos := []struct {
 		nombre string
@@ -99,7 +136,6 @@ func (m Material) Validate() error {
 	}{
 		{"instructions", m.Instructions},
 		{"variables", m.Variables},
-		{"code", m.Code},
 	}
 	for _, huella := range huellas {
 		if huella.valor.IsZero() {
@@ -107,5 +143,15 @@ func (m Material) Validate() error {
 		}
 	}
 
+	if m.CodeExcluded {
+		if !m.Code.IsZero() {
+			return fmt.Errorf(
+				"cache: el material excluye la huella de code y a la vez la trae")
+		}
+		return nil
+	}
+	if m.Code.IsZero() {
+		return fmt.Errorf("cache: el material no tiene la huella de code")
+	}
 	return nil
 }

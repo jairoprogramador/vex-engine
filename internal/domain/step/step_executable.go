@@ -139,9 +139,16 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 // bifurcación desaparece con un `if`, no con una migración: el step tiene una
 // identidad, luego un sitio donde recordarse.
 //
-// Un step SIN `config.yaml` no escribe nada. No es un caso de error: es la
-// consecuencia de §5.3 —no declara ámbito, luego no hay dónde— y lo que impide
-// que el motor le invente uno.
+// Un step que no DECLARA no escribe nada, y son dos ausencias con la misma
+// consecuencia (ver `StepConfig.Remembers`):
+//
+//   - sin `config.yaml` no declara ámbito, luego no hay dónde (spec 13 §5.3), y
+//     eso es lo que impide que el motor le invente uno;
+//   - sin `rules` no hay afirmación que guardar (spec 15 §5.5). El step se
+//     ejecuta en cada corrida, así que un registro suyo no podría revivir nada;
+//     lo único que haría es crecer para siempre.
+//
+// Ninguna de las dos es un caso de error.
 //
 // Se escribe aunque el conjunto de variables esté vacío: el hecho que el
 // registro guarda es «este step corrió», no «este step produjo algo», y un
@@ -155,12 +162,13 @@ func (s *StepExecutable) appendRecord(
 	request *StepRequestHandler,
 	executionContext *command.ExecutionContext) {
 
-	key, declarado, err := request.StateKey()
-	if err != nil {
-		s.warn(executionContext, err)
+	if !request.StepConfig().Remembers() {
 		return
 	}
-	if !declarado {
+
+	key, _, err := request.StateKey()
+	if err != nil {
+		s.warn(executionContext, err)
 		return
 	}
 

@@ -14,7 +14,7 @@ import (
 const (
 	StepEntryFormatRuleName       = "formato_del_directorio"
 	UniqueStepOrderRuleName       = "orden_único"
-	StepScopeRuleName             = "ámbito_declarado"
+	StepConfigRuleName            = "configuración_del_step"
 	DeclaredSourceVersionRuleName = "versión_del_formato"
 	VariableGraphRuleName         = "grafo_de_variables"
 )
@@ -90,30 +90,47 @@ func (r UniqueStepOrderRule) IsSatisfiedBy(_ *context.Context, _ Pipelinecode, e
 	return errors.Join(errs...)
 }
 
-// StepScopeRule exige que todo `config.yaml` PRESENTE declare un `scope` del
-// vocabulario cerrado (spec 13 §5.1).
+// StepConfigRule exige que todo `config.yaml` PRESENTE sea legible y esté
+// escrito con la gramática que el motor conoce: un `scope` del vocabulario
+// cerrado (spec 13 §5.1) y unas `rules` del suyo (spec 15 §5.2).
+//
+// **La regla no crece con la gramática, y eso es la mitad del argumento.** No
+// enumera campos ni conoce reglas de re-ejecución: llama al repositorio, que
+// valida AL TRADUCIR. Así, una clave `rules` con una regla desconocida o un
+// `state_changed: [project]` abortan antes del primer step sin que aquí haya que
+// escribir nada — basta con que la gramática falle en el adaptador.
+//
+// Se llamaba `StepScopeRule` hasta la spec 15. El cambio de nombre no es
+// cosmético: el nombre de la regla encabeza el mensaje del validador, y un error
+// de `rules` reportado bajo `[ámbito_declarado]` estaría mintiendo sobre qué se
+// comprobó.
 //
 // Lo que NO exige es que el archivo exista: un step sin `config.yaml` es
-// legítimo —se ejecuta siempre y no persiste registro (§5.3)— y por eso el
+// legítimo —se ejecuta siempre y no persiste registro (13 §5.3)— y por eso el
 // repositorio devuelve ausencia sin error. La regla sólo se pronuncia sobre lo
 // que alguien escribió.
 //
-// Corre aquí y no en la cadena de step porque un ámbito mal escrito descubierto
-// a mitad del despliegue llega tarde: los steps anteriores ya crearon recursos
-// reales. Es la misma razón por la que existe el validador (spec 04 §4).
-type StepScopeRule struct {
+// Lo que TAMPOCO hace es advertir. La configuración válida y peligrosa de la
+// spec 15 §5.4 —`max_age` sin `state_changed`— no cabe aquí, y no por falta de
+// sitio: el veredicto de este puerto es un `error` y sólo sabe abortar, y eso no
+// debe abortar. Se emite desde el handler que carga la configuración.
+//
+// Corre aquí y no en la cadena de step porque un `config.yaml` mal escrito
+// descubierto a mitad del despliegue llega tarde: los steps anteriores ya crearon
+// recursos reales. Es la misma razón por la que existe el validador (spec 04 §4).
+type StepConfigRule struct {
 	configs domStep.StepConfigRepository
 }
 
-var _ StepStructureRule = (*StepScopeRule)(nil)
+var _ StepStructureRule = (*StepConfigRule)(nil)
 
-func NewStepScopeRule(configs domStep.StepConfigRepository) StepScopeRule {
-	return StepScopeRule{configs: configs}
+func NewStepConfigRule(configs domStep.StepConfigRepository) StepConfigRule {
+	return StepConfigRule{configs: configs}
 }
 
-func (r StepScopeRule) Name() string { return StepScopeRuleName }
+func (r StepConfigRule) Name() string { return StepConfigRuleName }
 
-func (r StepScopeRule) IsSatisfiedBy(
+func (r StepConfigRule) IsSatisfiedBy(
 	ctx *context.Context, code Pipelinecode, entries []StepEntry) error {
 
 	errs := make([]error, 0, len(entries))

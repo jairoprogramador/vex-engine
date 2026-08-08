@@ -75,6 +75,28 @@ func TestStepExecutable_ElRegistroSeEscribeSoloTrasElExito(t *testing.T) {
 			"y el índice apunta a registros: sin registro no hay a qué apuntar")
 	})
 
+	// La MISMA decisión por la otra mitad (spec 15 §5.5). Aquí hay ámbito —hay
+	// dónde recordarse— y no hay ninguna afirmación que guardar: el step se
+	// ejecuta en cada corrida, así que un registro suyo no podría revivir nada y
+	// lo único que haría es crecer para siempre.
+	//
+	// Es el caso que la spec obliga a fijar con test porque las dos respuestas
+	// eran defendibles: escribir un registro SIN huella —que tampoco revive—
+	// conservaría lo producido, a cambio de un registro por corrida que nadie
+	// puede leer ni revivir. Se elige no escribir, y con ello los tres casos de
+	// «no declara ⇒ no persiste» quedan uniformes.
+	t.Run("un step con ámbito y SIN reglas tampoco deja registro", func(t *testing.T) {
+		registros := &recordsEspia{}
+		indice := &entriesEspia{}
+		ejecutable := nuevoEjecutable(handlerQueAnotaSinReglas{}, registros, indice)
+
+		require.NoError(t, ejecutable.Execute(contextoDePrueba(t)))
+
+		assert.Empty(t, registros.anadidos,
+			"«no hay nada que comprobar» no es una afirmación que guardar")
+		assert.Empty(t, indice.escritas)
+	})
+
 	// Una muerte dura es, vista desde el código, «se decidió ejecutar y no se
 	// llegó al camino de éxito». Antes la huella ya estaba escrita para entonces
 	// —la escribía `Evaluate`— y solo el borrado compensatorio la quitaba, que es
@@ -294,8 +316,22 @@ func (h handlerQueFalla) SetNext(domStep.StepHandler) {}
 // declararAmbito reproduce lo que hace el handler 03 tras leer el `config.yaml`
 // del step. Sin esta llamada el step no declara ámbito y no persiste nada, que
 // es el default seguro de la spec 13 §5.3.
+//
+// Declara TAMBIÉN una regla, porque desde la spec 15 hacen falta las dos cosas
+// para que el step deje registro: un ámbito donde recordarse y una afirmación
+// que guardar (`StepConfig.Remembers`).
 func declararAmbito(request *domStep.StepRequestHandler, scope domStep.Scope) error {
-	config, err := domStep.NewStepConfig(scope)
+	rules, err := domStep.NewRuleSet(domStep.NewDefaultStateChangedRule())
+	if err != nil {
+		return err
+	}
+	return declararConfig(request, scope, rules)
+}
+
+func declararConfig(
+	request *domStep.StepRequestHandler, scope domStep.Scope, rules domStep.RuleSet) error {
+
+	config, err := domStep.NewStepConfig(scope, rules)
 	if err != nil {
 		return err
 	}
@@ -398,6 +434,23 @@ func (h handlerQueAnota) Handle(_ *context.Context, request *domStep.StepRequest
 }
 
 func (handlerQueAnota) SetNext(domStep.StepHandler) {}
+
+// handlerQueAnotaSinReglas es el step con `config.yaml` que declara ámbito y no
+// declara `rules`: corre, termina bien y no tiene NADA QUE AFIRMAR (spec 15
+// §5.5). No anota huella, por la misma razón por la que no lo hace el que revive
+// — sólo que aquí sí ejecutó.
+type handlerQueAnotaSinReglas struct{}
+
+func (handlerQueAnotaSinReglas) Handle(_ *context.Context, request *domStep.StepRequestHandler) error {
+	if err := declararConfig(
+		request, domStep.NewEnvironmentScope(), domStep.EmptyRuleSet()); err != nil {
+		return err
+	}
+	request.MarkStepExecuted()
+	return nil
+}
+
+func (handlerQueAnotaSinReglas) SetNext(domStep.StepHandler) {}
 
 // handlerQueAnotaSinAmbito es el step sin `config.yaml`: corre, termina bien y
 // no tiene dónde recordarse (spec 13 §5.3).

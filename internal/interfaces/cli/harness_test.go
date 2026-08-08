@@ -161,6 +161,19 @@ func withPipelineFile(relPath, content string) harnessOption {
 	}
 }
 
+// configConScope es el `config.yaml` de un step con el ámbito que se le diga y
+// la regla de invalidación completa —`- state_changed`, que equivale a
+// `[pipeline, project]`—, que es lo que declara el fixture.
+//
+// Existe desde la spec 15 porque hacen falta las DOS claves: un `config.yaml`
+// con `scope` y sin `rules` declara dónde vive el estado y ninguna razón para
+// desconfiar de él, así que el step se ejecuta siempre y no persiste nada (§5.5).
+// Escribir sólo el `scope` en un caso que mide otra cosa cambiaría lo que ese
+// caso mide.
+func configConScope(scope string) string {
+	return "scope: " + scope + "\nrules:\n  - state_changed\n"
+}
+
 // withoutPipelineFile borra un archivo del pipelinecode materializado. Existe
 // para el caso de la spec 13 §5.3 —un step SIN `config.yaml`—, que es una
 // AUSENCIA y no se puede montar escribiendo nada.
@@ -455,6 +468,56 @@ func (h *harness) persistedStepState(step string) []string {
 	require.NoError(h.t, err)
 	sort.Strings(found)
 	return found
+}
+
+// envejecerRegistros retrasa `produced_by.at` de TODOS los registros escritos,
+// que es lo que mide `max_age` (spec 15 §5.2).
+//
+// Es la única forma de probar la expiración de punta a punta: el instante lo
+// pone el reloj del proceso a través del agregado (spec 07), y el harness
+// construye el motor con el cableado real, así que no hay dónde inyectar otro
+// sin dejar de probar el cableado que se quiere probar. Envejecer lo escrito es
+// equivalente y no toca nada del motor.
+//
+// El `record_id` NO se toca, y no hace falta: es un ULID y el orden lexicográfico
+// decide cuál es el último, así que mover la fecha de dentro no reordena nada.
+// Lo que se está falsificando es la EDAD del hecho, no cuál fue el último.
+func (h *harness) envejecerRegistros(edad time.Duration) {
+	h.t.Helper()
+
+	tocados := 0
+	err := filepath.WalkDir(h.statePath(), func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || filepath.Ext(path) != ".json" {
+			return nil
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		var stored stateInfra.FileStepRecordDTO
+		if err := json.Unmarshal(data, &stored); err != nil {
+			return fmt.Errorf("decodificar %s: %w", path, err)
+		}
+
+		at, err := time.Parse(time.RFC3339Nano, stored.ProducedBy.At)
+		if err != nil {
+			return fmt.Errorf("leer produced_by.at de %s: %w", path, err)
+		}
+		stored.ProducedBy.At = at.Add(-edad).Format(time.RFC3339Nano)
+
+		reescrito, err := json.Marshal(stored)
+		if err != nil {
+			return err
+		}
+		tocados++
+		return os.WriteFile(path, reescrito, 0o644)
+	})
+	require.NoError(h.t, err)
+	require.NotZero(h.t, tocados, "no había ningún registro que envejecer")
 }
 
 // borrarElIndice es la comprobación de la spec 11 §5.5.1 hecha ejecutable:

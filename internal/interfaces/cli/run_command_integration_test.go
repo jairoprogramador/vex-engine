@@ -13,6 +13,7 @@ package cli_test
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -141,9 +142,14 @@ func TestRunCommand_CambioEnElCodigoDelProyecto(t *testing.T) {
 	// saltado. Con una clave única, TODO entra en la clave de todos los pasos:
 	// `supply` se re-ejecuta ante un cambio de código que no le afecta.
 	//
-	// Se acepta porque la alternativa era peor: la selección por paso estaba
-	// cableada en el motor POR NOMBRE, que es justo lo que P1 deroga. La spec 15
-	// devuelve la granularidad, declarada por el pipeline en vez de cableada.
+	// Se aceptó porque la alternativa era peor: la selección por paso estaba
+	// cableada en el motor POR NOMBRE, que es justo lo que P1 deroga.
+	//
+	// LA SPEC 15 DEVUELVE LA GRANULARIDAD, y este caso deja de medir una
+	// regresión para medir una ELECCIÓN: los dos steps del fixture declaran
+	// `- state_changed`, que incluye el proyecto, así que los dos se re-ejecutan
+	// porque lo pidieron. Que un step pueda no pedirlo lo mide
+	// `TestRunCommand_LoQueUnStepVigilaLoDeclaraElStep`.
 	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
 
 	h.resetLog()
@@ -345,7 +351,7 @@ func TestRunCommand_ElEstadoSeAislaPorAmbito(t *testing.T) {
 // `config.yaml` de diferencia y el registro cambia de sitio.
 func TestRunCommand_ElAmbitoDeclaradoDecideDondeViveElRegistro(t *testing.T) {
 	t.Run("scope: project", func(t *testing.T) {
-		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml", "scope: project\n"))
+		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml", configConScope("project")))
 
 		require.Equal(t, cli.ExitSucceeded, h.run(withEnvironment("sand")).exitCode)
 
@@ -404,7 +410,7 @@ func TestRunCommand_UnWorkdirLlamadoSharedYaNoComparte(t *testing.T) {
 // se ve lo que `01-test` dejó desplegando a `sand` —el ACR pertenece al
 // proyecto—, mientras que lo que `02-supply` produjo en `sand` no cruza.
 func TestRunCommand_UnStepDeAmbienteVeLoQueProdujoUnStepDeProyecto(t *testing.T) {
-	h := newHarness(t, withPipelineFile("steps/01-test/config.yaml", "scope: project\n"))
+	h := newHarness(t, withPipelineFile("steps/01-test/config.yaml", configConScope("project")))
 
 	require.Equal(t, cli.ExitSucceeded, h.run(withEnvironment("sand")).exitCode)
 	require.Equal(t, "demo-app", h.projectVars("01-test")["artifact_name"],
@@ -487,6 +493,259 @@ func TestRunCommand_UnAmbitoInvalidoAbortaAntesDelPrimerStep(t *testing.T) {
 			nombre:    "config.yaml vacío",
 			contenido: "",
 			enElError: "no declara 'scope'",
+		},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nombre, func(t *testing.T) {
+			h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml", caso.contenido))
+
+			result := h.run()
+
+			assert.Equal(t, cli.ExitFailed, result.exitCode)
+			assert.Contains(t, result.stderr, "estructura del pipelinecode inválida")
+			assert.Contains(t, result.stderr, "steps/02-supply/config.yaml",
+				"el error nombra al culpable")
+			assert.Contains(t, result.stderr, caso.enElError)
+			assert.Empty(t, h.ranSteps(),
+				"la validación corre antes del primer step: ningún despliegue queda a medias")
+		})
+	}
+}
+
+// ── Las reglas de re-ejecución declaradas (spec 15) ─────────────────────────
+
+// EL PAR QUE DA NOMBRE A LA GRANULARIDAD DECLARADA, y son los tres tests que la
+// spec 10 §9.8 dejó anunciados como «los que volverán a cambiar cuando la 15
+// devuelva la granularidad».
+//
+// El caso concreto que lo hace cotidiano: un step que crea un registro de
+// contenedores NO depende del código de la aplicación. Con «todo importa
+// siempre» se re-ejecutaba en cada commit y en cada ambiente, y eso vaciaba de
+// sentido haberlo separado por ámbito.
+func TestRunCommand_LoQueUnStepVigilaLoDeclaraElStep(t *testing.T) {
+	t.Run("state_changed: [pipeline] no ve el código del proyecto", func(t *testing.T) {
+		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml",
+			"scope: environment\nrules:\n  - state_changed: [pipeline]\n"))
+		correHastaEstable(t, h)
+
+		h.writeProjectFile("src/app.txt", "v2\n")
+
+		h.resetLog()
+		result := h.run()
+		require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+		assert.Equal(t, []string{"01-test"}, h.ranSteps(),
+			"01-test sí lo vigila; 02-supply declaró que su trabajo no depende del código")
+	})
+
+	t.Run("con la forma corta sí lo ve", func(t *testing.T) {
+		// El control, y es el fixture tal cual: mismo pipelinecode, mismo step,
+		// misma huella de contenido; una línea de `config.yaml` de diferencia.
+		h := newHarness(t)
+		correHastaEstable(t, h)
+
+		h.writeProjectFile("src/app.txt", "v2\n")
+
+		h.resetLog()
+		require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+
+		assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
+	})
+
+	// La comprobación del default de §5.2, y el sitio donde un cambio de criterio
+	// se vería: `- state_changed` y `- state_changed: [pipeline, project]` tienen
+	// que producir decisiones IDÉNTICAS.
+	//
+	// La dirección importa: si la forma corta significara «sólo mi declaración»,
+	// un `01-test` escrito así dejaría de re-ejecutarse ante un cambio de código.
+	t.Run("la forma larga completa decide igual que la corta", func(t *testing.T) {
+		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml",
+			"scope: environment\nrules:\n  - state_changed: [pipeline, project]\n"))
+		correHastaEstable(t, h)
+
+		h.writeProjectFile("src/app.txt", "v2\n")
+
+		h.resetLog()
+		require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+
+		assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
+	})
+}
+
+// EL CAMBIO DE COMPORTAMIENTO DE §5.7, fijado con test: **un step sin `max_age`
+// no caduca**.
+//
+// Hasta aquí un `deploy` que llevaba 31 días sin tocarse se re-ejecutaba solo,
+// por un TTL global que vivía en el motor. A partir de aquí eso ocurre si el
+// pipelinecode lo pide, porque quien sabe cada cuánto conviene revisar un
+// despliegue es quien lo escribió.
+func TestRunCommand_SinMaxAgeUnRegistroNoCaduca(t *testing.T) {
+	h := newHarness(t)
+	correHastaEstable(t, h)
+
+	h.envejecerRegistros(400 * 24 * time.Hour)
+
+	h.resetLog()
+	result := h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	assert.Empty(t, h.ranSteps(),
+		"la misma huella y 400 días: HOY se re-ejecutaba por el TTL global de 30 días")
+}
+
+// La otra mitad: con `max_age` declarado, el registro sí caduca — y la ventana
+// la elige el pipelinecode, no el motor.
+func TestRunCommand_MaxAgeDeclaradoCaducaElRegistro(t *testing.T) {
+	const conVentana = "scope: environment\nrules:\n  - state_changed\n  - max_age: %s\n"
+
+	t.Run("fuera de la ventana se ejecuta, con la huella intacta", func(t *testing.T) {
+		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml",
+			fmt.Sprintf(conVentana, "1h")))
+		correHastaEstable(t, h)
+
+		h.envejecerRegistros(2 * time.Hour)
+
+		h.resetLog()
+		result := h.run()
+		require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+		assert.Equal(t, []string{"02-supply"}, h.ranSteps(),
+			"sólo el que declara la ventana: 01-test no caduca porque no lo pidió")
+	})
+
+	t.Run("dentro de la ventana revive", func(t *testing.T) {
+		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml",
+			fmt.Sprintf(conVentana, "24h")))
+		correHastaEstable(t, h)
+
+		h.envejecerRegistros(2 * time.Hour)
+
+		h.resetLog()
+		require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+
+		assert.Empty(t, h.ranSteps())
+	})
+}
+
+// EL OR, de punta a punta: cada regla es una razón INDEPENDIENTE para desconfiar
+// de lo guardado, así que basta con que una se cumpla.
+func TestRunCommand_LasReglasSeCombinanConOr(t *testing.T) {
+	const dosReglas = "scope: environment\nrules:\n  - state_changed\n  - max_age: 24h\n"
+
+	t.Run("la huella cambia dentro de la ventana", func(t *testing.T) {
+		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml", dosReglas))
+		correHastaEstable(t, h)
+
+		h.writeProjectFile("src/app.txt", "v2\n")
+
+		h.resetLog()
+		require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+		assert.Contains(t, h.ranSteps(), "02-supply")
+	})
+
+	t.Run("la huella no cambia y la ventana pasa", func(t *testing.T) {
+		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml", dosReglas))
+		correHastaEstable(t, h)
+
+		h.envejecerRegistros(48 * time.Hour)
+
+		h.resetLog()
+		require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+		assert.Equal(t, []string{"02-supply"}, h.ranSteps())
+	})
+}
+
+// §5.5, y es la invariante de la spec 05 trasladada a una forma nueva: **sin
+// reglas se ejecuta, nunca se revive**. Y, como el step sin `config.yaml` y como
+// el step sin comandos, tampoco escribe registro.
+//
+// El OR de un conjunto vacío es falso, así que la lectura literal diría
+// «revivir». «No hay nada que comprobar» no es «esta configuración está al día»:
+// concluir a partir de un conjunto vacío de evidencia es la única forma en que
+// este motor puede omitir un despliegue en silencio.
+func TestRunCommand_UnStepSinReglasSeEjecutaSiempreYNoPersiste(t *testing.T) {
+	h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml", "scope: environment\n"))
+
+	for range 3 {
+		h.resetLog()
+		result := h.run()
+		require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+		assert.Contains(t, h.ranSteps(), "02-supply",
+			"declara dónde recordarse y ninguna razón para confiar en lo recordado")
+	}
+
+	assert.Empty(t, h.persistedStepState("02-supply"),
+		"ni un registro: no hay afirmación que guardar")
+	assert.Empty(t, h.storedVars("sand", "02-supply"))
+	assert.NotEmpty(t, h.persistedStepState("01-test"),
+		"control: el step que SÍ declara reglas deja el suyo")
+
+	// Y lo que produce sigue viajando por el mapa acumulado durante la corrida:
+	// lo que no ocurre es que cruce de una ejecución a la siguiente.
+	assert.Contains(t, h.logLines(), `02-supply acr_name = "vexsand-demo-app"`)
+}
+
+// LA CONFIGURACIÓN VÁLIDA Y PELIGROSA de §5.4: sólo expiración. **No es un error
+// y no se prohíbe** —nada es implícito, todo se declara, y no existe una
+// comprobación que el motor imponga por fuera de lo que el `config.yaml` dice—.
+//
+// Lo que este caso mide es la CONSECUENCIA, que es lo observable desde fuera: el
+// step revive un resultado obsoleto durante toda su ventana de vigencia aunque su
+// contenido haya cambiado de forma evidente. Que además se AVISE lo fija
+// `TestStepRunnerHandler_ExpirarSinInvalidarAvisaYNoAborta`: el aviso viaja por
+// el emisor de log, que el harness silencia con `--quiet` para no escribir en el
+// os.Stdout del proceso de test.
+func TestRunCommand_SoloConMaxAgeUnStepRevivePeseAlCambio(t *testing.T) {
+	h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml",
+		"scope: environment\nrules:\n  - max_age: 24h\n"))
+
+	result := h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	require.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
+
+	h.commitPipelineFile("steps/02-supply/commands.yaml", `
+- name: provision
+  cmd: echo '02-supply acr_name = "otro-del-todo"' | tee -a "$VEX_TEST_LOG"
+  outputs:
+    - name: acr_name
+      probe: acr_name = "([^"]+)"
+`)
+
+	h.resetLog()
+	segunda := h.run()
+
+	require.Equal(t, cli.ExitSucceeded, segunda.exitCode, segunda.stderr)
+	assert.NotContains(t, h.ranSteps(), "02-supply",
+		"sus comandos son OTROS y ninguna regla suya mira el contenido: de esto avisa §5.4")
+}
+
+// La gramática de `rules` aborta ANTES del primer step, y sin una regla nueva en
+// el validador: el repositorio valida al TRADUCIR y el validador de la spec 04 lo
+// llama para cada step antes del primero.
+//
+// Es la misma disciplina de siempre: un pipelinecode roto descubierto a mitad del
+// despliegue llega tarde, porque los steps anteriores ya tuvieron efectos reales.
+func TestRunCommand_UnaReglaInvalidaAbortaAntesDelPrimerStep(t *testing.T) {
+	casos := []struct {
+		nombre    string
+		contenido string
+		enElError string
+	}{
+		{
+			nombre:    "una regla que el motor no conoce",
+			contenido: "scope: environment\nrules:\n  - content_changed\n",
+			enElError: "content_changed",
+		},
+		{
+			nombre:    "state_changed sin pipeline",
+			contenido: "scope: environment\nrules:\n  - state_changed: [project]\n",
+			enElError: "no puede omitir 'pipeline'",
+		},
+		{
+			nombre:    "una duración en días",
+			contenido: "scope: environment\nrules:\n  - max_age: 30d\n",
+			enElError: "720h",
 		},
 	}
 
@@ -1029,7 +1288,7 @@ func TestRunCommand_UnaVersionDeFormatoDesconocidaSeRechaza(t *testing.T) {
 func TestRunCommand_UnaVariableDeEstadoSeResuelvePorDeclaracion(t *testing.T) {
 	h := newHarness(t,
 		withPipelineFile("vexpipeline.yaml", manifiestoV2),
-		withPipelineFile("steps/02-supply/config.yaml", "scope: project\n"))
+		withPipelineFile("steps/02-supply/config.yaml", configConScope("project")))
 
 	// Corrida 1: 02-supply produce `acr_name` y lo registra en el ámbito de
 	// proyecto, que es el que declara.
@@ -1065,7 +1324,7 @@ func TestRunCommand_UnaVariableDeEstadoSeResuelvePorDeclaracion(t *testing.T) {
 func TestRunCommand_UnaFuenteQueNoProduceNombraLaFuente(t *testing.T) {
 	h := newHarness(t,
 		withPipelineFile("vexpipeline.yaml", manifiestoV2),
-		withPipelineFile("steps/02-supply/config.yaml", "scope: project\n"),
+		withPipelineFile("steps/02-supply/config.yaml", configConScope("project")),
 		withPipelineFile("variables/sand/supply.yaml", `
 - name: registry_prefix
   value: vexsand
@@ -1447,7 +1706,7 @@ func TestRunCommand_StepDesconocidoSeEjecutaYLaCorridaSiguienteLoSalta(t *testin
 	// `TestRunCommand_UnStepSinConfigSeEjecutaSiempreYNoPersiste`).
 	h := newHarness(t,
 		withPipelineFile(notifyCmd, notifyBody),
-		withPipelineFile("steps/05-notify/config.yaml", "scope: environment\n"))
+		withPipelineFile("steps/05-notify/config.yaml", configConScope("environment")))
 
 	result := h.run(withStep("notify"))
 

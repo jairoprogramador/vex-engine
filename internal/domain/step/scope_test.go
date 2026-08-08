@@ -122,11 +122,11 @@ func TestStepConfig_SinArchivoNoDeclaraNada(t *testing.T) {
 	assert.False(t, domStep.NoStepConfig().IsDeclared())
 	assert.True(t, domStep.NoStepConfig().Scope().IsZero())
 
-	config, err := domStep.NewStepConfig(domStep.NewProjectScope())
+	config, err := domStep.NewStepConfig(domStep.NewProjectScope(), domStep.EmptyRuleSet())
 	require.NoError(t, err)
 	assert.True(t, config.IsDeclared())
 	assert.True(t, config.Scope().IsProject())
 
-	_, err = domStep.NewStepConfig(domStep.Scope{})
+	_, err = domStep.NewStepConfig(domStep.Scope{}, domStep.EmptyRuleSet())
 	assert.Error(t, err, "una configuración declarada sin ámbito no es construible")
 }

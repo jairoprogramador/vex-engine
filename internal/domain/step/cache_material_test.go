@@ -20,10 +20,23 @@ import (
 
 const huellaDeArbol = "v1:1111111111111111111111111111111111111111111111111111111111111111"
 
-// materialDe compone el material tal como lo hace el handler 04, sobre un
-// contexto con las variables y el status que se le den.
+// materialDe compone el material tal como lo hace el handler 03, sobre un
+// contexto con las variables y el status que se le den, para un step que vigila
+// TODO: `- state_changed` a secas.
 func materialDe(
 	t *testing.T,
+	commands []command.Command,
+	preparar func(*command.ExecutionContext),
+) domCache.Material {
+	t.Helper()
+	return materialVigilando(t, domStep.NewDefaultStateChangedRule(), commands, preparar)
+}
+
+// materialVigilando es lo mismo con la regla `state_changed` que se le diga: es
+// lo que decide si el código del proyecto entra en el material (spec 15 §5.2).
+func materialVigilando(
+	t *testing.T,
+	watched domStep.StateChangedRule,
 	commands []command.Command,
 	preparar func(*command.ExecutionContext),
 ) domCache.Material {
@@ -36,7 +49,7 @@ func materialDe(
 	}
 
 	request := domStep.NewStepRequestHandler(contexto, contexto.StepName())
-	material, err := domStep.NewCacheMaterial(request, commands)
+	material, err := domStep.NewCacheMaterial(request, commands, watched)
 	require.NoError(t, err)
 	return material
 }
@@ -70,8 +83,43 @@ func TestNewCacheMaterial_LasDimensionesSalenDeLaEjecucion(t *testing.T) {
 	require.NoError(t, material.Validate())
 }
 
+// EL TÉRMINO CONDICIONAL (spec 15 §5.2): un step que declara
+// `state_changed: [pipeline]` afirma que su trabajo no depende del código de la
+// aplicación, y su huella lo refleja.
+//
+// Es la mitad que hace observable la granularidad declarada. La otra —que la
+// regla evalúa igual en los dos casos— está en `rule_test.go`: la fuente no
+// cambia lo que se compara, cambia lo que se compone.
+func TestNewCacheMaterial_ElCodigoDelProyectoEsElTerminoCondicional(t *testing.T) {
+	soloPipeline, err := domStep.NewStateChangedRule([]string{"pipeline"})
+	require.NoError(t, err)
+
+	material := materialVigilando(
+		t, soloPipeline, []command.Command{comandoDePrueba(t)}, nil)
+
+	assert.True(t, material.CodeExcluded)
+	assert.True(t, material.Code.IsZero())
+	require.NoError(t, material.Validate(),
+		"el hueco está DECLARADO, que es lo que lo distingue de un material incompleto")
+
+	conProyecto := materialDe(t, []command.Command{comandoDePrueba(t)}, nil)
+	assert.NotEqual(t, conProyecto, material,
+		"dos alcances distintos no pueden producir la misma identidad")
+
+	// Y la forma corta es exactamente la forma larga completa: es la comprobación
+	// del default de §5.2, y el sitio donde un cambio de criterio se vería.
+	completa, err := domStep.NewStateChangedRule([]string{"pipeline", "project"})
+	require.NoError(t, err)
+	assert.Equal(t, conProyecto,
+		materialVigilando(t, completa, []command.Command{comandoDePrueba(t)}, nil))
+}
+
 // El material del árbol se PARSEA, no se copia: un `ProjectStatus` corrupto o
 // vacío falla aquí —y el paso se ejecuta— en vez de colarse en la clave.
+//
+// Salvo que el step no lo vigile, y entonces ni se mira: un `01-acr` con
+// `state_changed: [pipeline]` no puede fallar por una huella de código que no
+// forma parte de su identidad.
 func TestNewCacheMaterial_UnaHuellaDeArbolInvalidaEsUnError(t *testing.T) {
 	for _, invalida := range []string{"", "sin-prefijo", "v1:corta"} {
 		t.Run(invalida, func(t *testing.T) {
@@ -79,9 +127,19 @@ func TestNewCacheMaterial_UnaHuellaDeArbolInvalidaEsUnError(t *testing.T) {
 			contexto.SetProjectStatus(invalida)
 			request := domStep.NewStepRequestHandler(contexto, contexto.StepName())
 
-			_, err := domStep.NewCacheMaterial(request, []command.Command{comandoDePrueba(t)})
+			_, err := domStep.NewCacheMaterial(
+				request, []command.Command{comandoDePrueba(t)},
+				domStep.NewDefaultStateChangedRule())
 
 			assert.Error(t, err)
+
+			soloPipeline, err := domStep.NewStateChangedRule([]string{"pipeline"})
+			require.NoError(t, err)
+			_, err = domStep.NewCacheMaterial(
+				request, []command.Command{comandoDePrueba(t)}, soloPipeline)
+
+			assert.NoError(t, err,
+				"quien no vigila el código del proyecto tampoco depende de que se pueda leer")
 		})
 	}
 }
@@ -195,7 +253,8 @@ func huellaDeDeclaracion(
 	request := domStep.NewStepRequestHandler(contexto, contexto.StepName())
 	request.SetSourcedDeclarations([]domStep.VariableDeclaration{declaracion})
 
-	material, err := domStep.NewCacheMaterial(request, nil)
+	material, err := domStep.NewCacheMaterial(
+		request, nil, domStep.NewDefaultStateChangedRule())
 	require.NoError(t, err)
 	return material.Variables.String()
 }

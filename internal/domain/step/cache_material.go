@@ -19,7 +19,21 @@ import (
 // para eso no pueden depender del modelo de ejecución. El precio es este paso
 // de traducción; la ventaja es que un campo nuevo de `commands.yaml` aparece
 // aquí, en el compilador, obligando a decidir si entra en la huella o no.
-func NewCacheMaterial(request *StepRequestHandler, commands []command.Command) (cache.Material, error) {
+//
+// # La regla llega como parámetro, y no se deduce del request
+//
+// `watched` es la regla `state_changed` que el step DECLARA (spec 15 §5.2), y es
+// lo que decide si el código del proyecto entra en el material. Se pasa explícita
+// —en vez de sacarla de `request.StepConfig()`, que está a mano— porque el valor
+// cero de un `RuleSet` es «sin reglas», y de ahí saldría un material SIN el
+// código del proyecto por omisión. Un default silencioso en esa dirección es un
+// step que deja de re-ejecutarse ante un cambio de código; obligar al llamador a
+// decir cuál es la regla hace que ese caso no exista.
+func NewCacheMaterial(
+	request *StepRequestHandler,
+	commands []command.Command,
+	watched StateChangedRule) (cache.Material, error) {
+
 	instructions, err := fingerprint.ComputeInstructions(instructionMaterialOf(commands))
 	if err != nil {
 		return cache.Material{}, fmt.Errorf("huella de las instrucciones: %w", err)
@@ -31,16 +45,7 @@ func NewCacheMaterial(request *StepRequestHandler, commands []command.Command) (
 		return cache.Material{}, fmt.Errorf("huella de las variables: %w", err)
 	}
 
-	// La huella del árbol llega ya calculada por el handler 08 del pipeline, en
-	// su forma canónica CON prefijo. Se vuelve a parsear en vez de transportarse
-	// como cadena para que un valor corrupto o vacío falle aquí —y el paso se
-	// ejecute— en vez de colarse en la clave (spec 08 §5.3).
-	code, err := fingerprint.Parse(request.ProjectStatus())
-	if err != nil {
-		return cache.Material{}, fmt.Errorf("huella del código del proyecto: %w", err)
-	}
-
-	return cache.Material{
+	material := cache.Material{
 		Subject:  request.ProjectUrl(),
 		Pipeline: request.PipelineUrl(),
 		// Esta dimensión sigue siendo el AMBIENTE, también para un step
@@ -57,8 +62,33 @@ func NewCacheMaterial(request *StepRequestHandler, commands []command.Command) (
 		Step:         request.StepNameExe(),
 		Instructions: instructions,
 		Variables:    variables,
-		Code:         code,
-	}, nil
+	}
+
+	// El término CONDICIONAL (spec 15 §5.2). Un step que declara
+	// `state_changed: [pipeline]` afirma que su trabajo no depende del código de
+	// la aplicación —crear un registro de contenedores, provisionar una red—, y
+	// meterlo en su huella lo re-ejecutaría en cada commit, que es lo que vaciaba
+	// de sentido haber separado el ámbito de proyecto.
+	//
+	// La ausencia va DECLARADA en el material, no dejando el campo a cero: es lo
+	// que distingue «este step no lo vigila» de «no se pudo componer la huella»,
+	// y las dos cosas tienen consecuencias opuestas.
+	if !watched.WatchesProject() {
+		material.CodeExcluded = true
+		return material, nil
+	}
+
+	// La huella del árbol llega ya calculada por el handler 08 del pipeline, en
+	// su forma canónica CON prefijo. Se vuelve a parsear en vez de transportarse
+	// como cadena para que un valor corrupto o vacío falle aquí —y el paso se
+	// ejecute— en vez de colarse en la clave (spec 08 §5.3).
+	code, err := fingerprint.Parse(request.ProjectStatus())
+	if err != nil {
+		return cache.Material{}, fmt.Errorf("huella del código del proyecto: %w", err)
+	}
+	material.Code = code
+
+	return material, nil
 }
 
 func instructionMaterialOf(commands []command.Command) []fingerprint.InstructionMaterial {

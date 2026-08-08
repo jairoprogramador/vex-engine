@@ -157,6 +157,44 @@ func TestNewCacheKey_MaterialIncompletoEsUnError(t *testing.T) {
 	}
 }
 
+// --- §3.1bis el término condicional -----------------------------------------
+
+// La séptima dimensión es CONDICIONAL desde la spec 15: un step que declara
+// `state_changed: [pipeline]` no vigila el código del proyecto, y su material lo
+// dice explícitamente.
+//
+// Lo que este caso fija es que la excepción no reabre la puerta que §3.1 cerró:
+// el hueco tiene que estar DECLARADO por los dos lados, y una clave con el
+// código fuera no puede coincidir con una que lo lleva.
+func TestNewCacheKey_ElCodigoDelProyectoEsCondicionalYDeclarado(t *testing.T) {
+	sinCodigo := materialBase(t)
+	sinCodigo.Code = fingerprint.Fingerprint{}
+	sinCodigo.CodeExcluded = true
+
+	require.NoError(t, sinCodigo.Validate())
+	assert.NotEqual(t, clave(t, materialBase(t)), clave(t, sinCodigo),
+		"dos alcances distintos no pueden compartir identidad")
+
+	t.Run("excluirlo y traerlo a la vez es un error", func(t *testing.T) {
+		contradictorio := materialBase(t)
+		contradictorio.CodeExcluded = true
+
+		_, err := cache.NewCacheKey(contradictorio)
+
+		require.Error(t, err,
+			"si no, la forma canónica dependería de si alguien se acordó de limpiar el campo")
+	})
+
+	// La razón por la que esto NO es una `ck-v2`: la regla de composición no
+	// cambia, y el dominio de materiales se amplía de forma INYECTIVA. Ningún
+	// material expresable antes cambia de clave.
+	t.Run("los vectores de §6 no se mueven", func(t *testing.T) {
+		assert.Equal(t,
+			"ck-v1:6d12da1d013dd8ea8cefb1d095900471afba22828ec4cd3dcc2c972718545126",
+			clave(t, materialBase(t)))
+	})
+}
+
 // --- §7.4 el versionado sale gratis -----------------------------------------
 
 // La clave se compone sobre la forma canónica COMPLETA de cada huella, no sobre

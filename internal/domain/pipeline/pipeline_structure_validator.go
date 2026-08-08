@@ -15,8 +15,9 @@ import (
 // —la spec 13 le añadió la ruta, porque una regla suya habla de un ARCHIVO del
 // step y no sólo del nombre de su directorio— y vuelve a crecer aquí: las reglas
 // de la spec 14 leen `variables/<ambiente>/<paso>.yaml`, que sólo se sabe cuál es
-// con el ambiente en la mano. La spec 15 añade más reglas, y con un valor
-// nombrado eso deja de tocar la firma de todas.
+// con el ambiente en la mano. La apuesta salió bien a la primera: la spec 15
+// añade la gramática de `rules` sin tocar ni la firma ni el conjunto de reglas,
+// porque `StepConfigRule` valida traduciendo y no enumerando campos.
 //
 // El ambiente es el EN EJECUCIÓN, no todos los del pipelinecode: un `prod` mal
 // escrito no debe impedir un despliegue a `sand`, que es trabajo que sí se puede
@@ -50,8 +51,10 @@ type StepStructureRule interface {
 	IsSatisfiedBy(ctx *context.Context, code Pipelinecode, entries []StepEntry) error
 }
 
-// StepsStructureValidator compone las reglas. Las specs 05, 13, 14 y 15 añaden
-// reglas aquí sin tocar el repositorio ni el handler.
+// StepsStructureValidator compone las reglas. Las specs 05, 13 y 14 añadieron
+// reglas aquí sin tocar el repositorio ni el handler; la 15 no añadió ninguna, y
+// eso es un resultado y no una omisión — su gramática entra por `StepConfigRule`,
+// que ya estaba.
 type StepsStructureValidator struct {
 	rules []StepStructureRule
 }
@@ -68,7 +71,7 @@ func NewPipelineStructureValidator(
 	return NewStepsStructureValidator(
 		NewStepEntryFormatRule(),
 		NewUniqueStepOrderRule(),
-		NewStepScopeRule(configs),
+		NewStepConfigRule(configs),
 		NewDeclaredSourceVersionRule(manifests, declarations),
 		NewVariableGraphRule(declarations, commands),
 	)

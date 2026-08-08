@@ -189,12 +189,12 @@ func TestPipelineStructureValidator_ReglasComponibles(t *testing.T) {
 	})
 }
 
-// ── La regla del ámbito declarado (spec 13) ─────────────────────────────────
+// ── La regla de la configuración del step (specs 13 y 15) ───────────────────
 
 // Lo que la regla exige NO es que el `config.yaml` exista: es que el que exista
 // diga algo del vocabulario cerrado. La diferencia es la mitad de §5.3 que es
 // fácil de perder, porque las dos situaciones se parecen desde fuera.
-func TestStepScopeRule_QueSeExigeDeLoDeclarado(t *testing.T) {
+func TestStepConfigRule_QueSeExigeDeLoDeclarado(t *testing.T) {
 	casos := []struct {
 		nombre    string
 		declarado map[string]string // directorio → contenido de `scope:`
@@ -247,7 +247,7 @@ func TestStepScopeRule_QueSeExigeDeLoDeclarado(t *testing.T) {
 			}
 
 			validador := domPipeline.NewStepsStructureValidator(
-				domPipeline.NewStepScopeRule(configsDeclarados(caso.declarado)))
+				domPipeline.NewStepConfigRule(configsDeclarados(caso.declarado)))
 
 			err := validador.Validate(ctxDePrueba(), codigoDePrueba(), entradas(nombres...))
 
@@ -279,7 +279,7 @@ func (c configsDeclarados) Get(_ *context.Context, _, step string) (domStep.Step
 	if err != nil {
 		return domStep.StepConfig{}, fmt.Errorf("'steps/%s/config.yaml' %w", step, err)
 	}
-	return domStep.NewStepConfig(scope)
+	return domStep.NewStepConfig(scope, domStep.EmptyRuleSet())
 }
 
 type reglaQueSiempreFalla struct{}
