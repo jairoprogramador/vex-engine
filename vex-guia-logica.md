@@ -311,6 +311,27 @@ falla antes de empezar.
 
 > Ejemplo: «ejecuta en `prod` el step `supply`» corre `01-test`, `02-supply` en `prod`.
 
+**Y recibe además, obligatoriamente, dónde vive el estado.** El motor no sabe de modos: no
+hay un `--mode local|remote` con un default que asuma una plataforma. La configuración de
+destino llega por `--state-config <archivo>` o por la env var `VEX_STATE_CONFIG` (YAML o
+JSON, crudo o base64), y **si falta, el motor no arranca**:
+
+```yaml
+type: local          # vocabulario cerrado: local | http
+local:
+  path: /mnt/vex-state
+```
+
+`type: local` **no es un no-op**: si la ruta no existe o no es escribible —el volumen no
+montado, el caso cotidiano— falla al instante y con causa, porque escribir a ciegas en el
+filesystem efímero de un contenedor perdería los identificadores de recursos que ya existen
+en la nube. `type: http` está en el vocabulario y **todavía no está implementado**; el error
+lo dice con esas palabras, para que no se confunda con una configuración equivocada.
+
+Aparte del destino, el motor es dueño de su **área de trabajo**, que sí tiene default y no
+depende de configuración ninguna: `--staging-dir` → `$XDG_STATE_HOME/vex/staging` →
+`$HOME/.local/state/vex/staging` → `os.TempDir()`. Nunca cae bajo el volumen del destino.
+
 ---
 
 ## 5. Ciclo de ejecución
@@ -396,7 +417,7 @@ El exit code del proceso:
 |---|---|
 | `0` | ejecución exitosa |
 | `1` | la pipeline falló |
-| `2` | input inválido (JSON malformado, `schema_version` no soportado, fuente vacía) |
+| `2` | input inválido (JSON malformado, `schema_version` no soportado, fuente vacía, destino del estado ausente o inalcanzable) |
 | `130` | ejecución cancelada por señal (`SIGINT`/`SIGTERM`) |
 
 **La cancelación es best-effort.** `SIGINT` y `SIGTERM` cancelan el contexto de la ejecución:
@@ -515,8 +536,13 @@ su clave de posición. **Nunca se sobrescribe ninguno**, y el nombre del archivo
 cuyo orden lexicográfico es el temporal:
 
 ```
-$HOME/.vex/state/<proyecto>/<ámbito>/<step_id>/<record_id>.json
+<destino>/state/<proyecto>/<ámbito>/<step_id>/<record_id>.json
 ```
+
+`<destino>` es el `local.path` de la configuración de la sección 4 — el volumen montado, no
+el `$HOME` del proceso. Es lo que hace que el estado **no sea de una máquina**: dos máquinas
+que apuntan al mismo destino se reviven entre sí, porque la huella no depende de dónde estén
+los archivos.
 
 `<ámbito>` es `project` o `environment/<nombre>` — **dos segmentos**, no
 `environment:<nombre>`: el valor lógico lleva los dos puntos y la ruta no, porque `:` es
@@ -544,7 +570,7 @@ sí lo garantiza la huella, que incluye el pipelinecode entero.
 otra carga: responde «¿este contenido exacto ya corrió alguna vez, y cuál fue el registro?».
 
 ```
-$HOME/.vex/cache/<versión de la clave>/<2 primeros del hash>/<resto>.json
+<destino>/cache/<versión de la clave>/<2 primeros del hash>/<resto>.json
    →  { cache_key, state_key: {subject, scope, step_id}, record_id }
 ```
 
@@ -1069,10 +1095,21 @@ Las tiendas resultantes no son intercambiables, y la diferencia es el punto: obj
 eventos son **permanentes**; el caché (P10) es **desechable** —borrarlo entero no pierde un
 solo hecho histórico—; el estado (P8) **no se borra nunca**.
 
-**P12 — El destino del estado es configuración explícita, no un modo.**
-Hoy una bandera `--mode local|remote` decide dónde se escribe, y `remote` asume una
-plataforma concreta. Eso ata el motor a un proveedor y contradice el resto del diseño, que
-es agnóstico de dónde corre.
+**P12 — El destino del estado es configuración explícita, no un modo. — HECHO (spec 16),
+salvo la sincronización.**
+Hasta la spec 16 una bandera `--mode local|remote` decidía dónde se escribe, y `remote`
+asumía una plataforma concreta. Eso ataba el motor a un proveedor y contradecía el resto del
+diseño, que es agnóstico de dónde corre.
+
+> **Lo implementado y lo que queda.** Se retiraron `--mode` y las seis banderas de endpoints,
+> el contrato de invocación subió a `schema_version: 2`, el adaptador de Supabase del almacén
+> desapareció y `linkVexHome` —que borraba el `~/.vex` real de quien ejecutara el binario
+> fuera del contenedor— dejó de existir. Las tres primeras reglas de abajo están en el
+> código, incluida la del área de trabajo. **La cuarta —sincronizar por step con reintento
+> acumulativo— no**: hoy el destino se escribe directamente y `staging/` se resuelve y se
+> crea sin que nadie escriba en él todavía. Es lo que hace la spec 21, y `type: http` sigue
+> congelado hasta la 26. Del lado de fuera, el CLI `vex` (spec 23) y las edge functions
+> (spec 26) están **rotos a propósito** hasta que pasen la configuración.
 
 El motor deja de saber de modos. Recibe siempre una configuración de destino, la invoque
 quien la invoque:
@@ -1104,10 +1141,12 @@ Cuatro reglas, y ninguna es un detalle de implementación:
   queda registrado como hecho, para que un hueco en el destino se explique en vez de
   descubrirse por casualidad.
 
-**La transición rompe a propósito.** Se retiran `--mode` y las siete banderas de endpoints
-de una vez, y la versión del contrato de invocación sube: el motor rechaza clientes viejos
-**por contrato, no por memoria de nadie**. `type: http` queda congelado hasta que exista un
-cliente real esperándolo; hasta entonces el modo remoto corre sin caché.
+**La transición rompe a propósito.** Se retiraron `--mode` y las **seis** banderas de
+endpoints de una vez —`--status-endpoint` y `--log-endpoint` sobreviven: el primero
+transporta el estado terminal y es la única señal de que el contenedor terminó—, y la versión
+del contrato de invocación subió a 2: el motor rechaza clientes viejos **por contrato, no por
+memoria de nadie**. `type: http` queda congelado hasta que exista un cliente real
+esperándolo.
 
 > **Con P16 eso deja de ser solo rendimiento.** Lo que cruza al destino pasa a ser
 > estado que **no se borra nunca**, así que un modo remoto sin destino configurado

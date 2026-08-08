@@ -3,32 +3,27 @@ package state_test
 // CONTRACT TEST del puerto domState.Records, heredero del de
 // `VarsStoreRepository` (spec 02 §5.3').
 //
-// La misma suite corre contra las DOS implementaciones: la de archivo y la de
-// Supabase (contra un servidor HTTP de prueba). El defecto que lo motivó era una
-// violación de sustitución de Liskov: el adaptador de archivo perdía `isShared`
-// y el de Supabase lo derivaba del ámbito, así que el mismo proyecto sobre el
-// mismo árbol producía una huella distinta según dónde corriera.
+// La suite corría contra DOS implementaciones —la de archivo y la de Supabase—
+// porque el defecto que la motivó era una violación de sustitución de Liskov: el
+// adaptador de archivo perdía `isShared` y el de Supabase lo derivaba del
+// ámbito, así que el mismo proyecto sobre el mismo árbol producía una huella
+// distinta según dónde corriera.
 //
 // Desde la spec 13 §5.6 ESE VIAJE YA NO EXISTE: el ámbito es del step, así que
 // una variable no lo lleva y no hay nada que un adaptador pueda perder. Los dos
 // casos que lo medían —«el ámbito de proyecto devuelve isShared=true» y su
-// pareja— se retiran aquí, y su desaparición es parte del entregable. Lo que
-// queda mide lo que sigue siendo verdad, empezando por que los ámbitos no se
-// mezclan: eso lo garantiza ahora la CLAVE, que es donde debía estar.
+// pareja— se retiraron allí, y su desaparición fue parte de aquel entregable.
 //
-// Lo que el contrato NO exige es historia: el adaptador de Supabase guarda el
-// último conjunto por (ámbito, step) y lo dice devolviendo registros SIN
-// ATRIBUIR. Las propiedades del append-only se prueban donde existen, sobre el
-// adaptador de archivo, más abajo.
-//
-// Cualquier tercer adaptador (spec 21) se añade a la tabla `implementaciones` y
-// tiene que pasar tal cual.
+// **Y desde la spec 16 la tabla tiene UNA fila.** El adaptador de Supabase se
+// retira con `--mode`: guardaba el último conjunto por (ámbito, step) sin
+// historia —devolvía registros SIN ATRIBUIR, así que ningún step revivía en modo
+// remoto y un `max_age` declarado se ignoraba en silencio— y su reemplazo no es
+// otro adaptador sino un destino explícito. Que la suite siga siendo una tabla es
+// deliberado: el sink de la spec 21 se añade como fila y tiene que pasar tal cual.
 
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -60,14 +55,6 @@ var implementaciones = []implementacion{
 		nombre: "archivo",
 		construir: func(t *testing.T) domState.Records {
 			return stateInfra.NewFileRecordsRepository(t.TempDir())
-		},
-	},
-	{
-		nombre: "supabase",
-		construir: func(t *testing.T) domState.Records {
-			servidor := httptest.NewServer(nuevaEdgeFunctionDeVariables())
-			t.Cleanup(servidor.Close)
-			return stateInfra.NewSupabaseRecordsRepository(servidor.URL, "token-de-prueba", "exec-1")
 		},
 	},
 }
@@ -315,49 +302,6 @@ func TestFileRecords_LaEscrituraEsAtomica(t *testing.T) {
 	entradas, err := os.ReadDir(directorioDelRegistro(raiz, "environment", ambiente, "02-supply"))
 	require.NoError(t, err)
 	require.Len(t, entradas, 1, "no puede quedar ningún temporal")
-}
-
-// ── Fake de la edge function store-vars ─────────────────────────────────────
-
-type varDTO struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-type peticionStoreVars struct {
-	ExecutionID string   `json:"execution_id"`
-	Scope       string   `json:"scope"`
-	StepName    string   `json:"step_name"`
-	Operation   string   `json:"operation"`
-	Variables   []varDTO `json:"variables"`
-}
-
-// nuevaEdgeFunctionDeVariables reproduce el contrato que el adaptador Supabase
-// espera: get devuelve {"variables": [...]}, set reemplaza el conjunto del par
-// (scope, step). Igual que la función real, el flag isShared no viaja y no hay
-// historia.
-func nuevaEdgeFunctionDeVariables() http.Handler {
-	almacen := map[string][]varDTO{}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var peticion peticionStoreVars
-		if err := json.NewDecoder(r.Body).Decode(&peticion); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		clave := peticion.ExecutionID + "|" + peticion.Scope + "|" + peticion.StepName
-
-		switch peticion.Operation {
-		case "set":
-			almacen[clave] = peticion.Variables
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{}`))
-		case "get":
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"variables": almacen[clave]})
-		default:
-			http.Error(w, "operación desconocida: "+peticion.Operation, http.StatusBadRequest)
-		}
-	})
 }
 
 // ── Ayudas ──────────────────────────────────────────────────────────────────

@@ -130,9 +130,24 @@ func nextHarnessID() int {
 type harness struct {
 	t *testing.T
 
-	// root es la raíz de almacenamiento inyectada: hace de $HOME. Todo lo que
-	// el motor persiste cuelga de root/.vex/.
+	// root es la raíz de almacenamiento inyectada: hace de $HOME. De aquí
+	// cuelgan los clones y los workdirs (root/.vex/), y desde la spec 16 NADA
+	// más: el estado vive en el destino.
 	root string
+
+	// destino es la configuración de destino del estado hecha directorio: lo que
+	// en producción es el volumen montado. `state/` y `cache/` cuelgan de aquí.
+	destino string
+
+	// stateConfig es el archivo que se le pasa por --state-config. El harness
+	// ejercita el transporte real, que es lo que la spec 16 §7 pide: adaptar el
+	// Object Mother, no inventar una vía sólo para los tests.
+	stateConfig string
+
+	// staging es el área de trabajo propia del motor. Se fija por flag para que
+	// los tests no escriban en el $HOME real de quien los corre; la cadena de
+	// resolución por defecto la prueba TestResolveStagingDir_*.
+	staging string
 
 	// projectDir es el proyecto a desplegar: en modo local el motor lo enlaza
 	// en vez de clonarlo, pero necesita un repo git con HEAD para el versionado
@@ -193,6 +208,9 @@ func newHarness(t *testing.T, opts ...harnessOption) *harness {
 	h := &harness{
 		t:           t,
 		root:        filepath.Join(base, "home"),
+		destino:     filepath.Join(base, "destino"),
+		stateConfig: filepath.Join(base, "state-config.yaml"),
+		staging:     filepath.Join(base, "staging"),
 		projectDir:  filepath.Join(base, "project"),
 		pipelineDir: filepath.Join(base, "pipelinecode"),
 		projectURL:  fmt.Sprintf("%s/vex-test-%d/demo-app", gitHost, id),
@@ -201,11 +219,14 @@ func newHarness(t *testing.T, opts ...harnessOption) *harness {
 	}
 
 	require.NoError(t, os.MkdirAll(h.root, 0o755))
+	h.prepararDestino()
 	writeFile(t, h.execLog, "")
 	t.Setenv("VEX_TEST_LOG", h.execLog)
 	// El input siempre llega por --input o por stdin salvo en el caso que la
-	// prueba explícitamente; con la env var a "" readInput la ignora.
+	// prueba explícitamente; con la env var a "" readInput la ignora. Lo mismo
+	// vale para la configuración de destino, que llega por --state-config.
 	t.Setenv("VEX_REQUEST_INPUT", "")
+	t.Setenv(cli.StateConfigEnvVar, "")
 
 	// Proyecto: dos archivos y un commit convencional. Sin tag, así que el
 	// versionado cae en la versión por defecto y luego en la versión por fecha.
@@ -255,7 +276,7 @@ func withProjectTeam(team string) requestOption {
 
 func (h *harness) request(opts ...requestOption) dto.RequestInput {
 	request := dto.RequestInput{
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		Project: dto.ProjectInput{
 			Id:   "11111111-1111-1111-1111-111111111111",
 			Name: "demo-app",
@@ -287,11 +308,27 @@ type runResult struct {
 	stderr   string
 }
 
+// prepararDestino materializa el volumen del destino y el archivo de
+// configuración que lo apunta. Es el reemplazo del `Mode: ModeLocal` que el
+// harness pasaba hasta la spec 16: lo que antes era un enum es ahora un dato con
+// una ruta dentro.
+func (h *harness) prepararDestino() {
+	h.t.Helper()
+	require.NoError(h.t, os.MkdirAll(h.destino, 0o755))
+	writeFile(h.t, h.stateConfig, "type: local\nlocal:\n  path: "+h.destino+"\n")
+}
+
 func (h *harness) args() cli.RunArgs {
-	// Modo local: es el que cablea los repositorios de archivo. Quiet suprime
-	// el observer de stdout, que escribe en os.Stdout del proceso y no en el
-	// writer que se le pasa a Execute.
-	return cli.RunArgs{Mode: cli.ModeLocal, Quiet: true}
+	// Quiet suprime el observer de stdout, que escribe en os.Stdout del proceso
+	// y no en el writer que se le pasa a Execute.
+	//
+	// El área de trabajo va por flag: sin ella la cadena de resolución caería en
+	// `$HOME/.local/state` y los tests escribirían en el home real.
+	return cli.RunArgs{
+		Quiet:           true,
+		StateConfigFile: h.stateConfig,
+		StagingDir:      h.staging,
+	}
 }
 
 // run escribe el RequestInput en un archivo y ejecuta la vía --input.
@@ -314,6 +351,26 @@ func (h *harness) execute(args cli.RunArgs, stdin io.Reader) runResult {
 	return h.executeCtx(context.Background(), args, stdin)
 }
 
+// build cablea el motor sin ejecutarlo. Los casos de la spec 16 que fallan ANTES
+// del primer step —destino ausente, congelado o inalcanzable— se observan aquí:
+// el error del cableado y su exit code son el entregable.
+func (h *harness) build(args cli.RunArgs) (*cli.RunCommand, error) {
+	h.t.Helper()
+	return cli.BuildRunCommand(cli.EngineConfig{
+		RootVexPath:      h.root,
+		LocalProjectPath: h.projectDir,
+	}, args)
+}
+
+// estaBajoElVolumen replica la comprobación de §5.3 desde fuera del paquete, que
+// es donde tiene valor: si `resolveStagingDir` se equivocara, un test que use su
+// propia función lo detecta y uno que llame a la suya, no.
+func estaBajoElVolumen(path, rootVexPath string) bool {
+	volumen := filepath.Clean(filepath.Join(rootVexPath, cli.VexHomeDirName))
+	path = filepath.Clean(path)
+	return path == volumen || strings.HasPrefix(path, volumen+string(filepath.Separator))
+}
+
 // executeCtx es el único punto que construye el motor: mismo cableado que el
 // binario, con las rutas del fixture en lugar de $HOME y /appProject.
 //
@@ -323,11 +380,11 @@ func (h *harness) execute(args cli.RunArgs, stdin io.Reader) runResult {
 func (h *harness) executeCtx(ctx context.Context, args cli.RunArgs, stdin io.Reader) runResult {
 	h.t.Helper()
 
-	runCmd, err := cli.BuildRunCommand(cli.EngineConfig{
-		RootVexPath:      h.root,
-		LocalProjectPath: h.projectDir,
-	}, args)
+	runCmd, err := h.build(args)
 	require.NoError(h.t, err)
+	require.Equal(h.t, h.staging, runCmd.StagingDir())
+	require.False(h.t, estaBajoElVolumen(h.staging, h.root),
+		"el área de trabajo del motor no puede caer bajo el volumen (spec 16 §5.3)")
 
 	var stdout, stderr bytes.Buffer
 	code := runCmd.Execute(ctx, stdin, &stdout, &stderr, args)
@@ -375,14 +432,17 @@ func (h *harness) resetLog() {
 
 // statePath es la raíz de la tienda NO desechable: un registro por ejecución
 // real de un step, y de ahí no se borra nada (spec 11).
+//
+// Cuelga del DESTINO desde la spec 16, no del $HOME del proceso: es lo que
+// permite que dos máquinas compartan almacén sin compartir home.
 func (h *harness) statePath() string {
-	return filepath.Join(h.root, cli.VexHomeDirName, "state")
+	return filepath.Join(h.destino, "state")
 }
 
 // cachePath es la raíz del ÍNDICE, que sí es desechable — y `borrarElIndice` lo
 // demuestra borrándolo.
 func (h *harness) cachePath() string {
-	return filepath.Join(h.root, cli.VexHomeDirName, "cache")
+	return filepath.Join(h.destino, "cache")
 }
 
 // storedVars lee el ÚLTIMO registro del ámbito de un ambiente, con el mismo
@@ -663,11 +723,11 @@ func (h *harness) symlinkProjectFile(relPath, target string) {
 }
 
 // otraMaquina devuelve un harness que ve EL MISMO proyecto y el mismo
-// pipelinecode desde otra máquina: otro $HOME y otra ruta absoluta para el árbol
-// del proyecto, con las mismas urls.
+// pipelinecode desde otra máquina: otro $HOME, otro destino y otra ruta absoluta
+// para el árbol del proyecto, con las mismas urls.
 //
-// Es lo que permite observar la propiedad que hace que el caché compartido de la
-// spec 16 signifique algo: la clave no depende de dónde estén los archivos. El
+// Es lo que permite observar la propiedad que hace que el destino compartido de
+// la spec 16 signifique algo: la clave no depende de dónde estén los archivos. El
 // árbol se copia byte a byte, incluido su `.git`, para que la versión y la
 // revisión del proyecto salgan idénticas.
 func (h *harness) otraMaquina() *harness {
@@ -677,6 +737,9 @@ func (h *harness) otraMaquina() *harness {
 	otro := &harness{
 		t:           h.t,
 		root:        filepath.Join(base, "home"),
+		destino:     filepath.Join(base, "destino"),
+		stateConfig: filepath.Join(base, "state-config.yaml"),
+		staging:     filepath.Join(base, "staging"),
 		projectDir:  filepath.Join(base, "project"),
 		pipelineDir: h.pipelineDir,
 		projectURL:  h.projectURL,
@@ -685,9 +748,19 @@ func (h *harness) otraMaquina() *harness {
 	}
 
 	require.NoError(h.t, os.MkdirAll(otro.root, 0o755))
+	otro.prepararDestino()
 	copyTree(h.t, h.projectDir, otro.projectDir)
 
 	return otro
+}
+
+// compartiendoElDestinoCon apunta este harness al destino de otro. Es LA
+// operación que la spec 16 hace posible y que hasta ahora no tenía forma: dos
+// máquinas, dos $HOME, y un solo sitio donde vive el estado.
+func (h *harness) compartiendoElDestinoCon(otro *harness) {
+	h.t.Helper()
+	h.destino = otro.destino
+	writeFile(h.t, h.stateConfig, "type: local\nlocal:\n  path: "+h.destino+"\n")
 }
 
 // conOtroPipeline devuelve un harness que despliega EL MISMO proyecto, en el
@@ -704,6 +777,9 @@ func (h *harness) conOtroPipeline() *harness {
 	otro := &harness{
 		t:           h.t,
 		root:        h.root,
+		destino:     h.destino,
+		stateConfig: h.stateConfig,
+		staging:     h.staging,
 		projectDir:  h.projectDir,
 		pipelineDir: filepath.Join(h.t.TempDir(), "pipelinecode"),
 		projectURL:  h.projectURL,

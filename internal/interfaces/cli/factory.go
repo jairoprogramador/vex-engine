@@ -7,9 +7,7 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/application/usecase"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	pipDom "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
-	stateDom "github.com/jairoprogramador/vex-engine/internal/domain/state"
 	stepDom "github.com/jairoprogramador/vex-engine/internal/domain/step"
-	cacheInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/cache"
 	cmdInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/command"
 	pippInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
 	sharedInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/shared"
@@ -17,81 +15,72 @@ import (
 	stepInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step"
 )
 
-const (
-	VexHomeDirName = ".vex"
-	ModeLocal      = "local"
-	ModeRemote     = "remote"
-
-	// DefaultLocalProjectPath es el punto de montaje donde el CLI `vex` deja el
-	// CWD del host cuando corre el motor dentro del contenedor (modo local).
-	DefaultLocalProjectPath = "/appProject"
-)
+const VexHomeDirName = ".vex"
 
 // EngineConfig son las rutas del sistema de archivos con las que se cablea el
 // motor. Antes se derivaban dentro del factory (`os.UserHomeDir()` y una
 // constante de montaje); ahora se las dicta el caller. Es lo que permite
 // ejecutar el motor completo contra un directorio temporal en un test sin
 // tocar el $HOME real de quien lo corre.
+//
+// Los dos campos son lo que queda del enum `--mode` (spec 16 §5.4). Ninguno
+// tiene ya una constante detrás: `/appProject` era el punto de montaje que el
+// CLI `vex` usaba en modo local y pasa a ser lo que el caller diga.
 type EngineConfig struct {
-	// RootVexPath es la raíz bajo la que vive el directorio ".vex".
-	// En producción es $HOME.
+	// RootVexPath es la raíz bajo la que vive el directorio ".vex" —los clones
+	// del proyecto y del pipelinecode, y los workdirs—. En producción es $HOME
+	// o el volumen que el invocador monte.
+	//
+	// El ESTADO ya no cuelga de aquí: vive en el destino configurado.
 	RootVexPath string
 
-	// LocalProjectPath es el punto de montaje del proyecto en modo local.
-	// Vacío significa DefaultLocalProjectPath.
+	// LocalProjectPath es el punto de montaje del proyecto ya presente en disco.
+	// Vacío significa que el proyecto se CLONA, que es la otra mitad de lo que
+	// `--mode` decidía.
 	LocalProjectPath string
 }
 
-// ValidateMode rechaza cualquier modo que no sea "remote" o "local".
-func ValidateMode(mode string) error {
-	if mode != ModeRemote && mode != ModeLocal {
-		return fmt.Errorf("vexd run: --mode %q inválido: debe ser \"remote\" o \"local\"", mode)
-	}
-	return nil
-}
-
-// BuildRunCommand ensambla las tres cadenas de responsabilidad, la policy y los
-// repositorios (de archivo o de Supabase según `args.Mode`) y devuelve el
-// RunCommand listo para ejecutar.
+// BuildRunCommand ensambla las tres cadenas de responsabilidad y los
+// repositorios —el almacén y el índice según el DESTINO configurado— y devuelve
+// el RunCommand listo para ejecutar.
 //
-// No toca el $HOME del proceso: el enlace de `$HOME/.vex` hacia el volumen
-// montado (`linkVexHome`) es responsabilidad del binario, no del cableado.
+// No toca el $HOME del proceso: desde la spec 16 nadie lo reescribe.
 func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
-	if err := ValidateMode(args.Mode); err != nil {
-		return nil, err
-	}
 	if cfg.RootVexPath == "" {
 		return nil, fmt.Errorf("vexd run: raíz de almacenamiento vacía")
 	}
-	localProjectPath := cfg.LocalProjectPath
-	if localProjectPath == "" {
-		localProjectPath = DefaultLocalProjectPath
+
+	// El destino del estado es CONFIGURACIÓN, no un modo, y no tiene default en
+	// ninguna capa: si falta, el motor no arranca (spec 16 §5.1). El default
+	// vive en quien invoca.
+	destino, err := readStateConfig(args)
+	if err != nil {
+		return nil, err
+	}
+	stores, err := newStateStores(destino)
+	if err != nil {
+		return nil, err
+	}
+
+	// Y el área de trabajo propia, que sí es dominio del motor y sí tiene
+	// default. Se resuelve —y se crea— aquí, aunque hasta la spec 19 no escriba
+	// nadie en ella: es lo que hace que «registrar es incondicional» sea una
+	// propiedad comprobable y no una intención.
+	stagingPath, err := resolveStagingDir(args.StagingDir, cfg.RootVexPath)
+	if err != nil {
+		return nil, err
 	}
 
 	projectsBasePath := filepath.Join(cfg.RootVexPath, VexHomeDirName, "projects")
 	pipelinesBasePath := filepath.Join(cfg.RootVexPath, VexHomeDirName, "pipelines")
 
-	// Las dos tiendas, y los dos directorios existen separados para que sus
-	// reglas de vida se vean desde `ls`:
-	//
-	//   state/  es la VERDAD. Un registro por ejecución real de un step, nunca
-	//           sobrescrito, con los identificadores de recursos que existen de
-	//           verdad en la nube. No se borra nunca (spec 11).
-	//   cache/  es el ÍNDICE. Derivable, desechable, y no participa en ninguna
-	//           decisión: `rm -rf` sobre él no cambia lo que el motor decide.
-	//
-	// Ninguno cuelga de `projects/`: el índice está direccionado por contenido y
-	// el proyecto va dentro del hash, y el almacén de registros lo lleva como
-	// primer tramo pero con su propio esquema de rutas.
-	stateBasePath := filepath.Join(cfg.RootVexPath, VexHomeDirName, "state")
-	cacheBasePath := filepath.Join(cfg.RootVexPath, VexHomeDirName, "cache")
-
 	// --- Infrastructure: pipeline ---
-	// Modo local: en lugar de clonar, crea un symlink hacia el punto de montaje
-	// del proyecto (el CWD del host). Modo remoto: clonación git normal.
+	// Con el proyecto ya en disco (el CWD del host montado en el contenedor), en
+	// lugar de clonar se crea un symlink hacia su punto de montaje. Sin él,
+	// clonación git normal. Lo dice el caller, no un enum.
 	var projectClonerRepo pipDom.ProjectClonerRepository
-	if args.Mode == ModeLocal {
-		projectClonerRepo = pippInfra.NewLocalProjectClonerRepository(projectsBasePath, localProjectPath)
+	if cfg.LocalProjectPath != "" {
+		projectClonerRepo = pippInfra.NewLocalProjectClonerRepository(projectsBasePath, cfg.LocalProjectPath)
 	} else {
 		projectClonerRepo = pippInfra.NewProjectClonerRepository(projectsBasePath)
 	}
@@ -128,33 +117,20 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	// el agregado (startedAt/finishedAt) y el cálculo de versión (spec 07 §5.1).
 	clock := sharedInfra.NewSystemClock()
 
-	// --- Infrastructure: almacén de registros de step (spec 11) ---
+	// --- Infrastructure: almacén de registros de step e índice (specs 11 y 16) ---
 	//
-	// El adaptador de Supabase sobrevive al cambio de puerto, y no de milagro: en
-	// modo remoto la máquina de Fly es efímera, así que un almacén de archivo no
-	// guardaría nada y un ARN extraído allí se perdería en cada ejecución —que es
-	// exactamente el daño que esta spec existe para impedir—. Lo que NO puede
-	// hacer es historia: la edge function guarda el último conjunto por (ámbito,
-	// step), así que sus registros vienen sin atribuir y ningún step revive en
-	// remoto. Es el mismo comportamiento que desde la spec 10, no uno nuevo. Se
-	// retira en la spec 16.
-	var records stateDom.Records
-	if args.Mode != ModeLocal {
-		records = stateInfra.NewSupabaseRecordsRepository(
-			args.StepStoreVarsEndpoint, args.LogToken, args.ExecutionID,
-		)
-	} else {
-		records = stateInfra.NewFileRecordsRepository(stateBasePath)
-	}
+	// Los dos salen del DESTINO, y salen juntos: son una familia coherente y
+	// mezclarlas no debe ser construible (`newStateStores`). Aquí desaparece el
+	// adaptador de Supabase, que era la otra mitad de `--mode`: guardaba el
+	// último conjunto por (ámbito, step) sin historia, así que devolvía registros
+	// SIN ATRIBUIR y en modo remoto ningún step revivía —ni por huella, porque no
+	// había ninguna que comparar, ni por `max_age`, porque la edad se medía contra
+	// el instante cero—. Un `max_age` declarado en el pipelinecode se ignoraba en
+	// silencio; con el destino explícito las dos reglas significan lo mismo en
+	// todas partes, sin código nuevo.
+	records := stores.records
+	entries := stores.entries
 	recordIDs := stateInfra.NewULIDRecordIDFactory()
-
-	// --- Infrastructure: índice de contenido → registro ---
-	//
-	// De archivo y sin rama por modo, como desde la spec 10. Que en remoto
-	// arranque frío daba igual entonces —el caché es una optimización— y da más
-	// igual ahora: desde la spec 11 este índice no decide nada, así que estar
-	// vacío no cambia ninguna decisión ni en local ni en remoto.
-	entries := cacheInfra.NewFileEntriesRepository(cacheBasePath)
 
 	// --- Infrastructure: command (shell, filesystem) ---
 	fileSystem := cmdInfra.NewFileSystemManager()
@@ -239,7 +215,7 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		clock,
 	)
 
-	return NewRunCommand(createExec), nil
+	return NewRunCommand(createExec, destino, stagingPath), nil
 }
 
 func chainPipelineHandlers(handlers ...pipDom.PipelineHandler) pipDom.PipelineHandler {

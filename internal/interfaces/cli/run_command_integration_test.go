@@ -13,15 +13,21 @@ package cli_test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/jairoprogramador/vex-engine/internal/domain/syncconfig"
 	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
 )
 
@@ -1861,6 +1867,28 @@ func TestRunCommand_SchemaVersionNoSoportada(t *testing.T) {
 	assert.Empty(t, h.ranSteps())
 }
 
+// LA RUPTURA DE CONTRATO de la spec 16 §5.7: un cliente de la v1 se rechaza, y
+// el mensaje dice QUÉ cambió.
+//
+// Subir el número es el gatillo que impide que el «por ahora» se vuelva
+// permanente: sin él, el CLI `vex` y las edge functions seguirían pasando
+// `--mode` y los seis endpoints, el motor los ignoraría en silencio y el
+// desajuste aparecería como un despliegue que no revive nunca. Y sin la segunda
+// línea del mensaje, el diagnóstico del día en que se retome la CLI (spec 23)
+// cuesta una tarde.
+func TestRunCommand_SchemaVersion1SeRechazaYElMensajeDiceQueCambio(t *testing.T) {
+	h := newHarness(t)
+
+	result := h.run(withSchemaVersion(1))
+
+	assert.Equal(t, cli.ExitInputError, result.exitCode)
+	assert.Contains(t, result.stderr, "unsupported schema_version: 1")
+	assert.Contains(t, result.stderr, "--mode")
+	assert.Contains(t, result.stderr, "--state-config")
+	assert.Contains(t, result.stderr, cli.StateConfigEnvVar)
+	assert.Empty(t, h.ranSteps())
+}
+
 func TestRunCommand_InputVacio(t *testing.T) {
 	h := newHarness(t)
 
@@ -1965,4 +1993,257 @@ func TestRunCommand_ObserverDeStatusNuncaRecibeStages(t *testing.T) {
 
 	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
 	assert.Empty(t, result.stdout, "ningún handler llama a NotifyStage")
+}
+
+// ── El destino del estado es configuración (spec 16) ────────────────────────
+
+// EL CASO QUE DA NOMBRE A LA SPEC, y es una ausencia: **sin configuración de
+// destino el motor no arranca**.
+//
+// Hasta aquí `--mode` traía un default —`remote`, o sea «Supabase»— dentro de la
+// pieza que tiene que ser portable: invocar el motor sin decir nada asumía una
+// plataforma concreta, y el motor se comportaba distinto según quién lo invocó
+// sin que quedara escrito en ningún lado. El default vive ahora en quien invoca.
+func TestRunCommand_SinConfiguracionDeDestinoElMotorNoArranca(t *testing.T) {
+	h := newHarness(t)
+
+	args := h.args()
+	args.StateConfigFile = ""
+
+	_, err := h.build(args)
+
+	require.Error(t, err)
+	assert.Equal(t, cli.ExitInputError, cli.ExitCodeFor(err),
+		"no es un fallo de la pipeline: es una invocación que no se puede atender")
+	assert.Contains(t, err.Error(), "--state-config", "el mensaje nombra la flag")
+	assert.Contains(t, err.Error(), cli.StateConfigEnvVar, "y la otra vía")
+	assert.Contains(t, err.Error(), "schema_version 2",
+		"y la versión, que es la pista que ahorra la tarde de diagnóstico")
+	assert.Empty(t, h.ranSteps())
+}
+
+// Las dos vías del transporte, que son las de RequestInput menos stdin (§5.2).
+// Se reutiliza el mecanismo existente en vez de inventar uno porque la Fly
+// Machine ya pasa el input por entorno.
+func TestRunCommand_ViasDeLaConfiguracionDeDestino(t *testing.T) {
+	t.Run("--state-config", func(t *testing.T) {
+		h := newHarness(t)
+		result := h.run()
+		require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+		assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
+	})
+
+	t.Run("env var con YAML crudo", func(t *testing.T) {
+		h := newHarness(t)
+		t.Setenv(cli.StateConfigEnvVar, "type: local\nlocal:\n  path: "+h.destino+"\n")
+
+		args := h.args()
+		args.StateConfigFile = ""
+		args.InputFile = h.writeRequest(h.request())
+		result := h.execute(args, nil)
+
+		require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+		assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
+	})
+
+	t.Run("env var con JSON crudo", func(t *testing.T) {
+		// El contrato está escrito en YAML y quien lo genere desde código lo hará
+		// en JSON. El decodificador acepta los dos porque JSON es YAML.
+		h := newHarness(t)
+		t.Setenv(cli.StateConfigEnvVar,
+			fmt.Sprintf(`{"type":"local","local":{"path":%q}}`, h.destino))
+
+		args := h.args()
+		args.StateConfigFile = ""
+		args.InputFile = h.writeRequest(h.request())
+		result := h.execute(args, nil)
+
+		require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	})
+
+	t.Run("env var con base64", func(t *testing.T) {
+		h := newHarness(t)
+		t.Setenv(cli.StateConfigEnvVar, base64.StdEncoding.EncodeToString(
+			[]byte("type: local\nlocal:\n  path: "+h.destino+"\n")))
+
+		args := h.args()
+		args.StateConfigFile = ""
+		args.InputFile = h.writeRequest(h.request())
+		result := h.execute(args, nil)
+
+		require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	})
+
+	t.Run("--state-config gana sobre la env var", func(t *testing.T) {
+		h := newHarness(t)
+		t.Setenv(cli.StateConfigEnvVar, "type: http\nhttp:\n  endpoint: https://x.test\n")
+
+		result := h.run()
+		require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	})
+}
+
+// §5.5: `http` está en el vocabulario y NO está implementado, y el error lo dice
+// con esas palabras. Es una decisión con fecha abierta, no un hueco — y por eso
+// tiene que distinguirse de una configuración malformada, que es un error de
+// quien la escribió.
+func TestRunCommand_TypeHttpEstaCongeladoYSeDistingueDeUnErrorDeFormato(t *testing.T) {
+	h := newHarness(t)
+
+	t.Run("congelado", func(t *testing.T) {
+		writeFile(t, h.stateConfig, "type: http\nhttp:\n  endpoint: https://ingesta.vex.test\n")
+
+		_, err := h.build(h.args())
+
+		require.Error(t, err)
+		assert.Equal(t, cli.ExitInputError, cli.ExitCodeFor(err))
+		assert.ErrorIs(t, err, syncconfig.ErrCongelado)
+	})
+
+	t.Run("malformada", func(t *testing.T) {
+		writeFile(t, h.stateConfig, "type: supabase\n")
+
+		_, err := h.build(h.args())
+
+		require.Error(t, err)
+		assert.Equal(t, cli.ExitInputError, cli.ExitCodeFor(err))
+		assert.NotErrorIs(t, err, syncconfig.ErrCongelado,
+			"un vocabulario equivocado no es «todavía no implementado»")
+	})
+}
+
+// **`type: local` NO es un Null Object**, y este es el test que lo fija. No se
+// puede garantizar que el volumen esté montado; si no lo está, escribir a ciegas
+// dejaría al motor registrando en el filesystem efímero del contenedor sin
+// ninguna señal. Y lo que se perdería no es velocidad: es el identificador del
+// recurso que se acaba de crear en la nube.
+func TestRunCommand_UnDestinoInservibleFallaRuidosamente(t *testing.T) {
+	t.Run("la ruta no existe: el volumen no está montado", func(t *testing.T) {
+		h := newHarness(t)
+		inexistente := filepath.Join(t.TempDir(), "volumen-no-montado")
+		writeFile(t, h.stateConfig, "type: local\nlocal:\n  path: "+inexistente+"\n")
+
+		_, err := h.build(h.args())
+
+		require.Error(t, err)
+		assert.Equal(t, cli.ExitInputError, cli.ExitCodeFor(err))
+		assert.Contains(t, err.Error(), inexistente, "el error nombra la ruta")
+		assert.Contains(t, err.Error(), "volumen")
+		assert.Empty(t, h.ranSteps(), "y falla antes del primer step")
+	})
+
+	t.Run("la ruta no es escribible", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("como root los permisos no impiden escribir, y el caso mide justo eso")
+		}
+		h := newHarness(t)
+		soloLectura := filepath.Join(t.TempDir(), "solo-lectura")
+		require.NoError(t, os.MkdirAll(soloLectura, 0o555))
+		t.Cleanup(func() { _ = os.Chmod(soloLectura, 0o755) })
+		writeFile(t, h.stateConfig, "type: local\nlocal:\n  path: "+soloLectura+"\n")
+
+		_, err := h.build(h.args())
+
+		require.Error(t, err)
+		assert.Equal(t, cli.ExitInputError, cli.ExitCodeFor(err))
+		assert.Contains(t, err.Error(), "no es escribible")
+	})
+
+	t.Run("la ruta es un archivo", func(t *testing.T) {
+		h := newHarness(t)
+		archivo := filepath.Join(t.TempDir(), "no-soy-un-directorio")
+		writeFile(t, archivo, "")
+		writeFile(t, h.stateConfig, "type: local\nlocal:\n  path: "+archivo+"\n")
+
+		_, err := h.build(h.args())
+
+		require.Error(t, err)
+		assert.Equal(t, cli.ExitInputError, cli.ExitCodeFor(err))
+	})
+}
+
+// EL ESTADO DEJA DE SER DE UNA MÁQUINA, que es a lo que la spec entera apunta.
+//
+// La mitad de esta comprobación ya existía —`LaClaveNoDependeDeLaMaquina`: el
+// mismo árbol desde dos $HOME produce las MISMAS claves—, pero hasta aquí las dos
+// máquinas no tenían dónde encontrarse. Con el destino como dato, la segunda
+// máquina lee lo que escribió la primera y REVIVE, sin haber ejecutado nada.
+//
+// Es también donde muerde el defecto heredado de `.git` como archivo (spec 08
+// §9.10): en un worktree, `.git` entra en la huella con una ruta absoluta dentro
+// y este caso se pondría en rojo. El fixture usa repos normales, así que hoy pasa
+// — y como está escrito, el día que se decida la v2 de la regla del árbol la
+// decisión no se puede tomar por omisión.
+func TestRunCommand_DosMaquinasQueComparteElDestinoSeRevivenEntreSi(t *testing.T) {
+	primera := newHarness(t)
+	correHastaEstable(t, primera)
+	entradas := primera.cacheEntries()
+	registros := primera.persistedStepState("02-supply")
+	require.NotEmpty(t, entradas)
+
+	// Otro $HOME, otra ruta absoluta para el árbol del proyecto, el mismo destino.
+	segunda := primera.otraMaquina()
+	segunda.compartiendoElDestinoCon(primera)
+
+	segunda.resetLog()
+	result := segunda.run()
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Empty(t, segunda.ranSteps(),
+		"la segunda máquina acierta el registro de la primera: el estado no es de una máquina")
+	assert.Equal(t, entradas, segunda.cacheEntries(),
+		"y revivir no escribe: ni una entrada nueva")
+	assert.Equal(t, registros, segunda.persistedStepState("02-supply"))
+}
+
+// La otra mitad, y es la que hace observable que el estado CAMBIÓ DE SITIO: bajo
+// el $HOME del proceso no queda nada. Si quedara, dos máquinas seguirían
+// escribiendo cada una en su rincón y el caso de arriba pasaría por accidente.
+func TestRunCommand_ElEstadoNoCuelgaDelHomeDelProceso(t *testing.T) {
+	h := newHarness(t)
+	correHastaEstable(t, h)
+
+	require.NotEmpty(t, h.persistedStepState("02-supply"), "control: el estado se escribió")
+
+	assert.NoDirExists(t, filepath.Join(h.root, cli.VexHomeDirName, "state"))
+	assert.NoDirExists(t, filepath.Join(h.root, cli.VexHomeDirName, "cache"))
+	assert.DirExists(t, filepath.Join(h.root, cli.VexHomeDirName, "projects"),
+		"lo que sigue bajo el $HOME es el área de clones, que es trabajo y no verdad")
+}
+
+// §5.6, y es la corrección a I-6 hecha test de regresión: **`--status-endpoint`
+// sobrevive**. La revisión proponía retirarlo con los seis del caché, dando por
+// hecho que la pérdida era de rendimiento; el código dice otra cosa. Es la única
+// señal que el portal tiene de que el contenedor terminó, así que retirarlo con
+// `type: http` congelado dejaría toda ejecución remota en `running` hasta que un
+// TTL la marcara `error`.
+func TestRunCommand_ElStatusTerminalSigueLlegandoASuEndpoint(t *testing.T) {
+	var mu sync.Mutex
+	recibidos := make([]map[string]any, 0, 2)
+
+	servidor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		mu.Lock()
+		recibidos = append(recibidos, body)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer servidor.Close()
+
+	h := newHarness(t)
+	args := h.args()
+	args.StatusEndpoint = servidor.URL
+	args.ExecutionID = "11111111-2222-3333-4444-555555555555"
+	args.InputFile = h.writeRequest(h.request())
+
+	result := h.execute(args, nil)
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, recibidos, 1, "un POST y sólo uno: el terminal")
+	assert.Equal(t, args.ExecutionID, recibidos[0]["execution_id"])
+	assert.Equal(t, "succeeded", recibidos[0]["status"])
+	assert.Equal(t, float64(cli.ExitSucceeded), recibidos[0]["exit_code"])
 }

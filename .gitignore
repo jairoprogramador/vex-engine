@@ -146,4 +146,8 @@ go.work.sum
 
 # env file
 .env
-vexd
+
+# el binario compilado en la raíz. Anclado a `/`: sin la barra, el patrón
+# también casa con el DIRECTORIO cmd/vexd/, así que cualquier archivo nuevo que
+# se añadiera ahí quedaría fuera del repo sin aviso.
+/vexd

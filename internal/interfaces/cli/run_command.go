@@ -14,6 +14,7 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/application/usecase"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	domNotify "github.com/jairoprogramador/vex-engine/internal/domain/notify"
+	"github.com/jairoprogramador/vex-engine/internal/domain/syncconfig"
 	"github.com/jairoprogramador/vex-engine/internal/infrastructure/notify"
 )
 
@@ -35,51 +36,76 @@ const (
 
 // supportedSchemaVersion es el contrato de RequestInput que este binario entiende.
 // El campo es obligatorio: cualquier valor distinto se rechaza como input error.
-const supportedSchemaVersion = 1
+//
+// Sube a 2 con la spec 16, y subir es el punto: la ruptura es de CONTRATO y no
+// de memoria de nadie. Un cliente de la v1 pasaba `--mode` y seis endpoints de
+// Supabase, banderas que este binario ya no acepta; sin este número, ese cliente
+// arrancaría el motor y descubriría el problema a mitad del despliegue.
+const supportedSchemaVersion = 2
 
 // RunArgs son los flags de `vexd run` mapeados desde Cobra.
+//
+// Lo que la spec 16 retiró de aquí, y por qué no queda nada de ello: `Mode`, que
+// elegía familias enteras de repositorios y traía «Supabase» como default
+// cableado dentro de la pieza que debe ser portable; y los seis endpoints de las
+// edge functions del estado (`--step-{code,inst,time,vars,delete}-endpoint`,
+// muertos desde las specs 09 y 10, y `--step-store-vars-endpoint`, que era el
+// último con lector). Su reemplazo es `StateConfigFile`: dato, no bandera.
+//
+// `LogEndpoint` y `StatusEndpoint` SOBREVIVEN. La revisión los metía en el mismo
+// saco que los seis y concluía que la pérdida era de rendimiento; el código dice
+// otra cosa: `--status-endpoint` transporta el estado terminal y es la única
+// señal que el portal tiene de que el contenedor terminó. Retirarlo con
+// `type: http` congelado dejaría toda ejecución remota en `running` hasta que un
+// TTL la marcara `error`. Se van cuando el sink `http` los subsuma (spec 26).
 type RunArgs struct {
 	InputFile      string
 	InputEnv       string
 	LogEndpoint    string
 	StatusEndpoint string
 
-	// CINCO FLAGS SIN LECTOR. Los cinco apuntaban a las edge functions del
-	// estado de re-ejecución, y ninguno se cablea ya a nada:
-	//
-	//   - StepDeleteEndpoint servía al borrado compensatorio, que desapareció
-	//     con la spec 09 §5.2 al mover la escritura al camino de éxito;
-	//   - los otros cuatro servían a los cuatro `Supabase*StatusRepository`, que
-	//     la spec 10 borró al unificar las cuatro entradas de estado en una sola
-	//     de caché. En modo remoto el caché arranca frío —la máquina es
-	//     efímera—, que es una degradación de rendimiento, no de correctitud.
-	//
-	// Los cinco siguen aceptándose para no romper a quien los pase. Quien los
-	// retira es la spec 16, junto con `--mode` y `--status-endpoint`, cuando el
-	// destino del estado pase a ser configuración explícita. Las edge functions
-	// `status-*` se quedan sin cliente desde aquí; su retirada va con la 26.
-	StepCodeEndpoint   string
-	StepInstEndpoint   string
-	StepTimeEndpoint   string
-	StepVarsEndpoint   string
-	StepDeleteEndpoint string
+	// StateConfigFile es la configuración de DESTINO del estado (`type` +
+	// payload). Sin default: si está vacío se prueba la env var
+	// VEX_STATE_CONFIG, y si tampoco, el motor no arranca (ver readStateConfig).
+	StateConfigFile string
 
-	StepStoreVarsEndpoint string // endpoint de la edge fn store-vars (almacén de variables)
-	LogToken              string
-	ExecutionID           string
-	Quiet                 bool
-	Mode                  string
+	// StagingDir es el área de trabajo del motor. A diferencia del destino, esto
+	// SÍ tiene default —es dominio del motor, no del invocador— y vacío significa
+	// la cadena XDG → $HOME/.local/state → TempDir (ver resolveStagingDir).
+	StagingDir string
+
+	LogToken    string
+	ExecutionID string
+	Quiet       bool
 }
 
 // RunCommand orquesta la ejecución one-shot del engine. Es la única superficie
 // CLI que invoca al use case CreateExecution y reemplaza al antiguo HTTP server.
 type RunCommand struct {
 	createExec *usecase.CreateExecutionUseCase
+
+	// destino y stagingDir no los usa Execute todavía: los escribe la spec 21,
+	// que empuja lo registrado desde el área de trabajo hacia el destino. Están
+	// aquí porque los dos se RESUELVEN al cablear —el destino se comprueba antes
+	// del primer step y el área de trabajo se crea— y quien los resolvió es quien
+	// tiene que poder decir cuáles son.
+	destino    syncconfig.Config
+	stagingDir string
 }
 
-func NewRunCommand(createExec *usecase.CreateExecutionUseCase) *RunCommand {
-	return &RunCommand{createExec: createExec}
+func NewRunCommand(
+	createExec *usecase.CreateExecutionUseCase,
+	destino syncconfig.Config,
+	stagingDir string,
+) *RunCommand {
+	return &RunCommand{createExec: createExec, destino: destino, stagingDir: stagingDir}
 }
+
+// Destino es el destino del estado con el que se cableó el motor.
+func (c *RunCommand) Destino() syncconfig.Config { return c.destino }
+
+// StagingDir es el área de trabajo propia del motor, ya creada y escribible.
+func (c *RunCommand) StagingDir() string { return c.stagingDir }
 
 // Execute lee el RequestInput del primer source disponible (file > env > stdin),
 // valida el schema, ejecuta la pipeline reportando stages, y reporta el status
@@ -111,8 +137,18 @@ func (c *RunCommand) Execute(ctx context.Context, stdin io.Reader, stdout io.Wri
 	}
 
 	if requestInput.SchemaVersion != supportedSchemaVersion {
+		// El mensaje dice QUÉ cambió, no sólo que no coincide: quien llega aquí
+		// con una v1 no tiene un JSON corrupto, tiene un cliente que aprendió a
+		// hablar con un motor que ya no existe (spec 16 §5.7).
 		fmt.Fprintf(stderr, "vexd run: unsupported schema_version: %d (this binary supports v%d)\n",
 			requestInput.SchemaVersion, supportedSchemaVersion)
+		if requestInput.SchemaVersion < supportedSchemaVersion {
+			fmt.Fprintf(stderr,
+				"vexd run: la v%d retira --mode y los seis --step-*-endpoint; el destino del estado se pasa"+
+					" ahora con --state-config (type: local|http) o con la env var %s. La forma del"+
+					" RequestInput no cambió: sólo su versión.\n",
+				supportedSchemaVersion, StateConfigEnvVar)
+		}
 		return ExitInputError
 	}
 
