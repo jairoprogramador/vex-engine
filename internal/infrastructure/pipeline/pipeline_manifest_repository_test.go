@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -95,6 +96,53 @@ func TestPipelineManifestRepository_Get(t *testing.T) {
 					"quien lee esto edita el pipelinecode: el error tiene que nombrar el archivo")
 				assert.Contains(t, err.Error(), caso.enElError)
 			})
+		}
+	})
+}
+
+// LA VENTANA DE REUTILIZACIÓN DEL CLON (spec 18 §5.4).
+//
+// Se declara en el pipelinecode y no en el motor porque quien sabe con qué
+// frecuencia cambia un pipeline es quien lo escribe. Lo que el motor pone es el
+// DEFAULT, y lo pone en un solo sitio.
+func TestPipelineManifestRepository_VentanaDeClon(t *testing.T) {
+	contenido := func(s string) *string { return &s }
+
+	t.Run("sin declarar es la de por defecto", func(t *testing.T) {
+		for _, caso := range []struct {
+			nombre     string
+			manifiesto *string
+		}{
+			{"sin manifiesto", nil},
+			{"con manifiesto y sin la clave", contenido("schema_version: 1\n")},
+			{"con la clave vacía", contenido("schema_version: 1\nclone_window: \"\"\n")},
+		} {
+			t.Run(caso.nombre, func(t *testing.T) {
+				manifest, err := leerManifiesto(t, pipelineConManifiesto(t, caso.manifiesto))
+
+				require.NoError(t, err)
+				assert.Equal(t, domPipeline.DefaultCloneWindow, manifest.CloneWindow())
+				assert.False(t, manifest.DeclaresCloneWindow())
+			})
+		}
+	})
+
+	t.Run("declarada gana", func(t *testing.T) {
+		manifest, err := leerManifiesto(t,
+			pipelineConManifiesto(t, contenido("schema_version: 1\nclone_window: 15m\n")))
+
+		require.NoError(t, err)
+		assert.Equal(t, 15*time.Minute, manifest.CloneWindow())
+		assert.True(t, manifest.DeclaresCloneWindow())
+	})
+
+	t.Run("presente e ilegible es un error, no el default", func(t *testing.T) {
+		for _, declarada := range []string{"un rato", "24", "-24h"} {
+			_, err := leerManifiesto(t,
+				pipelineConManifiesto(t, contenido("schema_version: 1\nclone_window: "+declarada+"\n")))
+
+			require.Error(t, err, "se esperaba error para %q", declarada)
+			assert.Contains(t, err.Error(), "vexpipeline.yaml")
 		}
 	})
 }

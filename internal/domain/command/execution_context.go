@@ -184,6 +184,13 @@ func (ec *ExecutionContext) ExecutionID() ExecutionID {
 	return ec.execution.ID()
 }
 
+// Runtime es la imagen sobre la que corre esta ejecución, tal como la declaró el
+// RequestInput. Es CIRCUNSTANCIA —dónde corrió, no qué se pretendía hacer— y su
+// consumidor es el hecho de apertura del intento (spec 18 §5.1).
+func (ec *ExecutionContext) Runtime() ExecutionRuntime {
+	return ec.execution.Runtime()
+}
+
 func (ec *ExecutionContext) AccumulatedVars() *ExecutionVariableMap {
 	return ec.accumulatedVars
 }

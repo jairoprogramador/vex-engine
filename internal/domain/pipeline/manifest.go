@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // Las versiones del formato del pipelinecode que el motor entiende (spec 14
@@ -29,6 +30,17 @@ const (
 type Manifest struct {
 	declared      bool
 	schemaVersion int
+
+	// cloneWindow es cuánto vale un clon de este pipelinecode antes de volver a
+	// traerlo (spec 18 §5.4). Cero significa «no lo declara» y de ahí sale
+	// `DefaultCloneWindow`, no un cero literal: una ventana de cero re-clonaría
+	// en cada corrida, que es lo contrario de lo que la omisión quiere decir.
+	//
+	// NO entra en `deployment.Format` ni en ninguna identidad, y no por descuido:
+	// es un parámetro OPERATIVO —cada cuánto conviene mirar el remoto— y no una
+	// afirmación sobre qué se pretende ejecutar. Lo que sí lo cubre es la huella
+	// del árbol del pipelinecode, que lo incluye como a cualquier otro archivo.
+	cloneWindow time.Duration
 }
 
 // NoManifest es el pipelinecode SIN `vexpipeline.yaml`: versión 1, literales
@@ -48,9 +60,25 @@ func NoManifest() Manifest {
 // conocidas es un error que nombra las que hay: un motor viejo leyendo un formato
 // nuevo tiene que decirlo, no interpretarlo a medias.
 func NewManifest(schemaVersion int) (Manifest, error) {
+	return NewManifestWithCloneWindow(schemaVersion, 0)
+}
+
+// NewManifestWithCloneWindow es el manifiesto con su ventana de reutilización
+// del clon declarada (spec 18 §5.4). Una ventana negativa es un error: la
+// omisión ya tiene su forma —el cero, que significa «usa la de por defecto»— y
+// un número negativo sólo puede ser un `-24h` escrito a mano.
+func NewManifestWithCloneWindow(schemaVersion int, cloneWindow time.Duration) (Manifest, error) {
+	if cloneWindow < 0 {
+		return Manifest{}, fmt.Errorf(
+			"declara 'clone_window: %s', que no es una ventana de tiempo", cloneWindow)
+	}
 	switch schemaVersion {
 	case SchemaVersion1, SchemaVersion2:
-		return Manifest{declared: true, schemaVersion: schemaVersion}, nil
+		return Manifest{
+			declared:      true,
+			schemaVersion: schemaVersion,
+			cloneWindow:   cloneWindow,
+		}, nil
 	case 0:
 		return Manifest{}, fmt.Errorf(
 			"no declara 'schema_version': se espera %d o %d", SchemaVersion1, SchemaVersion2)
@@ -69,6 +97,23 @@ func (m Manifest) SchemaVersion() int { return m.schemaVersion }
 
 // AllowsDeclaredSources dice si este pipelinecode puede usar `resolve`.
 func (m Manifest) AllowsDeclaredSources() bool { return m.schemaVersion >= SchemaVersion2 }
+
+// CloneWindow es cuánto vale un clon de este pipelinecode: la declarada, o la de
+// por defecto.
+//
+// El default vive AQUÍ y no en el clonador porque la pregunta «¿cuánto vale un
+// clon?» es del pipelinecode aunque no la conteste: quien no declara nada está
+// aceptando la respuesta del motor, y tener un solo sitio donde esa respuesta se
+// escribe es lo que impide que dos capas contesten distinto.
+func (m Manifest) CloneWindow() time.Duration {
+	if m.cloneWindow <= 0 {
+		return DefaultCloneWindow
+	}
+	return m.cloneWindow
+}
+
+// DeclaresCloneWindow dice si alguien la escribió.
+func (m Manifest) DeclaresCloneWindow() bool { return m.cloneWindow > 0 }
 
 // ManifestRepository lee el manifiesto de la raíz del pipelinecode.
 //

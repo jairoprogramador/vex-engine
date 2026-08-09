@@ -28,6 +28,10 @@ import (
 
 const huellaDelArbolDePrueba = "v1:4444444444444444444444444444444444444444444444444444444444444444"
 
+// stepDePrueba es el directorio del step, con su prefijo de orden: es la clave
+// con la que el material se carga y se consume.
+const stepDePrueba = "02-supply"
+
 // ── El montaje ──────────────────────────────────────────────────────────────
 
 // decidir corre el handler 03 contra la configuración declarada y el último
@@ -68,8 +72,7 @@ func decidir(
 		registros.ultimo, registros.hay = *ultimo, true
 	}
 
-	handler := domStep.NewStepRunnerHandler(
-		comandosFijos{comandoDePrueba(t)}, configFijo{config}, registros)
+	handler := domStep.NewStepRunnerHandler(materialCargado(t, config), registros)
 
 	request := domStep.NewStepRequestHandler(contexto, contexto.StepName())
 	require.NoError(t, handler.Handle(request.Ctx(), request))
@@ -244,8 +247,7 @@ func TestStepRunnerHandler_SinMaterialSeEjecutaYSeDice(t *testing.T) {
 		domStep.NewEnvironmentScope(), reglas(t, domStep.NewDefaultStateChangedRule()))
 	require.NoError(t, err)
 
-	handler := domStep.NewStepRunnerHandler(
-		comandosFijos{comandoDePrueba(t)}, configFijo{config}, &registrosConUltimo{})
+	handler := domStep.NewStepRunnerHandler(materialCargado(t, config), &registrosConUltimo{})
 	request := domStep.NewStepRequestHandler(contexto, contexto.StepName())
 
 	require.NoError(t, handler.Handle(request.Ctx(), request))
@@ -260,20 +262,17 @@ func TestStepRunnerHandler_SinMaterialSeEjecutaYSeDice(t *testing.T) {
 
 // ── Dobles ──────────────────────────────────────────────────────────────────
 
-type comandosFijos []command.Command
-
-var _ domStep.PipelineCommandRepository = comandosFijos(nil)
-
-func (c comandosFijos) Get(*context.Context, string, string) ([]command.Command, error) {
-	return c, nil
-}
-
-type configFijo struct{ config domStep.StepConfig }
-
-var _ domStep.StepConfigRepository = configFijo{}
-
-func (c configFijo) Get(*context.Context, string, string) (domStep.StepConfig, error) {
-	return c.config, nil
+// materialCargado es lo que el resolutor de la cadena de pipeline dejó cargado
+// para este step (spec 18 §5.2). Sustituye a los dos repositorios que el handler
+// tenía inyectados: desde la 18 no lee del disco, consume.
+func materialCargado(t *testing.T, config domStep.StepConfig) *domStep.LoadedPipelinecode {
+	t.Helper()
+	cargado := domStep.NewLoadedPipelinecode()
+	cargado.Put(stepDePrueba, domStep.LoadedStep{
+		Commands: []command.Command{comandoDePrueba(t)},
+		Config:   config,
+	})
+	return cargado
 }
 
 // registrosConUltimo devuelve el último registro que se le ponga. El puerto sólo
@@ -332,7 +331,7 @@ func contextoConEjecutable(
 
 	executionContext := command.NewExecutionContext(&ctx, ejecucion, ejecutable, nil, emisor, nil)
 
-	stepName, err := command.NewStepName("02-supply")
+	stepName, err := command.NewStepName(stepDePrueba)
 	require.NoError(t, err)
 	executionContext.SetStepName(stepName)
 	executionContext.SetWorkdir(t.TempDir())

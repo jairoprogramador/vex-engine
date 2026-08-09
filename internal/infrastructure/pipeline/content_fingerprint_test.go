@@ -278,6 +278,30 @@ func TestContentFingerprint_Propiedades(t *testing.T) {
 
 		assert.Equal(t, fingerprintOnDisk(t, base), fingerprintOnDisk(t, conGit))
 	})
+
+	// LAS DOS HUELLAS SON LA MISMA REGLA, no dos parecidas (spec 18 §7).
+	//
+	// Desde la spec 18 este adaptador sirve DOS árboles: el del proyecto (handler
+	// 08) y el del pipelinecode (handler 09). Es barato de comprobar —los dos son
+	// `DirTreeSource`— y es lo único que impide que alguien introduzca una
+	// variante «para el pipeline», y con ella la comparabilidad entre
+	// organizaciones. El renombre `ProjectFingerprint` → `ContentFingerprint` de
+	// la spec 08 se hizo por esta razón exacta.
+	t.Run("el árbol del proyecto y el del pipelinecode pasan por la misma regla", func(t *testing.T) {
+		comoProyecto := t.TempDir()
+		comoPipelinecode := t.TempDir()
+		buildTree(t, comoProyecto, base)
+		buildTree(t, comoPipelinecode, base)
+
+		repo := infraPipeline.NewContentFingerprint()
+		delProyecto, err := repo.FromDirectory(comoProyecto)
+		require.NoError(t, err)
+		delPipelinecode, err := repo.FromDirectory(comoPipelinecode)
+		require.NoError(t, err)
+
+		assert.True(t, delProyecto.Equals(delPipelinecode),
+			"el mismo contenido tiene que dar el mismo valor, sea cual sea el árbol del que salga")
+	})
 }
 
 // --- casos de borde de la API ---------------------------------------------

@@ -1154,7 +1154,11 @@ func TestRunCommand_ElAlmacenSigueGanandoALoDeclarado(t *testing.T) {
 // nombraba, y el acoplamiento se resolvía por orden de ejecución — o sea, no era
 // conocible antes de ejecutar, que es justo lo que la identidad necesita saber.
 
-const manifiestoV2 = "schema_version: 2\n"
+// manifiestoV2 sustituye al `vexpipeline.yaml` del fixture, así que tiene que
+// conservar su `clone_window`: sin ella el pipelinecode volvería a la ventana de
+// 24 h y los casos que commitean un cambio y vuelven a ejecutar reutilizarían el
+// clon sin verlo (spec 18 §5.4).
+const manifiestoV2 = "schema_version: 2\n" + ventanaDelFixture
 
 // La versión del formato existe para que añadir gramática no rompa a nadie en
 // silencio. Sin `vexpipeline.yaml` el pipelinecode está en la versión 1, y en la

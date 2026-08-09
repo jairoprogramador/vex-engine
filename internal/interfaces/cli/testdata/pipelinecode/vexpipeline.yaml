@@ -1,0 +1,19 @@
+# El contrato explícito del formato del pipelinecode (spec 14 §5.1).
+#
+# La versión es 1 —literales solamente, `resolve` prohibido— porque es lo que el
+# fixture usa. Que esté DECLARADA y no ausente es lo que hace que el objeto de
+# despliegue de estas corridas salga marcado como completo; el caso contrario lo
+# monta el propio harness borrando este archivo.
+schema_version: 1
+
+# La ventana de reutilización del clon (spec 18 §5.4), a propósito diminuta.
+#
+# El fixture CAMBIA entre corridas —los casos commitean otro `commands.yaml` y
+# vuelven a ejecutar— así que con la ventana por defecto de 24 h la segunda
+# corrida reutilizaría el clon y no vería el cambio. Un pipelinecode que se está
+# escribiendo declara una ventana corta, que es exactamente la razón por la que
+# el parámetro es del pipelinecode y no del motor.
+#
+# La ventana por defecto y la reutilización de verdad las miden los casos que
+# hablan de ellas, borrando esta línea.
+clone_window: 1ms

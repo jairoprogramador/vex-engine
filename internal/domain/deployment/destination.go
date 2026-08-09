@@ -5,12 +5,21 @@ import (
 	"strings"
 )
 
-// DestinationReserved es la palabra que un ambiente no puede llamarse.
+// AQUÍ vivía `DestinationReserved = "shared"`, y con él una reserva que la
+// spec 13 §5.5 ya había DEROGADO cuando la 17 la reintrodujo.
 //
-// `shared` está reservada desde la spec 04 §5.4 y la reserva sobrevive al
-// rediseño del ámbito: un ambiente con ese nombre haría ambiguo el ámbito
-// compartido en toda dirección que lo transporte.
-const DestinationReserved = "shared"
+// El argumento de la 17 era que «la reserva sobrevive al rediseño del ámbito»;
+// el código dice lo contrario y la 13 lo dice por escrito: el ámbito de ambiente
+// viaja SIEMPRE prefijado en la clave de estado —`environment:<nombre>`— así que
+// un ambiente llamado `shared` produce `environment:shared` y no colisiona con
+// nada. **No queda ninguna palabra reservada en el vocabulario del usuario**, y
+// hay un test de integración que lo afirma
+// (`TestRunCommand_NingunaPalabraDelUsuarioEstaReservada`).
+//
+// La spec 18 es donde se vio, porque es la primera que construye un
+// `Destination` en el camino de ejecución: hasta aquí el tipo sólo existía en
+// sus propios tests. Un ambiente `shared` desplegaba bien y dejaba de hacerlo al
+// cablear el resolutor.
 
 // Destination es el ambiente al que se despliega, y es el nombre que se resolvió
 // —el `value` de `environments.yaml`, no su `name`—.
@@ -32,10 +41,6 @@ type Destination struct {
 func NewDestination(environment string) (Destination, error) {
 	if environment == "" {
 		return Destination{}, fmt.Errorf("deployment: el contenido no tiene destino (ambiente)")
-	}
-	if environment == DestinationReserved {
-		return Destination{}, fmt.Errorf(
-			"deployment: %q está reservada y no puede ser un ambiente", DestinationReserved)
 	}
 	if strings.ContainsAny(environment, `/\:`) || environment == "." || environment == ".." {
 		return Destination{}, fmt.Errorf(

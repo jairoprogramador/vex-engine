@@ -64,33 +64,32 @@ func reasonOf(kind RuleKind) string {
 	}
 }
 
+// StepRunnerHandler hace DOS cosas desde la spec 18: decidir si el step se
+// ejecuta y ejecutarlo. La tercera —cargar sus comandos y su configuración— se
+// izó a la cadena de pipeline (§5.2'), donde el material se lee una sola vez y
+// antes de ejecutar nada.
 type StepRunnerHandler struct {
 	StepBaseHandler
-	commandRepository PipelineCommandRepository
-	configRepository  StepConfigRepository
-	records           state.Records
+	loaded  *LoadedPipelinecode
+	records state.Records
 }
 
 var _ StepHandler = (*StepRunnerHandler)(nil)
 
-func NewStepRunnerHandler(
-	commandRepository PipelineCommandRepository,
-	configRepository StepConfigRepository,
-	records state.Records) StepHandler {
-
+func NewStepRunnerHandler(loaded *LoadedPipelinecode, records state.Records) StepHandler {
 	return &StepRunnerHandler{
-		StepBaseHandler:   StepBaseHandler{Next: nil},
-		commandRepository: commandRepository,
-		configRepository:  configRepository,
-		records:           records,
+		StepBaseHandler: StepBaseHandler{Next: nil},
+		loaded:          loaded,
+		records:         records,
 	}
 }
 
 func (h *StepRunnerHandler) Handle(ctx *context.Context, request *StepRequestHandler) error {
-	commands, err := h.commandRepository.Get(ctx, request.PipelineLocalPath(), request.StepFullName())
+	material, err := h.loaded.Get(request.StepFullName())
 	if err != nil {
 		return fmt.Errorf("cargar commands: %w", err)
 	}
+	commands := material.CommandsCopy()
 
 	// Un step sin comandos no es un éxito: es un skip con razón. La diferencia
 	// no es de vocabulario —el step deja de persistir estado de re-ejecución, que
@@ -106,18 +105,17 @@ func (h *StepRunnerHandler) Handle(ctx *context.Context, request *StepRequestHan
 		return nil
 	}
 
-	// La configuración se lee AQUÍ, después de saber que hay algo que ejecutar y
-	// antes de decidir si ejecutarlo: trae el ámbito, que dice DÓNDE se consulta
+	// La configuración se anota AQUÍ, después de saber que hay algo que ejecutar
+	// y antes de decidir si ejecutarlo: trae el ámbito, que dice DÓNDE se consulta
 	// y dónde se escribirá (spec 13), y las reglas, que dicen CUÁNDO lo guardado
 	// deja de valer (spec 15). Que un `config.yaml` presente declare un `scope` y
 	// unas `rules` del vocabulario cerrado ya lo comprobó el validador de la
-	// spec 04 antes del primer step —llama a este mismo repositorio, y la
-	// gramática se valida al traducir— así que un error aquí es de lectura, no de
-	// vocabulario.
-	config, err := h.configRepository.Get(ctx, request.PipelineLocalPath(), request.StepFullName())
-	if err != nil {
-		return fmt.Errorf("cargar la configuración de %s: %w", request.StepNameExe(), err)
-	}
+	// spec 04 antes del primer step.
+	//
+	// Se LEÍA aquí hasta la spec 18. Ahora llega con el resto del material del
+	// step, y el orden de la cadena no cambia: el ámbito y las reglas se ponen en
+	// el request justo antes de que la decisión los mire.
+	config := material.Config
 	request.SetStepConfig(config)
 	h.warnIfOnlyExpires(request, config)
 

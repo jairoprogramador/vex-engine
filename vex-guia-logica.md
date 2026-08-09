@@ -342,7 +342,11 @@ comando.
 ### 5.1 Cadena de pipeline — una vez por ejecución
 
 1. **Clonar el proyecto** a desplegar.
-2. **Clonar el pipeline.**
+2. **Resolver la fuente del pipeline** — clonarlo, reutilizar el clon que ya está si sigue
+   dentro de su ventana (`clone_window` en `vexpipeline.yaml`, 24 h por defecto), o usar el
+   clon viejo si el remoto no responde. El tercer caso se registra como hecho
+   (`stale_clone_used`), porque la identidad se calcula sobre la fuente **realmente usada**.
+   El commit del clon se conserva como metadato.
 3. **Resolver el ambiente** — validarlo contra `environments.yaml`, o tomar el primero.
 4. **Cargar los steps** — leer `steps/` y quedarse con los que van del primero al pedido.
 5. **Copiar el pipeline** al directorio de trabajo (sección 6).
@@ -353,16 +357,31 @@ comando.
    especificada desde la spec 08: `internal/domain/fingerprint/SPEC-v1.md`. Entran el
    bit de ejecución de cada archivo y el destino de cada enlace simbólico; la huella
    lleva el prefijo `v1:` en todo lo que persiste y compara.
-9. **Ejecutar los steps** en orden, entrando en la cadena de step por cada uno.
+9. **Resolver la identidad del despliegue** — leer `commands.yaml`, `config.yaml` y
+   `variables/<ambiente>/<paso>.yaml` de **todos** los steps de la operación, calcular la
+   huella del árbol del pipelinecode con la misma regla que la del proyecto, componer el
+   objeto de despliegue y derivar sus dos identidades: `content_id` —qué se pretende
+   ejecutar— y `deployment_id` —en qué posición de la historia de este ambiente cae—. El
+   objeto se escribe y el intento se abre **antes del primer comando**.
+10. **Ejecutar los steps** en orden, entrando en la cadena de step por cada uno.
+
+El paso 9 es también donde el pipelinecode malformado se descubre: un `commands.yaml` roto
+de un step posterior aborta la ejecución antes de que corra el primero. **A partir de la
+spec 18, una comprobación sobre el pipelinecode que se haga por step dentro de la cadena de
+step es un error de diseño**, con un borde declarado: se cargan los steps de la operación
+—del primero al pedido—, así que un step POSTERIOR al pedido no se mira. Lo que sí ve el
+repositorio entero es el validador de estructura del paso 4.
 
 ### 5.2 Cadena de step — una vez por step
 
 1. **Cargar el almacén**: el último registro del ámbito de **proyecto** de ese step y,
    después, el del ámbito del **ambiente**, añadiendo las variables de los dos.
-2. **Cargar y resolver las variables declaradas** del step para ese ambiente.
-3. **Leer el `config.yaml` del step** (sección 8) y **decidir si se re-ejecuta**
-   (sección 7); si procede, recorrer sus comandos entrando en la cadena de comando por cada
-   uno.
+2. **Resolver las variables declaradas** del step para ese ambiente.
+3. **Decidir si se re-ejecuta** con el ámbito y las reglas de su `config.yaml` (secciones 7
+   y 8); si procede, recorrer sus comandos entrando en la cadena de comando por cada uno.
+
+Los pasos 2 y 3 **no leen del disco**: el material de los tres archivos del step lo cargó el
+paso 9 de la cadena de pipeline. Una sola lectura, una sola verdad.
 
 **Se leen los dos ámbitos y se escribe en uno.** El ámbito que el step declara decide
 **dónde vive su registro**, no qué puede ver: un step de ambiente ve lo que dejó un step de
@@ -1397,7 +1416,7 @@ leer las entradas que dependen de ellas. El detalle y el estado vivo están en
 | ¿Son legítimos los valores de variable vacíos? Hoy se prohíben, lo que hace inexpresable un parámetro opcional | P7 |
 | Un hash de un parámetro de baja entropía es reversible por fuerza bruta (`REPLICAS=3`), lo que contradice la promesa de «solo hashes, nunca valores». ¿Sal por proyecto? **P15 reduce la superficie** —lo hasheado son literales del pipelinecode, no valores producidos en runtime— pero no la elimina | P11, P15 |
 | Reglas del enmascarado de valores en los extractos: longitud mínima y orden de sustitución. **Se aplican también al campo `variables` del registro de step**, que puede llevar el valor en claro y puede sincronizarse a un destino remoto | P11, P16 |
-| Duración de la ventana del clon viejo, y si es configurable por proyecto | P6 |
+| ~~Duración de la ventana del clon viejo, y si es configurable por proyecto~~ **Cerrada por la spec 18: 24 h, configurable en `vexpipeline.yaml` (`clone_window`).** Con un efecto que hay que conocer: dentro de la ventana un cambio en el pipelinecode **no se ve**, así que un pipelinecode en desarrollo declara la suya corta (18 §9.1) | P6 |
 | **Retención de los registros de step.** Crecen sin límite: uno por ejecución real de cada step, para siempre. Aceptable durante mucho tiempo —son JSON pequeños—, pero cualquier política tiene que responder antes **hasta dónde debe alcanzar un rollback**, que es decisión de producto y no de almacenamiento | P16, P17 |
 | **`.git` como archivo en un worktree** rompe la comparabilidad de la huella entre máquinas. Con P15 la regla de árbol se aplica ahora a **dos raíces** —el proyecto y el directorio del step—, así que la superficie del defecto crece. Corregirlo es una `v2` de la regla, y debe decidirse antes de emitir el primer `content_id` — **ahora con dueño y fecha escritos**: `internal/domain/deployment/SPEC-CONTENT-v1.md` §9 lo declara defecto heredado de la regla `cnt-v1` y lo sitúa antes de la spec 18, que es la que emite | P9, P15 |
 | ~~**¿`record_id` es ULID o UUIDv7?** Misma pregunta que `event_id`~~ **Cerrada por P11 y P16, y NO con la misma respuesta.** `record_id` es un **ULID** (spec 11, implementada): su orden lexicográfico es el temporal y de ahí sale «el último registro se obtiene sin leer ninguno», porque los nombres de archivo se ordenan solos. `event_id` es un **UUIDv7** (spec 17, implementada): `google/uuid` ya era dependencia, así que ULID añadía una sin aportar nada, y el orden de los eventos no lo da el identificador sino `seq`. Dos identificadores circunstanciales con dos formatos, cada uno por su razón | P11, P16 |
@@ -1407,10 +1426,14 @@ leer las entradas que dependen de ellas. El detalle y el estado vivo están en
 ## Resumen del flujo end-to-end
 
 1. El motor recibe un **ambiente** y un **step**.
-2. Clona el proyecto y el pipeline, y copia el pipeline a un directorio de trabajo propio de
-   la terna (proyecto, pipeline, ambiente).
+2. Clona el proyecto, **resuelve la fuente del pipeline** —clon nuevo, clon reutilizado
+   dentro de su ventana, o clon viejo si el remoto no responde— y copia el pipeline a un
+   directorio de trabajo propio de la terna (proyecto, pipeline, ambiente).
 3. Calcula la versión del proyecto, inyecta las variables iniciales y computa la huella del
    código.
+3'. **Resuelve la identidad del despliegue**: carga el material de todos los steps de la
+   operación, compone el objeto, deriva `content_id` y `deployment_id`, escribe el objeto y
+   abre el intento. Todo esto **antes del primer comando**.
 4. Recorre los steps desde el primero hasta el pedido.
 5. Por cada step: carga las variables del último registro de cada ámbito (proyecto y
    ambiente), carga y resuelve las declaradas, y evalúa si algo cambió.

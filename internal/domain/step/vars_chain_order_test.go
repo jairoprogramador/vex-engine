@@ -72,7 +72,7 @@ func TestVarsChain_ElOrdenDeLosHandlersYaNoDecideQuienGana(t *testing.T) {
 			cadena := orden.armar(
 				domStep.NewVarsStoreHandler(registros),
 				domStep.NewVarsHandler(
-					varsDeclaradasDePrueba{}, domStep.NewDeclarationResolvers(registros)),
+					declaracionesCargadas(t), domStep.NewDeclarationResolvers(registros)),
 			)
 
 			request := domStep.NewStepRequestHandler(executionContext, "supply")
@@ -173,25 +173,25 @@ func (r *registrosDePrueba) Append(*context.Context, domState.Key, domState.Step
 	return nil
 }
 
-// varsDeclaradasDePrueba es el `variables/<ambiente>/<paso>.yaml` del
-// pipelinecode.
+// declaracionesCargadas es el `variables/<ambiente>/<paso>.yaml` del
+// pipelinecode, ya leído por el resolutor de la cadena de pipeline (spec 18
+// §5.2). El handler 02 dejó de leerlo: lo consume.
 //
-// Devuelve DECLARACIONES desde la spec 14, no variables ya resueltas: el
-// repositorio real dejó de resolver por su cuenta y el handler 02 es quien
-// convierte cada declaración en un valor —los literales con `OriginDeclared`,
-// las que nombran una fuente con `OriginResolved`—.
-type varsDeclaradasDePrueba struct{}
+// Son DECLARACIONES desde la spec 14, no variables ya resueltas: el repositorio
+// real dejó de resolver por su cuenta y el handler 02 es quien convierte cada
+// declaración en un valor —los literales con `OriginDeclared`, las que nombran
+// una fuente con `OriginResolved`—.
+func declaracionesCargadas(t *testing.T) *domStep.LoadedPipelinecode {
+	t.Helper()
 
-var _ domStep.VarsPipelineRepository = varsDeclaradasDePrueba{}
-
-func (varsDeclaradasDePrueba) Get(_ *context.Context, _, _, _ string) ([]domStep.VariableDeclaration, error) {
 	declarada, err := domStep.NewLiteralDeclaration("acr_name", "literal-homonimo")
-	if err != nil {
-		return nil, err
-	}
+	require.NoError(t, err)
 	propia, err := domStep.NewLiteralDeclaration("solo_declarada", "literal")
-	if err != nil {
-		return nil, err
-	}
-	return []domStep.VariableDeclaration{declarada, propia}, nil
+	require.NoError(t, err)
+
+	cargado := domStep.NewLoadedPipelinecode()
+	cargado.Put(stepDePrueba, domStep.LoadedStep{
+		Declarations: []domStep.VariableDeclaration{declarada, propia},
+	})
+	return cargado
 }

@@ -7,15 +7,27 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/application/usecase"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	pipDom "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
+	"github.com/jairoprogramador/vex-engine/internal/domain/record"
 	stepDom "github.com/jairoprogramador/vex-engine/internal/domain/step"
 	cmdInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/command"
+	deploymentInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/deployment"
 	pippInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
+	recordInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/record"
 	sharedInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/shared"
 	stateInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/state"
 	stepInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step"
 )
 
 const VexHomeDirName = ".vex"
+
+// Las dos tiendas del registro que viven en el ÁREA DE TRABAJO del motor, no en
+// el destino: nadie las lee durante la ejecución, así que se bufferizan aquí y
+// las empuja la spec 21. La cabeza del linaje, que sí se lee antes de decidir,
+// cuelga del destino (ver `newStateStores`).
+const (
+	objectsDirName = "objects"
+	eventsDirName  = "events"
+)
 
 // EngineConfig son las rutas del sistema de archivos con las que se cablea el
 // motor. Antes se derivaban dentro del factory (`os.UserHomeDir()` y una
@@ -63,9 +75,9 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	}
 
 	// Y el área de trabajo propia, que sí es dominio del motor y sí tiene
-	// default. Se resuelve —y se crea— aquí, aunque hasta la spec 19 no escriba
-	// nadie en ella: es lo que hace que «registrar es incondicional» sea una
-	// propiedad comprobable y no una intención.
+	// default. Desde la spec 18 ya no está vacía: ahí escriben el objeto de
+	// despliegue y los hechos del intento, que es lo que hace que «registrar es
+	// incondicional» sea una propiedad observable y no una intención.
 	stagingPath, err := resolveStagingDir(args.StagingDir, cfg.RootVexPath)
 	if err != nil {
 		return nil, err
@@ -73,6 +85,11 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 
 	projectsBasePath := filepath.Join(cfg.RootVexPath, VexHomeDirName, "projects")
 	pipelinesBasePath := filepath.Join(cfg.RootVexPath, VexHomeDirName, "pipelines")
+
+	// El reloj del proceso es la ÚNICA fuente de instantes del dominio: la usan
+	// el agregado (startedAt/finishedAt), el cálculo de versión (spec 07 §5.1),
+	// la ventana de reutilización del clon y el sobre de cada hecho (spec 18).
+	clock := sharedInfra.NewSystemClock()
 
 	// --- Infrastructure: pipeline ---
 	// Con el proyecto ya en disco (el CWD del host montado en el contenedor), en
@@ -84,7 +101,6 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	} else {
 		projectClonerRepo = pippInfra.NewProjectClonerRepository(projectsBasePath)
 	}
-	pipelineClonerRepo := pippInfra.NewPipelineClonerRepository(pipelinesBasePath)
 	pipelineEnvRepo := pippInfra.NewPipelineEnvironmentRepository()
 	pipelineStepRepo := pippInfra.NewPipelineStepRepository()
 
@@ -113,9 +129,11 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	projectTagRepo := pippInfra.NewProjectTagRepository()
 	contentFingerprint := pippInfra.NewContentFingerprint()
 
-	// El reloj del proceso es la ÚNICA fuente de instantes del dominio: la usan
-	// el agregado (startedAt/finishedAt) y el cálculo de versión (spec 07 §5.1).
-	clock := sharedInfra.NewSystemClock()
+	// El clonador del pipelinecode necesita el manifiesto y el reloj desde la
+	// spec 18: la ventana de reutilización la declara el pipelinecode y la edad
+	// del clon se mide contra la marca que él mismo deja (§5.4).
+	pipelineClonerRepo := pippInfra.NewPipelineClonerRepository(
+		pipelinesBasePath, pipelineManifestRepo, clock)
 
 	// --- Infrastructure: almacén de registros de step e índice (specs 11 y 16) ---
 	//
@@ -136,16 +154,55 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	fileSystem := cmdInfra.NewFileSystemManager()
 	shellRunner := cmdInfra.NewShellCommandRunner()
 
-	// --- Domain: pipeline handler chain (orden 01 → 09) ---
+	// --- Infrastructure: registro de despliegue (specs 17 y 18) ---
+	//
+	// Las tres tiendas NO cuelgan del mismo sitio, y la diferencia no es de gusto
+	// sino de quién las lee (spec 21 §5.1):
+	//
+	//	objects/  events/   →  área de trabajo. Nadie las lee durante la ejecución,
+	//	                       así que se bufferizan y las empuja la spec 21.
+	//	lineage/            →  DESTINO. Hay que leer la cabeza ANTES de ejecutar:
+	//	                       sin `parent` no hay posición, y una historia que
+	//	                       empieza vacía en cada máquina efímera derivaría dos
+	//	                       veces el mismo `deployment_id`.
+	objectStore := deploymentInfra.NewFileObjectStore(filepath.Join(stagingPath, objectsDirName))
+	eventSink := recordInfra.NewJSONLEventSink(filepath.Join(stagingPath, eventsDirName))
+	lineageStore := stores.lineages
+	emitter := record.NewEmitter(clock, recordInfra.NewUUIDv7EventIDFactory(), eventSink)
+
+	// El material del pipelinecode se lee UNA vez, en la cadena de pipeline, y la
+	// de step lo consume (spec 18 §5.2). El objeto lo comparten los dos lados
+	// porque no hay otro canal: el `ExecutionContext` vive en `command`, que no
+	// puede importar `step` sin un ciclo.
+	loadedPipelinecode := stepDom.NewLoadedPipelinecode()
+
+	// --- Domain: pipeline handler chain (orden 01 → 10) ---
+	//
+	// El eslabón nuevo es el 09, y con él la cadena deja de ser «prepara y
+	// ejecuta» para ser «declara qué vas a hacer y luego hazlo». Va en la 09 y no
+	// antes porque la identidad se calcula sobre la fuente REALMENTE USADA:
+	// necesita que el clonador ya haya decidido si trae el pipelinecode o
+	// reutiliza el que hay (spec 18 §5.4).
 	pipelineHead := chainPipelineHandlers(
 		pipDom.NewProjectClonerHandler(projectClonerRepo),
-		pipDom.NewPipelineClonerHandler(pipelineClonerRepo),
+		pipDom.NewPipelineClonerHandler(pipelineClonerRepo, emitter),
 		pipDom.NewEnvironmentLoaderHandler(pipelineEnvRepo),
 		pipDom.NewStepsLoaderHandler(pipelineStepRepo, pipelineStructureValidator),
 		pipDom.NewCopyWorkdirHandler(pipelineWorkdirRepo),
 		pipDom.NewVersionCalculatorHandler(projectTagRepo, clock),
 		pipDom.NewInitVarsHandler(),
 		pipDom.NewProjectStatusHandler(contentFingerprint),
+		pipDom.NewDeploymentResolverHandler(
+			pipelineCommandRepo,
+			pipelineStepConfigRepo,
+			pipelineVarsRepo,
+			pipelineManifestRepo,
+			contentFingerprint,
+			loadedPipelinecode,
+			objectStore,
+			lineageStore,
+			emitter,
+		),
 		pipDom.NewPipelineRunnerHandler(),
 	)
 	executablePipeline := pipDom.NewPipelineExecutable(pipelineHead)
@@ -191,8 +248,8 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	// caché de resolución, no el modelo.
 	stepHead := chainStepHandlers(
 		stepDom.NewVarsStoreHandler(records),
-		stepDom.NewVarsHandler(pipelineVarsRepo, stepDom.NewDeclarationResolvers(records)),
-		stepDom.NewStepRunnerHandler(pipelineCommandRepo, pipelineStepConfigRepo, records),
+		stepDom.NewVarsHandler(loadedPipelinecode, stepDom.NewDeclarationResolvers(records)),
+		stepDom.NewStepRunnerHandler(loadedPipelinecode, records),
 	)
 	executableStep := stepDom.NewStepExecutable(stepHead, records, recordIDs, entries)
 

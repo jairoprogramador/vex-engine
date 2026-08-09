@@ -84,11 +84,13 @@ type RunArgs struct {
 type RunCommand struct {
 	createExec *usecase.CreateExecutionUseCase
 
-	// destino y stagingDir no los usa Execute todavía: los escribe la spec 21,
-	// que empuja lo registrado desde el área de trabajo hacia el destino. Están
-	// aquí porque los dos se RESUELVEN al cablear —el destino se comprueba antes
+	// destino y stagingDir se RESUELVEN al cablear —el destino se comprueba antes
 	// del primer step y el área de trabajo se crea— y quien los resolvió es quien
 	// tiene que poder decir cuáles son.
+	//
+	// Desde la spec 18 el área de trabajo deja de estar vacía: ahí escriben
+	// `objects/` y `events/`. Lo que sigue sin llamador es el EMPUJE desde ella
+	// hacia el destino, que es de la spec 21.
 	destino    syncconfig.Config
 	stagingDir string
 }

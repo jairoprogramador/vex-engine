@@ -48,6 +48,9 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
 	"github.com/jairoprogramador/vex-engine/internal/domain/state"
 	infraCache "github.com/jairoprogramador/vex-engine/internal/infrastructure/cache"
+	infraDeployment "github.com/jairoprogramador/vex-engine/internal/infrastructure/deployment"
+	infraPipeline "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
+	infraRecord "github.com/jairoprogramador/vex-engine/internal/infrastructure/record"
 	stateInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/state"
 	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
 )
@@ -114,6 +117,18 @@ const (
 	fixtureEnvironment = "sand"
 	fixtureStep        = "supply"
 )
+
+// ventanaDelFixture es la ventana de reutilización del clon que declara el
+// pipelinecode de prueba (spec 18 §5.4), y es diminuta a propósito: el fixture
+// CAMBIA entre corridas —los casos commitean otro `commands.yaml` y vuelven a
+// ejecutar— así que con la ventana por defecto de 24 h la segunda corrida
+// reutilizaría el clon y no vería el cambio.
+//
+// Un pipelinecode que se está escribiendo declara una ventana corta, que es
+// exactamente la razón por la que el parámetro lo declara el pipelinecode y no
+// el motor. La ventana por defecto y la reutilización de verdad las miden los
+// casos que hablan de ellas, borrando esta línea del fixture.
+const ventanaDelFixture = "clone_window: 1ms\n"
 
 var harnessSeq struct {
 	sync.Mutex
@@ -580,6 +595,168 @@ func (h *harness) envejecerRegistros(edad time.Duration) {
 	require.NotZero(h.t, tocados, "no había ningún registro que envejecer")
 }
 
+// ── El registro de despliegue (spec 18) ─────────────────────────────────────
+
+// objetos son los objetos de despliegue escritos, ordenados por `content_id`.
+//
+// Viven en el ÁREA DE TRABAJO y no en el destino: nadie los lee durante la
+// ejecución, así que se bufferizan y los empuja la spec 21. El área es estable
+// entre corridas del mismo harness, así que esta lista ACUMULA — y que dos
+// corridas idénticas dejen UN objeto es la forma directa de observar que la
+// tienda es write-once y direccionada por contenido.
+func (h *harness) objetos() []infraDeployment.FileObjectDTO {
+	h.t.Helper()
+
+	objetos := make([]infraDeployment.FileObjectDTO, 0, 2)
+	err := filepath.WalkDir(filepath.Join(h.staging, "objects"),
+		func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || filepath.Ext(path) != ".json" {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			var dto infraDeployment.FileObjectDTO
+			if err := json.Unmarshal(data, &dto); err != nil {
+				return fmt.Errorf("decodificar %s: %w", path, err)
+			}
+			objetos = append(objetos, dto)
+			return nil
+		})
+	if os.IsNotExist(err) {
+		return objetos
+	}
+	require.NoError(h.t, err)
+
+	sort.Slice(objetos, func(i, j int) bool { return objetos[i].ContentID < objetos[j].ContentID })
+	return objetos
+}
+
+// elObjeto es el único objeto escrito. Falla si hay más de uno: los casos que
+// esperan varios los enumeran con `objetos()`.
+func (h *harness) elObjeto() infraDeployment.FileObjectDTO {
+	h.t.Helper()
+	objetos := h.objetos()
+	require.Len(h.t, objetos, 1, "se esperaba exactamente un objeto de despliegue")
+	return objetos[0]
+}
+
+// hechos son los eventos escritos, en el orden de `seq` dentro de cada tira.
+//
+// Se leen del JSONL con el DTO real: lo que el motor escribe es lo que un
+// ingestor de otra plataforma va a leer, y una prueba que reconstruyera el
+// evento por otra vía no estaría comprobando eso.
+func (h *harness) hechos() []infraRecord.JSONLEventDTO {
+	h.t.Helper()
+
+	hechos := make([]infraRecord.JSONLEventDTO, 0, 4)
+	err := filepath.WalkDir(filepath.Join(h.staging, "events"),
+		func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || filepath.Ext(path) != ".jsonl" {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			for _, linea := range strings.Split(string(data), "\n") {
+				if strings.TrimSpace(linea) == "" {
+					continue
+				}
+				var dto infraRecord.JSONLEventDTO
+				if err := json.Unmarshal([]byte(linea), &dto); err != nil {
+					return fmt.Errorf("decodificar un hecho de %s: %w", path, err)
+				}
+				hechos = append(hechos, dto)
+			}
+			return nil
+		})
+	if os.IsNotExist(err) {
+		return hechos
+	}
+	require.NoError(h.t, err)
+
+	sort.SliceStable(hechos, func(i, j int) bool { return hechos[i].Seq < hechos[j].Seq })
+	return hechos
+}
+
+// hechosDeTipo filtra el vocabulario.
+func (h *harness) hechosDeTipo(tipo string) []infraRecord.JSONLEventDTO {
+	h.t.Helper()
+	filtrados := make([]infraRecord.JSONLEventDTO, 0, 2)
+	for _, hecho := range h.hechos() {
+		if hecho.Type == tipo {
+			filtrados = append(filtrados, hecho)
+		}
+	}
+	return filtrados
+}
+
+// cabezaDelLinaje es el último `deployment_id` registrado para un ambiente.
+//
+// Cuelga del DESTINO y no del área de trabajo: hay que leerla ANTES de decidir,
+// y una historia que empezara vacía en cada máquina efímera derivaría dos veces
+// la misma posición.
+func (h *harness) cabezaDelLinaje(environment string) string {
+	h.t.Helper()
+
+	patron := filepath.Join(h.destino, "lineage", "*", environment+".json")
+	matches, err := filepath.Glob(patron)
+	require.NoError(h.t, err)
+	if len(matches) == 0 {
+		return ""
+	}
+	require.Len(h.t, matches, 1)
+
+	data, err := os.ReadFile(matches[0])
+	require.NoError(h.t, err)
+	var dto infraDeployment.FileLineageDTO
+	require.NoError(h.t, json.Unmarshal(data, &dto))
+	return dto.Head
+}
+
+// elRemotoNoResponde retira el pipelinecode del transporte en proceso: a partir
+// de aquí, clonarlo falla como falla un remoto caído.
+func (h *harness) elRemotoNoResponde() {
+	h.t.Helper()
+	gitRepos.Delete(endpointPath(h.pipelineURL))
+}
+
+// envejecerElClon retrasa la marca de clonación, que es lo que la ventana de
+// reutilización mide (spec 18 §5.4).
+//
+// Es el gemelo de `envejecerRegistros` y existe por lo mismo: el instante lo
+// pone el reloj del proceso a través del cableado real, así que no hay dónde
+// inyectar otro sin dejar de probar el cableado que se quiere probar.
+func (h *harness) envejecerElClon(edad time.Duration) {
+	h.t.Helper()
+
+	patron := filepath.Join(h.root, cli.VexHomeDirName, "pipelines", ".clones", "*.json")
+	matches, err := filepath.Glob(patron)
+	require.NoError(h.t, err)
+	require.Len(h.t, matches, 1, "no había ninguna marca de clon que envejecer")
+
+	data, err := os.ReadFile(matches[0])
+	require.NoError(h.t, err)
+	var dto infraPipeline.FileCloneMarkerDTO
+	require.NoError(h.t, json.Unmarshal(data, &dto))
+
+	clonedAt, err := time.Parse(time.RFC3339Nano, dto.ClonedAt)
+	require.NoError(h.t, err)
+	dto.ClonedAt = clonedAt.Add(-edad).Format(time.RFC3339Nano)
+
+	reescrito, err := json.Marshal(dto)
+	require.NoError(h.t, err)
+	require.NoError(h.t, os.WriteFile(matches[0], reescrito, 0o644))
+}
+
 // borrarElIndice es la comprobación de la spec 11 §5.5.1 hecha ejecutable:
 // `rm -rf $HOME/.vex/cache` no puede cambiar una sola decisión del motor.
 func (h *harness) borrarElIndice() {
@@ -631,14 +808,46 @@ func (h *harness) cacheEntries() []string {
 func (h *harness) workdirFile(relPath string) string {
 	h.t.Helper()
 
-	patron := filepath.Join(h.root, cli.VexHomeDirName, "projects", "*", "workdirs", "*", fixtureEnvironment, relPath)
-	matches, err := filepath.Glob(patron)
+	matches, err := filepath.Glob(filepath.Join(h.workdirRoot(), relPath))
 	require.NoError(h.t, err)
 	require.Len(h.t, matches, 1, "se esperaba exactamente un workdir con %s", relPath)
 
 	data, err := os.ReadFile(matches[0])
 	require.NoError(h.t, err)
 	return string(data)
+}
+
+// workdirRoot es la copia de trabajo del pipelinecode para el ambiente del
+// fixture.
+func (h *harness) workdirRoot() string {
+	h.t.Helper()
+
+	patron := filepath.Join(
+		h.root, cli.VexHomeDirName, "projects", "*", "workdirs", "*", fixtureEnvironment)
+	matches, err := filepath.Glob(patron)
+	require.NoError(h.t, err)
+	require.Len(h.t, matches, 1, "se esperaba exactamente un workdir")
+	return matches[0]
+}
+
+// workdirTiene dice si un archivo sigue en la copia de trabajo. Es lo que mide
+// la poda de la spec 18 §5.4.
+func (h *harness) workdirTiene(relPath string) bool {
+	h.t.Helper()
+	_, err := os.Stat(filepath.Join(h.workdirRoot(), relPath))
+	if err == nil {
+		return true
+	}
+	require.True(h.t, os.IsNotExist(err), "stat del workdir: %v", err)
+	return false
+}
+
+// escribirEnElWorkdir simula lo que un comando GENERA dentro de su directorio de
+// trabajo —el `.terraform/` de un `terraform init`, el `target/` de un build—.
+// No es copia del pipelinecode, así que la poda no puede tocarlo.
+func (h *harness) escribirEnElWorkdir(relPath, contenido string) {
+	h.t.Helper()
+	writeFile(h.t, filepath.Join(h.workdirRoot(), relPath), contenido)
 }
 
 // assertNingunaVariableAnonima es el invariante GLOBAL de la spec 03: ninguna
@@ -691,6 +900,26 @@ func (h *harness) commitPipelineFile(relPath, content string) {
 	h.t.Helper()
 	writeFile(h.t, filepath.Join(h.pipelineDir, relPath), content)
 	commitAll(h.t, h.pipelineDir, "fix: cambio de pipelinecode")
+}
+
+// borrarPipelineFile retira un archivo del pipelinecode y lo commitea. Es la
+// mitad que `commitPipelineFile` no puede montar: una AUSENCIA.
+func (h *harness) borrarPipelineFile(relPath string) {
+	h.t.Helper()
+	require.NoError(h.t, os.Remove(filepath.Join(h.pipelineDir, relPath)))
+	commitAll(h.t, h.pipelineDir, "fix: retira un archivo del pipelinecode")
+}
+
+// pipelineHead es el commit del repositorio del pipelinecode. Lo que el motor
+// guarda como METADATO del objeto —nunca como identidad— tiene que poder
+// compararse con la fuente.
+func (h *harness) pipelineHead() string {
+	h.t.Helper()
+	repo, err := gogit.PlainOpen(h.pipelineDir)
+	require.NoError(h.t, err)
+	head, err := repo.Head()
+	require.NoError(h.t, err)
+	return head.Hash().String()
 }
 
 // writeProjectFile cambia el árbol de trabajo del proyecto. En modo local el

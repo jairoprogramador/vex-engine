@@ -52,10 +52,18 @@ func TestDestination(t *testing.T) {
 		assert.True(t, destino.Equals(destino))
 	})
 
-	t.Run("shared está reservada y no puede ser un ambiente", func(t *testing.T) {
-		_, err := deployment.NewDestination("shared")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "shared")
+	// NINGUNA palabra del usuario está reservada, y `shared` la menos.
+	//
+	// La spec 04 §5.4 la prohibió para arreglar una colisión de rutas y la
+	// spec 13 §5.5 DEROGÓ la reserva al cambiar la clave: el ámbito de ambiente
+	// viaja siempre prefijado, así que `shared` produce `environment:shared` y no
+	// pisa a nadie. Este caso afirmaba lo contrario —la 17 reintrodujo la reserva
+	// sin que ningún camino de ejecución construyera todavía un `Destination`— y
+	// se invierte con la spec 18, que es la primera que lo construye de verdad.
+	t.Run("shared es un ambiente como cualquier otro", func(t *testing.T) {
+		destino, err := deployment.NewDestination("shared")
+		require.NoError(t, err)
+		assert.Equal(t, "shared", destino.String())
 	})
 
 	t.Run("un nombre que rompería una ruta es un error, no una ruta rara", func(t *testing.T) {

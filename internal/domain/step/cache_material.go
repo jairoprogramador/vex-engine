@@ -34,7 +34,7 @@ func NewCacheMaterial(
 	commands []command.Command,
 	watched StateChangedRule) (cache.Material, error) {
 
-	instructions, err := fingerprint.ComputeInstructions(instructionMaterialOf(commands))
+	instructions, err := NewInstructionsFingerprint(commands)
 	if err != nil {
 		return cache.Material{}, fmt.Errorf("huella de las instrucciones: %w", err)
 	}
@@ -89,6 +89,18 @@ func NewCacheMaterial(
 	material.Code = code
 
 	return material, nil
+}
+
+// NewInstructionsFingerprint es la huella `inst-v1` de los comandos que un step
+// DECLARA.
+//
+// Se expone porque tiene dos consumidores desde la spec 18 y las dos preguntas
+// son la misma: la huella del step —material de `cache.Material`— y el material
+// del objeto de despliegue —`deployment.StepContent`—. Componerla dos veces con
+// dos traducciones sería la segunda fuente de verdad que un identificador por
+// contenido no tolera, y la traducción es justo lo que vive en este archivo.
+func NewInstructionsFingerprint(commands []command.Command) (fingerprint.Fingerprint, error) {
+	return fingerprint.ComputeInstructions(instructionMaterialOf(commands))
 }
 
 func instructionMaterialOf(commands []command.Command) []fingerprint.InstructionMaterial {

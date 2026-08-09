@@ -280,6 +280,7 @@ func (rh *StepRequestHandler) Emit(line string) {
 	rh.executionContext.Emit(line)
 }
 
-func (rh *StepRequestHandler) PipelineLocalPath() string {
-	return rh.executionContext.PipelineLocalPath()
-}
+// AQUÍ vivía `PipelineLocalPath()`, y con él la última razón por la que la
+// cadena de step conocía el disco. La retira la spec 18 §5.2: el material del
+// step llega cargado por el resolutor de la cadena de pipeline, así que ningún
+// handler de aquí compone ya una ruta del pipelinecode.

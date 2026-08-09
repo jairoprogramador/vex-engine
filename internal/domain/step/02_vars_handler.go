@@ -24,27 +24,36 @@ var variableInterpolationRegex = regexp.MustCompile(`\$\{var\.`)
 // Primero las fuentes, porque un literal puede interpolar una variable resuelta
 // por declaración y al revés no: una declaración nombra su fuente, no la deduce
 // del mapa.
+//
+// # Ya no lee del disco (spec 18 §5.2)
+//
+// Las declaraciones llegan cargadas por el resolutor de la cadena de pipeline.
+// El handler leía `variables/<ambiente>/<paso>.yaml` justo antes de usarlo, que
+// es la capa más interna decidiendo sobre material de la más externa —y la razón
+// de que la identidad de la operación no se pudiera componer antes de ejecutar—.
+// Lo que hace este handler es resolver, que es lo suyo.
 type VarsHandler struct {
 	StepBaseHandler
-	repository VarsPipelineRepository
-	resolvers  DeclarationResolvers
+	loaded    *LoadedPipelinecode
+	resolvers DeclarationResolvers
 }
 
 var _ StepHandler = (*VarsHandler)(nil)
 
-func NewVarsHandler(varsRepository VarsPipelineRepository, resolvers DeclarationResolvers) StepHandler {
+func NewVarsHandler(loaded *LoadedPipelinecode, resolvers DeclarationResolvers) StepHandler {
 	return &VarsHandler{
 		StepBaseHandler: StepBaseHandler{Next: nil},
-		repository:      varsRepository,
+		loaded:          loaded,
 		resolvers:       resolvers,
 	}
 }
 
 func (h *VarsHandler) Handle(ctx *context.Context, request *StepRequestHandler) error {
-	declarations, err := h.repository.Get(ctx, request.PipelineLocalPath(), request.Environment(), request.StepName())
+	loaded, err := h.loaded.Get(request.StepFullName())
 	if err != nil {
 		return fmt.Errorf("cargar vars pipeline: %w", err)
 	}
+	declarations := loaded.DeclarationsCopy()
 
 	literals, sourced := partitionDeclarations(declarations)
 

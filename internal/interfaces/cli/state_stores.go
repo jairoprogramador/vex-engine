@@ -5,9 +5,11 @@ import (
 	"path/filepath"
 
 	cacheDom "github.com/jairoprogramador/vex-engine/internal/domain/cache"
+	deploymentDom "github.com/jairoprogramador/vex-engine/internal/domain/deployment"
 	stateDom "github.com/jairoprogramador/vex-engine/internal/domain/state"
 	"github.com/jairoprogramador/vex-engine/internal/domain/syncconfig"
 	cacheInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/cache"
+	deploymentInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/deployment"
 	stateInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/state"
 )
 
@@ -17,8 +19,9 @@ import (
 // debe ser construible, porque el índice apunta a registros por identificador y
 // esos identificadores sólo significan algo dentro de su almacén.
 type stateStores struct {
-	records stateDom.Records
-	entries cacheDom.Entries
+	records  stateDom.Records
+	entries  cacheDom.Entries
+	lineages deploymentDom.LineageStore
 }
 
 // Los dos directorios existen separados para que sus reglas de vida se vean
@@ -29,9 +32,14 @@ type stateStores struct {
 //	        verdad en la nube. No se borra nunca (spec 11).
 //	cache/  es el ÍNDICE. Derivable, desechable, y no participa en ninguna
 //	        decisión: `rm -rf` sobre él no cambia lo que el motor decide.
+//	lineage/ es la CABEZA de la historia de cada ambiente (spec 18). Cuelga del
+//	        destino y no del área de trabajo por la misma razón que las otras
+//	        dos: hay que leerla ANTES de decidir, y una historia que empieza
+//	        vacía en cada máquina efímera derivaría dos veces la misma posición.
 const (
-	stateDirName = "state"
-	cacheDirName = "cache"
+	stateDirName   = "state"
+	cacheDirName   = "cache"
+	lineageDirName = "lineage"
 )
 
 // newStateStores construye la familia del destino configurado.
@@ -60,7 +68,8 @@ func newStateStores(cfg syncconfig.Config) (stateStores, error) {
 
 		statePath := filepath.Join(base, stateDirName)
 		cachePath := filepath.Join(base, cacheDirName)
-		for _, dir := range []string{statePath, cachePath} {
+		lineagePath := filepath.Join(base, lineageDirName)
+		for _, dir := range []string{statePath, cachePath, lineagePath} {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return stateStores{}, inputErrorf(
 					"vexd run: el destino 'local' no es escribible (%s): %w", dir, err)
@@ -68,8 +77,9 @@ func newStateStores(cfg syncconfig.Config) (stateStores, error) {
 		}
 
 		return stateStores{
-			records: stateInfra.NewFileRecordsRepository(statePath),
-			entries: cacheInfra.NewFileEntriesRepository(cachePath),
+			records:  stateInfra.NewFileRecordsRepository(statePath),
+			entries:  cacheInfra.NewFileEntriesRepository(cachePath),
+			lineages: deploymentInfra.NewFileLineageStore(lineagePath),
 		}, nil
 
 	default:
