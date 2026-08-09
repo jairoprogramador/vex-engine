@@ -147,6 +147,11 @@ func registrosConVariables(t *testing.T) domState.Records {
 	return &registrosDePrueba{t: t}
 }
 
+// Get no lo usa la cadena de variables: se cumple el puerto y nada más.
+func (r *registrosDePrueba) Get(*context.Context, domState.Key, domState.RecordID) (domState.StepRecord, bool, error) {
+	return domState.StepRecord{}, false, nil
+}
+
 func (r *registrosDePrueba) Last(_ *context.Context, key domState.Key) (domState.StepRecord, bool, error) {
 	nombrePropio := "solo_ambiente"
 	valor := "del-ambito-ambiente"

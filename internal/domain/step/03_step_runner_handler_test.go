@@ -286,6 +286,12 @@ type registrosConUltimo struct {
 
 var _ domState.Records = (*registrosConUltimo)(nil)
 
+// Get no participa de la decisión de re-ejecutar: la regla mira el ÚLTIMO
+// registro, nunca uno concreto.
+func (r *registrosConUltimo) Get(*context.Context, domState.Key, domState.RecordID) (domState.StepRecord, bool, error) {
+	return domState.StepRecord{}, false, nil
+}
+
 func (r *registrosConUltimo) Last(*context.Context, domState.Key) (domState.StepRecord, bool, error) {
 	return r.ultimo, r.hay, nil
 }

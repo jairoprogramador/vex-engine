@@ -118,6 +118,52 @@ func TestRecords_Contrato(t *testing.T) {
 					"las variables viejas se seguirían cargando en cada ejecución")
 			})
 
+			t.Run("un registro CONCRETO se lee por su identificador", func(t *testing.T) {
+				// `Last` no puede responder «¿qué registro estuvo vigente AQUÍ?»,
+				// y ésa es la pregunta de `evidence_from` (spec 17) y del ancla de
+				// un rollback (spec 28).
+				repo := impl.construir(t)
+				clave := claveDeAmbiente(t, "02-supply")
+
+				viejo := registro(t, instante, "ck-v1:aaa", variable(t, "acr", "viejo"))
+				nuevo := registro(t, instante.Add(time.Second), "ck-v1:bbb",
+					variable(t, "acr", "nuevo"))
+				require.NoError(t, repo.Append(ctx(), clave, viejo))
+				require.NoError(t, repo.Append(ctx(), clave, nuevo))
+
+				leido, existe, err := repo.Get(ctx(), clave, viejo.ID())
+				require.NoError(t, err)
+				require.True(t, existe)
+				assert.Equal(t, "viejo", leido.Variables()[0].Value(),
+					"el anclado, no el último")
+				assert.Equal(t, "ck-v1:aaa", leido.StepFingerprint())
+			})
+
+			t.Run("un registro que no está NO consta, y no es un error", func(t *testing.T) {
+				// Misma asimetría que `Last`: el registro apuntado pudo no haberse
+				// escrito nunca, y quien pregunta necesita distinguirlo de una
+				// corrupción.
+				repo := impl.construir(t)
+				clave := claveDeAmbiente(t, "02-supply")
+				huerfano := registro(t, instante, "ck-v1:aaa")
+
+				_, existe, err := repo.Get(ctx(), clave, huerfano.ID())
+
+				require.NoError(t, err)
+				assert.False(t, existe)
+			})
+
+			t.Run("pedir un registro sin clave o sin identificador es un error", func(t *testing.T) {
+				repo := impl.construir(t)
+				algun := registro(t, instante, "ck-v1:aaa")
+
+				_, _, err := repo.Get(ctx(), domState.Key{}, algun.ID())
+				require.Error(t, err)
+
+				_, _, err = repo.Get(ctx(), claveDeAmbiente(t, "02-supply"), domState.RecordID{})
+				require.Error(t, err)
+			})
+
 			t.Run("los ámbitos y los steps no se mezclan", func(t *testing.T) {
 				repo := impl.construir(t)
 				deAmbiente := claveDeAmbiente(t, "02-supply")

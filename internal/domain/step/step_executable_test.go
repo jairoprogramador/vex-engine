@@ -550,6 +550,10 @@ type recordsEspia struct {
 
 var _ domState.Records = (*recordsEspia)(nil)
 
+func (r *recordsEspia) Get(*context.Context, domState.Key, domState.RecordID) (domState.StepRecord, bool, error) {
+	return domState.StepRecord{}, false, nil
+}
+
 func (r *recordsEspia) Last(*context.Context, domState.Key) (domState.StepRecord, bool, error) {
 	return domState.StepRecord{}, false, nil
 }

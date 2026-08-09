@@ -136,7 +136,48 @@ func (r *FileRecordsRepository) Last(_ *context.Context, key domState.Key) (domS
 		return domState.StepRecord{}, false, nil
 	}
 
-	path := filepath.Join(dir, name)
+	return r.read(filepath.Join(dir, name))
+}
+
+// Get lee el archivo cuyo nombre ES el `record_id`.
+//
+// La ruta se compone, no se busca: el identificador viene de un `RecordID` ya
+// validado —26 símbolos del alfabeto de Crockford—, así que no puede contener un
+// separador ni una travesía de directorios. Es lo que permite que aquí no haya
+// una segunda validación de ruta que envejecería por separado de la del value
+// object.
+//
+// Ausencia NO es error: el registro apuntado —por un evento viejo, por un índice
+// que sobrevivió a lo que apuntaba— pudo desaparecer o no haberse escrito nunca,
+// y quien pregunta necesita distinguirlo de una corrupción.
+func (r *FileRecordsRepository) Get(
+	_ *context.Context, key domState.Key, recordID domState.RecordID) (domState.StepRecord, bool, error) {
+
+	if key.IsZero() {
+		return domState.StepRecord{}, false, errors.New("file records repository: clave vacía")
+	}
+	if recordID.IsZero() {
+		return domState.StepRecord{}, false, errors.New("file records repository: record_id vacío")
+	}
+
+	path := filepath.Join(r.keyDir(key), recordID.String()+recordFileExt)
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return domState.StepRecord{}, false, nil
+		}
+		return domState.StepRecord{}, false, fmt.Errorf(
+			"file records repository: comprobar %s: %w", path, err)
+	}
+	return r.read(path)
+}
+
+// read decodifica un registro ya localizado.
+//
+// Ilegible es ERROR, no ausencia (spec 11 §5.6). Incluido el archivo vacío: un
+// registro se escribe entero de una vez, así que cero bytes sólo puede ser
+// corrupción, y leerla como «no consta» perdería en silencio la pista de un
+// recurso real.
+func (r *FileRecordsRepository) read(path string) (domState.StepRecord, bool, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return domState.StepRecord{}, false, fmt.Errorf(
@@ -144,10 +185,6 @@ func (r *FileRecordsRepository) Last(_ *context.Context, key domState.Key) (domS
 	}
 	defer file.Close()
 
-	// Ilegible es ERROR, no ausencia (spec 11 §5.6). Incluido el archivo vacío:
-	// un registro se escribe entero de una vez, así que cero bytes sólo puede
-	// ser corrupción, y leerla como «no consta» perdería en silencio la pista de
-	// un recurso real.
 	var dto FileStepRecordDTO
 	if err := json.NewDecoder(file).Decode(&dto); err != nil {
 		return domState.StepRecord{}, false, fmt.Errorf(

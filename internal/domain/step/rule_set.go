@@ -3,6 +3,7 @@ package step
 import (
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // RuleSet son las reglas que un step declara, combinadas con OR.
@@ -99,6 +100,33 @@ func (s RuleSet) RequiresRun(subject RuleSubject) (RuleKind, bool) {
 // que calcularle una sería trabajo cuyo resultado nadie lee.
 func (s RuleSet) StateChanged() (StateChangedRule, bool) {
 	return s.stateChanged, s.watchesState
+}
+
+// ruleSetSep separa una regla de la siguiente en la forma canónica del
+// conjunto. Es DISTINTO de `ruleFieldSep` a propósito: con el mismo separador en
+// los dos niveles, un conjunto de dos reglas y una sola regla con dos campos
+// podrían producir la misma cadena, y la regla dejaría de ser inyectiva.
+const ruleSetSep = "\x1f"
+
+// Canonical es lo que el conjunto aporta a la IDENTIDAD de un step: las reglas
+// declaradas, cada una con su parametrización, EN SU ORDEN.
+//
+// El orden entra porque significa algo: es el orden de evaluación, y por tanto
+// el que decide qué motivo se emite cuando dos reglas se cumplen a la vez.
+// Reordenar `rules` cambia lo que el usuario verá, así que cambia el contenido.
+//
+// El conjunto vacío produce la cadena vacía, que es la forma canónica de «este
+// step no declara nada que invalide su trabajo» — un hecho, distinguible de «no
+// hay `config.yaml`» porque ese caso además no declara ámbito.
+func (s RuleSet) Canonical() string {
+	if s.IsEmpty() {
+		return ""
+	}
+	canonical := make([]string, 0, len(s.rules))
+	for _, rule := range s.rules {
+		canonical = append(canonical, rule.Canonical())
+	}
+	return strings.Join(canonical, ruleSetSep)
 }
 
 // ExpiresWithoutInvalidating es la configuración válida y peligrosa de §5.4:

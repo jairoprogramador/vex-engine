@@ -34,4 +34,27 @@ type Records interface {
 	// ilegible ⇒ error, porque la duda no se puede resolver ejecutando sin
 	// arriesgar un recurso duplicado (spec 11 §5.6).
 	Last(ctx *context.Context, key Key) (StepRecord, bool, error)
+
+	// Get devuelve UN registro concreto de una clave.
+	//
+	// Responde una pregunta que `Last` no puede: «¿qué registro estuvo vigente
+	// AQUÍ?». La necesitan dos consumidores y por eso existe una sola vez —lo
+	// pedían la spec 17 y la 28, «la primera que llegue»—:
+	//
+	//	spec 17  `evidence_from` en `step_finished`: la procedencia del registro
+	//	         que un step invocó, para responder «¿cuándo se testeó esto por
+	//	         última vez?»
+	//	spec 28  el ancla de un rollback: el registro que estuvo vigente en una
+	//	         ejecución PASADA, que no es el último
+	//
+	// El dato ya estaba: el índice guarda el par `{state_key, record_id}` y el
+	// nombre del archivo ES el `record_id`. Lo que faltaba era el método.
+	//
+	// Misma asimetría que `Last`, y por la misma razón: ausencia NO es error
+	// —el registro apuntado pudo no haberse escrito nunca—, ilegible SÍ, porque
+	// esa duda no se resuelve ejecutando sin arriesgar un recurso duplicado.
+	//
+	// Sigue sin haber `Delete` ni `Update`, y no deben aparecer: un rollback es
+	// una ejecución NUEVA que escribe registros nuevos.
+	Get(ctx *context.Context, key Key, recordID RecordID) (StepRecord, bool, error)
 }

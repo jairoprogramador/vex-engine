@@ -105,6 +105,10 @@ type sinRegistros struct{}
 
 var _ domState.Records = sinRegistros{}
 
+func (sinRegistros) Get(*context.Context, domState.Key, domState.RecordID) (domState.StepRecord, bool, error) {
+	return domState.StepRecord{}, false, nil
+}
+
 func (sinRegistros) Last(*context.Context, domState.Key) (domState.StepRecord, bool, error) {
 	return domState.StepRecord{}, false, nil
 }
@@ -121,6 +125,10 @@ var _ domState.Records = registrosConUnaVariable{}
 
 func registrosCon(t *testing.T, name, value string) domState.Records {
 	return registrosConUnaVariable{t: t, name: name, value: value}
+}
+
+func (registrosConUnaVariable) Get(*context.Context, domState.Key, domState.RecordID) (domState.StepRecord, bool, error) {
+	return domState.StepRecord{}, false, nil
 }
 
 func (r registrosConUnaVariable) Last(*context.Context, domState.Key) (domState.StepRecord, bool, error) {

@@ -2,10 +2,18 @@ package step
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/state"
 )
+
+// ruleFieldSep separa la clave de una regla de su parametrización dentro de la
+// forma canónica. Es el mismo separador que usa `VariableDeclaration.Canonical`
+// —un byte que no aparece en un YAML escrito por una persona— y por la misma
+// razón: dos reglas distintas no pueden producir la misma cadena por
+// concatenación.
+const ruleFieldSep = declarationFieldSep
 
 // Las reglas de re-ejecución: qué invalida el trabajo que un step ya hizo
 // (spec 15).
@@ -121,6 +129,20 @@ type Rule interface {
 
 	// IsSatisfiedBy responde «¿esta regla exige volver a ejecutar el step?».
 	IsSatisfiedBy(subject RuleSubject) bool
+
+	// Canonical es lo que la regla aporta a la IDENTIDAD de un step: su clave y
+	// todo lo que la parametriza (spec 17 §5.1, spec 27 §5.2).
+	//
+	// Está en la interfaz por la misma razón que `Category()`: obliga a que la
+	// tercera regla que alguien añada DECIDA qué aporta a la identidad, en vez de
+	// aparecer como un caso más de un `switch` en otro paquete y contribuir sólo
+	// su nombre. Una regla cuya parametrización no entrara en el hash sería una
+	// que se puede cambiar sin que el step se re-ejecute — exactamente el defecto
+	// que este catálogo lleva quince specs cerrando.
+	//
+	// Es la DECLARACIÓN, nunca el resultado de evaluarla: `max_age: 720h` entra;
+	// «este registro caducó» no.
+	Canonical() string
 }
 
 // ── state_changed ───────────────────────────────────────────────────────────
@@ -210,6 +232,18 @@ func (r StateChangedRule) IsSatisfiedBy(subject RuleSubject) bool {
 	return !subject.Last.Revives(subject.Fingerprint)
 }
 
+// Canonical aporta la clave y las FUENTES declaradas, no la forma en que se
+// escribieron: `- state_changed` a secas y `state_changed: [pipeline, project]`
+// significan lo mismo y producen la misma cadena. La identidad es del
+// significado; el azúcar sintáctico no la mueve.
+func (r StateChangedRule) Canonical() string {
+	sources := StateSourcePipeline
+	if r.watchesProject {
+		sources += "," + StateSourceProject
+	}
+	return string(RuleKindStateChanged) + ruleFieldSep + strconv.Quote(sources)
+}
+
 // ── max_age ─────────────────────────────────────────────────────────────────
 
 // MaxAgeRule es la regla de EXPIRACIÓN: pasó más tiempo del declarado desde que
@@ -266,4 +300,12 @@ func (r MaxAgeRule) MaxAge() time.Duration { return r.maxAge }
 // 15.
 func (r MaxAgeRule) IsSatisfiedBy(subject RuleSubject) bool {
 	return !subject.Now.Before(subject.Last.ProducedBy().At.Add(r.maxAge))
+}
+
+// Canonical aporta la clave y la duración NORMALIZADA por `time.Duration`, no el
+// texto que se escribió: `max_age: 60m` y `max_age: 1h` declaran lo mismo y
+// producen la misma cadena. Reescribir la unidad no es un cambio de intención, y
+// por tanto no debe re-ejecutar nada.
+func (r MaxAgeRule) Canonical() string {
+	return string(RuleKindMaxAge) + ruleFieldSep + strconv.Quote(r.maxAge.String())
 }
