@@ -332,6 +332,13 @@ Aparte del destino, el motor es dueño de su **área de trabajo**, que sí tiene
 depende de configuración ninguna: `--staging-dir` → `$XDG_STATE_HOME/vex/staging` →
 `$HOME/.local/state/vex/staging` → `os.TempDir()`. Nunca cae bajo el volumen del destino.
 
+Ahí se escriben el objeto de despliegue (`objects/`), los hechos del intento (`events/`) y el
+puntero de lo ya confirmado (`ack/`), y de ahí se **empujan** las dos primeras al destino: al
+terminar cada step y al cerrar la ejecución. Las otras tres tiendas —`state/`, `cache/`,
+`lineage/`— no pasan por el empuje porque hay que **leerlas** antes de decidir, así que van
+directas. Registrar es incondicional; empujar es lo que se añade encima, y si el empuje falla
+el pipeline no cambia de resultado: queda un hecho `sync_failed` que explica el hueco.
+
 ---
 
 ## 5. Ciclo de ejecución
@@ -1114,8 +1121,8 @@ Las tiendas resultantes no son intercambiables, y la diferencia es el punto: obj
 eventos son **permanentes**; el caché (P10) es **desechable** —borrarlo entero no pierde un
 solo hecho histórico—; el estado (P8) **no se borra nunca**.
 
-**P12 — El destino del estado es configuración explícita, no un modo. — HECHO (spec 16),
-salvo la sincronización.**
+**P12 — El destino del estado es configuración explícita, no un modo. — HECHO (specs 16
+y 21).**
 Hasta la spec 16 una bandera `--mode local|remote` decidía dónde se escribe, y `remote`
 asumía una plataforma concreta. Eso ataba el motor a un proveedor y contradecía el resto del
 diseño, que es agnóstico de dónde corre.
@@ -1123,12 +1130,16 @@ diseño, que es agnóstico de dónde corre.
 > **Lo implementado y lo que queda.** Se retiraron `--mode` y las seis banderas de endpoints,
 > el contrato de invocación subió a `schema_version: 2`, el adaptador de Supabase del almacén
 > desapareció y `linkVexHome` —que borraba el `~/.vex` real de quien ejecutara el binario
-> fuera del contenedor— dejó de existir. Las tres primeras reglas de abajo están en el
-> código, incluida la del área de trabajo. **La cuarta —sincronizar por step con reintento
-> acumulativo— no**: hoy el destino se escribe directamente y `staging/` se resuelve y se
-> crea sin que nadie escriba en él todavía. Es lo que hace la spec 21, y `type: http` sigue
+> fuera del contenedor— dejó de existir. **Las cuatro reglas de abajo están en el código**:
+> la spec 21 cerró la última y el área de trabajo dejó de ser un búfer sin lector —`objects/`
+> y `events/` se empujan al destino al terminar cada step y al cerrar—. `type: http` sigue
 > congelado hasta la 26. Del lado de fuera, el CLI `vex` (spec 23) y las edge functions
 > (spec 26) están **rotos a propósito** hasta que pasen la configuración.
+>
+> Dos bordes declarados de la 21, que no son deuda sino alcance: un intento que muere de
+> forma no controlada no llega a empujarse por la vía del cierre —lo acotado es lo que el
+> empuje por step ya dejó puesto—, y si `staging/` sobrevive a un corte abrupto de Fly sigue
+> sin verificarse (BL-19).
 
 El motor deja de saber de modos. Recibe siempre una configuración de destino, la invoque
 quien la invoque:
@@ -1414,8 +1425,8 @@ leer las entradas que dependen de ellas. El detalle y el estado vivo están en
 | ~~¿La clave del estado incluye el pipeline?~~ **Cerrada por P16: no.** El modo de fallo que lo justificaba —leer un valor ajeno en silencio— lo cierra la huella, no la clave | P8, P16 |
 | Forma concreta y versión de esquema de `variables/<ambiente>/<step>.yaml`: qué vocabulario admite `resolve`, y cómo se negocia la versión | P7 |
 | ¿Son legítimos los valores de variable vacíos? Hoy se prohíben, lo que hace inexpresable un parámetro opcional | P7 |
-| Un hash de un parámetro de baja entropía es reversible por fuerza bruta (`REPLICAS=3`), lo que contradice la promesa de «solo hashes, nunca valores». ¿Sal por proyecto? **P15 reduce la superficie** —lo hasheado son literales del pipelinecode, no valores producidos en runtime— pero no la elimina | P11, P15 |
-| Reglas del enmascarado de valores en los extractos: longitud mínima y orden de sustitución. **Se aplican también al campo `variables` del registro de step**, que puede llevar el valor en claro y puede sincronizarse a un destino remoto | P11, P16 |
+| ~~Un hash de un parámetro de baja entropía es reversible por fuerza bruta (`REPLICAS=3`), lo que contradice la promesa de «solo hashes, nunca valores». ¿Sal por proyecto?~~ **Cerrada por la spec 20: eran dos preguntas con respuestas opuestas.** El digest de un parámetro suelto es **HMAC-SHA256 con clave por proyecto** —derivada de un secreto que vive en `<destino>/keys/`, fuera del registro— y `content_id` sigue **sin sal**, porque la comparabilidad entre organizaciones es su razón de ser y es irreversible por composición. Queda escrito lo que sigue sin salar: `step_fingerprint` transporta por composición un digest sin sal de los valores de un paso, y el caso agudo es un paso con **una sola** variable no volátil; **P15 lo cierra solo** al hashear declaraciones en vez de valores resueltos (20 §8) | P11, P15 |
+| ~~Reglas del enmascarado de valores en los extractos: longitud mínima y orden de sustitución~~ **Cerrada por la spec 20, y el sujeto cambió: no hay extractos que enmascarar.** El registro no guarda stdout ni stderr —un fallo se registra con `error_class`, vocabulario cerrado— porque un mecanismo best-effort no puede sostener un almacén permanente. Las dos reglas quedan escritas para el **stream de logs**, que sí es rotable: longitud mínima **8** y sustitución de más largo a más corto, con la limitación de apariciones literales documentada. El valor en claro del registro de step sigue en `state/`, que es local y no se publica: la frontera de enmascarado es la **sincronización**, y lo que se sincroniza (`objects/`, `events/`) no lleva texto libre | P11, P16 |
 | ~~Duración de la ventana del clon viejo, y si es configurable por proyecto~~ **Cerrada por la spec 18: 24 h, configurable en `vexpipeline.yaml` (`clone_window`).** Con un efecto que hay que conocer: dentro de la ventana un cambio en el pipelinecode **no se ve**, así que un pipelinecode en desarrollo declara la suya corta (18 §9.1) | P6 |
 | **Retención de los registros de step.** Crecen sin límite: uno por ejecución real de cada step, para siempre. Aceptable durante mucho tiempo —son JSON pequeños—, pero cualquier política tiene que responder antes **hasta dónde debe alcanzar un rollback**, que es decisión de producto y no de almacenamiento | P16, P17 |
 | **`.git` como archivo en un worktree** rompe la comparabilidad de la huella entre máquinas. Con P15 la regla de árbol se aplica ahora a **dos raíces** —el proyecto y el directorio del step—, así que la superficie del defecto crece. Corregirlo es una `v2` de la regla, y debe decidirse antes de emitir el primer `content_id` — **ahora con dueño y fecha escritos**: `internal/domain/deployment/SPEC-CONTENT-v1.md` §9 lo declara defecto heredado de la regla `cnt-v1` y lo sitúa antes de la spec 18, que es la que emite | P9, P15 |

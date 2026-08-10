@@ -13,6 +13,15 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/infrastructure/persistence"
 )
 
+// ObjectsDirName es el directorio de los objetos, dentro del área de trabajo del
+// motor y dentro del destino cuando la spec 21 los empuja.
+//
+// Exportado por lo mismo que `EventsDirName`: el layout tiene un dueño, y es
+// quien lo escribe. El empuje construye OTRO `FileObjectStore` con esta misma
+// raíz bajo el destino, lo que le da write-once, idempotencia y la comparación
+// canónica sin reimplementar ninguna de las tres.
+const ObjectsDirName = "objects"
+
 const (
 	// shardLen son los caracteres del hash que dan nombre al directorio
 	// intermedio. Es el mismo reparto que el índice de caché, y por la misma

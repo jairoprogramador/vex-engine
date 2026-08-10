@@ -110,6 +110,22 @@ func (f *Facts) CommandFinished(ctx *context.Context, fact command.CommandFinish
 	})
 }
 
+// ── El registro sobre sí mismo (spec 21) ────────────────────────────────────
+
+// SyncFailed registra que el empuje al destino no llegó.
+//
+// Es el tercer puerto que este tipo implementa —`sync.FactSink`— y el único cuya
+// firma no habla de ninguna cadena: el hecho no lo observa el motor haciendo
+// algo, lo observa el REGISTRO sobre sí mismo. De ahí que sea el único del
+// vocabulario cuyo dueño no es un handler.
+//
+// La firma sólo lleva cadenas de texto a propósito: es lo que permite que este
+// tipo satisfaga el puerto sin importar `sync`, que importa a `record` y cerraría
+// el ciclo (spec 19 §9.1).
+func (f *Facts) SyncFailed(ctx *context.Context, destination, cause string) error {
+	return f.emitter.Emit(ctx, SyncFailed{Destination: destination, Cause: cause})
+}
+
 // ── Los dos dueños de parameter_resolved ────────────────────────────────────
 
 func (f *Facts) ParameterResolved(ctx *context.Context, fact command.ParameterFact) error {

@@ -9,6 +9,7 @@ import (
 	pipDom "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
 	"github.com/jairoprogramador/vex-engine/internal/domain/record"
 	stepDom "github.com/jairoprogramador/vex-engine/internal/domain/step"
+	syncDom "github.com/jairoprogramador/vex-engine/internal/domain/sync"
 	cmdInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/command"
 	deploymentInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/deployment"
 	notifyInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/notify"
@@ -17,18 +18,10 @@ import (
 	sharedInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/shared"
 	stateInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/state"
 	stepInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/step"
+	syncInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/sync"
 )
 
 const VexHomeDirName = ".vex"
-
-// Las dos tiendas del registro que viven en el ÁREA DE TRABAJO del motor, no en
-// el destino: nadie las lee durante la ejecución, así que se bufferizan aquí y
-// las empuja la spec 21. La cabeza del linaje, que sí se lee antes de decidir,
-// cuelga del destino (ver `newStateStores`).
-const (
-	objectsDirName = "objects"
-	eventsDirName  = "events"
-)
 
 // EngineConfig son las rutas del sistema de archivos con las que se cablea el
 // motor. Antes se derivaban dentro del factory (`os.UserHomeDir()` y una
@@ -70,16 +63,23 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	if err != nil {
 		return nil, err
 	}
-	stores, err := newStateStores(destino)
-	if err != nil {
-		return nil, err
-	}
 
 	// Y el área de trabajo propia, que sí es dominio del motor y sí tiene
 	// default. Desde la spec 18 ya no está vacía: ahí escriben el objeto de
 	// despliegue y los hechos del intento, que es lo que hace que «registrar es
 	// incondicional» sea una propiedad observable y no una intención.
+	//
+	// Se resuelve ANTES que la familia del destino desde la spec 21: el `Sink`
+	// que aquélla construye es el paso de aquí a allí, así que no se puede armar
+	// sin saber de dónde lee. La configuración de destino se lee igualmente
+	// primero —un `--state-config` ausente o congelado sigue siendo el primer
+	// diagnóstico que se da—; lo que se mueve es sólo la construcción.
 	stagingPath, err := resolveStagingDir(args.StagingDir, cfg.RootVexPath)
+	if err != nil {
+		return nil, err
+	}
+
+	stores, err := newStateStores(destino, stagingPath)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,8 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	//	                       sin `parent` no hay posición, y una historia que
 	//	                       empieza vacía en cada máquina efímera derivaría dos
 	//	                       veces el mismo `deployment_id`.
-	objectStore := deploymentInfra.NewFileObjectStore(filepath.Join(stagingPath, objectsDirName))
+	objectStore := deploymentInfra.NewFileObjectStore(
+		filepath.Join(stagingPath, deploymentInfra.ObjectsDirName))
 	lineageStore := stores.lineages
 
 	// R-7 hecho cableado: el registro es la FUENTE y las líneas para humanos se
@@ -174,7 +175,7 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	// el archivo —decorador del sink, no un bus— así que los hechos se escriben
 	// igual aunque nadie esté mirando: registrar es incondicional, narrar no.
 	eventRenderer := notifyInfra.NewEventRenderer(
-		recordInfra.NewJSONLEventSink(filepath.Join(stagingPath, eventsDirName)))
+		recordInfra.NewJSONLEventSink(filepath.Join(stagingPath, recordInfra.EventsDirName)))
 	emitter := record.NewEmitter(clock, recordInfra.NewUUIDv7EventIDFactory(), eventRenderer)
 
 	// El resumidor de valores (spec 20 §5.2). Nace SIN clave: la deriva del
@@ -195,6 +196,24 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	// de `parameter_resolved` entregan el valor crudo por su puerto, así que la
 	// convención del digest se cambia aquí y no recorriendo emisores.
 	facts := record.NewFacts(emitter, digester)
+
+	// El sincronizador de la spec 21: lo que se bufferizó en el área de trabajo
+	// llega al destino, sin duplicar y sin dejar huecos silenciosos.
+	//
+	// El puerto de hechos lo satisface el MISMO adaptador que los de las dos
+	// cadenas, y la comprobación de contrato vive aquí porque éste es el único
+	// sitio que ve los dos lados: `sync` importa `record` —el lote habla de tiras
+	// y posiciones— así que el implementador no puede nombrar al puerto sin
+	// cerrar el ciclo (spec 19 §9.1).
+	var _ syncDom.FactSink = (*record.Facts)(nil)
+
+	synchronizer := syncDom.NewSynchronizer(
+		stores.sink,
+		syncInfra.NewFileAckStore(filepath.Join(stagingPath, syncInfra.AckDirName)),
+		facts,
+		syncDom.DefaultRetryPolicy(),
+		syncInfra.NewSystemSleeper(),
+	)
 
 	// El material del pipelinecode se lee UNA vez, en la cadena de pipeline, y la
 	// de step lo consume (spec 18 §5.2). El objeto lo comparten los dos lados
@@ -229,7 +248,7 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 			lineageStore,
 			emitter,
 		),
-		pipDom.NewPipelineRunnerHandler(),
+		pipDom.NewPipelineRunnerHandler(synchronizer),
 	)
 	executablePipeline := pipDom.NewPipelineExecutable(pipelineHead)
 
@@ -297,6 +316,7 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		executableStep,
 		clock,
 		emitter,
+		synchronizer,
 	)
 
 	return NewRunCommand(createExec, destino, stagingPath, eventRenderer, digester), nil

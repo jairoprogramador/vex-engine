@@ -11,6 +11,7 @@ import (
 	domNotify "github.com/jairoprogramador/vex-engine/internal/domain/notify"
 	"github.com/jairoprogramador/vex-engine/internal/domain/record"
 	"github.com/jairoprogramador/vex-engine/internal/domain/shared"
+	domSync "github.com/jairoprogramador/vex-engine/internal/domain/sync"
 )
 
 // CreateExecutionOutput transporta el resultado de una ejecución.
@@ -42,6 +43,7 @@ type CreateExecutionUseCase struct {
 	executableStep     command.Executable
 	clock              shared.Clock
 	emitter            *record.Emitter
+	synchronizer       *domSync.Synchronizer
 	notify             domNotify.LogObserver
 	status             domNotify.StatusObserver
 }
@@ -50,19 +52,23 @@ type CreateExecutionUseCase struct {
 // usar WithObservers antes de Execute si quiere recibir logs/stages.
 //
 // El emisor entra por el constructor y no por `WithObservers` porque no depende
-// de flags: registrar es incondicional (spec 19 §5.6), y los observers no.
+// de flags: registrar es incondicional (spec 19 §5.6), y los observers no. El
+// sincronizador entra por lo mismo: empujar tampoco depende de flags, depende de
+// la configuración de destino, que se resuelve al cablear (spec 21).
 func NewCreateExecutionUseCase(
 	executablePipeline command.Executable,
 	executableCommand command.Executable,
 	executableStep command.Executable,
 	clock shared.Clock,
-	emitter *record.Emitter) *CreateExecutionUseCase {
+	emitter *record.Emitter,
+	synchronizer *domSync.Synchronizer) *CreateExecutionUseCase {
 	return &CreateExecutionUseCase{
 		executablePipeline: executablePipeline,
 		executableCommand:  executableCommand,
 		executableStep:     executableStep,
 		clock:              clock,
 		emitter:            emitter,
+		synchronizer:       synchronizer,
 	}
 }
 
@@ -186,6 +192,24 @@ func (uc *CreateExecutionUseCase) Execute(ctx context.Context, request dto.Reque
 	if err := uc.recordAttemptFinished(ctx, execution); err != nil {
 		runErr = joinRunError(runErr, err)
 	}
+
+	// Y el empuje de cierre, con la tira ya cerrada: es el gancho natural, porque
+	// `attempt_finished` es el último hecho y esta capa es la única que lo ve
+	// (spec 21 §5.3). Es el MISMO código que el empuje por step —lo pendiente
+	// desde el `ack`— y no una vía final aparte; no tener dos es lo que hace que
+	// la recuperación de un empuje fallido salga gratis.
+	//
+	// El contexto es el del PROCESO y no el hijo cancelable, por lo mismo que en
+	// `recordAttemptFinished`: el hijo está muerto justo en el caso que más
+	// importa empujar, y una cancelación registrada que no llega al destino es
+	// indistinguible de una máquina que desapareció.
+	//
+	// Consecuencia declarada de colgarlo de aquí: un intento INTERRUMPIDO —muerte
+	// dura, OOM— no llega a empujarse nunca por esta vía. Lo acotado es lo que el
+	// empuje por step ya dejó puesto, que es exactamente lo que §5.6 dice que esta
+	// spec no garantiza.
+	syncCtx := ctx
+	uc.synchronizer.Push(&syncCtx)
 
 	if runErr != nil {
 		return uc.output(execution), fmt.Errorf("%w", runErr)

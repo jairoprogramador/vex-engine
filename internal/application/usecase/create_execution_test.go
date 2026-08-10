@@ -81,7 +81,7 @@ func requestValido() dto.RequestInput {
 func ejecutar(t *testing.T, ctx context.Context, pipeline command.Executable) (usecase.CreateExecutionOutput, error) {
 	t.Helper()
 	uc := usecase.NewCreateExecutionUseCase(
-		pipeline, nil, nil, shared.NewFixedClock(instanteFijo), emisorDeHechos(t)).
+		pipeline, nil, nil, shared.NewFixedClock(instanteFijo), emisorDeHechos(t), nil).
 		WithObservers(emisorMudo{}, nil)
 	return uc.Execute(ctx, requestValido(), "exec-1")
 }
@@ -156,7 +156,7 @@ func TestCreateExecution_ElObservadorRecibeElVocabularioDeLaEjecucion(t *testing
 	observador := &emisorQueRedacta{}
 
 	uc := usecase.NewCreateExecutionUseCase(
-		pipelineDePrueba{}, nil, nil, shared.NewFixedClock(instanteFijo), emisorDeHechos(t)).
+		pipelineDePrueba{}, nil, nil, shared.NewFixedClock(instanteFijo), emisorDeHechos(t), nil).
 		WithObservers(observador, nil)
 
 	_, err := uc.Execute(context.Background(), requestValido(), "exec-1")

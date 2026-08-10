@@ -55,6 +55,7 @@ import (
 	infraPipeline "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
 	infraRecord "github.com/jairoprogramador/vex-engine/internal/infrastructure/record"
 	stateInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/state"
+	infraSync "github.com/jairoprogramador/vex-engine/internal/infrastructure/sync"
 	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
 )
 
@@ -667,9 +668,22 @@ func (h *harness) valoresDeLaEjecucion() map[string]string {
 // tienda es write-once y direccionada por contenido.
 func (h *harness) objetos() []infraDeployment.FileObjectDTO {
 	h.t.Helper()
+	return h.objetosEn(h.staging)
+}
+
+// objetosDelDestino son los objetos que el EMPUJE dejó en el destino (spec 21).
+// Su lista tiene que acabar siendo la misma que la del área de trabajo: el
+// empuje no filtra, transporta.
+func (h *harness) objetosDelDestino() []infraDeployment.FileObjectDTO {
+	h.t.Helper()
+	return h.objetosEn(h.destino)
+}
+
+func (h *harness) objetosEn(base string) []infraDeployment.FileObjectDTO {
+	h.t.Helper()
 
 	objetos := make([]infraDeployment.FileObjectDTO, 0, 2)
-	err := filepath.WalkDir(filepath.Join(h.staging, "objects"),
+	err := filepath.WalkDir(filepath.Join(base, "objects"),
 		func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -713,9 +727,20 @@ func (h *harness) elObjeto() infraDeployment.FileObjectDTO {
 // evento por otra vía no estaría comprobando eso.
 func (h *harness) hechos() []infraRecord.JSONLEventDTO {
 	h.t.Helper()
+	return h.hechosEn(h.staging)
+}
+
+// hechosDelDestino son los hechos que el EMPUJE dejó en el destino (spec 21).
+func (h *harness) hechosDelDestino() []infraRecord.JSONLEventDTO {
+	h.t.Helper()
+	return h.hechosEn(h.destino)
+}
+
+func (h *harness) hechosEn(base string) []infraRecord.JSONLEventDTO {
+	h.t.Helper()
 
 	hechos := make([]infraRecord.JSONLEventDTO, 0, 4)
-	err := filepath.WalkDir(filepath.Join(h.staging, "events"),
+	err := filepath.WalkDir(filepath.Join(base, "events"),
 		func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -1062,6 +1087,61 @@ func (h *harness) cabezaDelLinaje(environment string) string {
 	var dto infraDeployment.FileLineageDTO
 	require.NoError(h.t, json.Unmarshal(data, &dto))
 	return dto.Head
+}
+
+// ── El empuje hacia el destino (spec 21) ────────────────────────────────────
+
+// bloquearElDestino deja el empuje inservible sin tocar nada de lo que el
+// pipeline necesita para correr: ocupa `objects/` con un ARCHIVO, así que la
+// primera escritura del sink falla con ENOTDIR y `state/`, `cache/` y `lineage/`
+// siguen intactos.
+//
+// Es la forma de montar «un destino que siempre falla» sin romper el despliegue,
+// que es exactamente el escenario que §7 pide observar: el pipeline termina como
+// corresponda y el hueco queda explicado.
+func (h *harness) bloquearElDestino() {
+	h.t.Helper()
+	writeFile(h.t, h.bloqueoDelDestino(), "no soy un directorio\n")
+}
+
+func (h *harness) bloqueoDelDestino() string {
+	return filepath.Join(h.destino, "objects")
+}
+
+// ackDelDestino es el puntero de confirmación que el motor dejó en el área de
+// trabajo, si lo dejó.
+func (h *harness) ackDelDestino() (infraSync.FileAckDTO, bool) {
+	h.t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(h.staging, "ack", "*", "*", "*.json"))
+	require.NoError(h.t, err)
+	if len(matches) == 0 {
+		return infraSync.FileAckDTO{}, false
+	}
+	require.Len(h.t, matches, 1, "un puntero por tira, y el harness corre una")
+
+	data, err := os.ReadFile(matches[0])
+	require.NoError(h.t, err)
+	var dto infraSync.FileAckDTO
+	require.NoError(h.t, json.Unmarshal(data, &dto))
+	return dto, true
+}
+
+// directoriosDelDestino son los tramos de primer nivel que el destino tiene.
+// Sirve para afirmar lo que la spec 21 promete que es ENUMERABLE: lo que se
+// empuja son `objects/` y `events/`, y `keys/` no está en esa lista.
+func (h *harness) directoriosDelDestino() []string {
+	h.t.Helper()
+
+	entradas, err := os.ReadDir(h.destino)
+	require.NoError(h.t, err)
+
+	nombres := make([]string, 0, len(entradas))
+	for _, entrada := range entradas {
+		nombres = append(nombres, entrada.Name())
+	}
+	sort.Strings(nombres)
+	return nombres
 }
 
 // elRemotoNoResponde retira el pipelinecode del transporte en proceso: a partir

@@ -7,22 +7,33 @@ import (
 	cacheDom "github.com/jairoprogramador/vex-engine/internal/domain/cache"
 	deploymentDom "github.com/jairoprogramador/vex-engine/internal/domain/deployment"
 	stateDom "github.com/jairoprogramador/vex-engine/internal/domain/state"
+	syncDom "github.com/jairoprogramador/vex-engine/internal/domain/sync"
 	"github.com/jairoprogramador/vex-engine/internal/domain/syncconfig"
 	cacheInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/cache"
 	deploymentInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/deployment"
 	recordInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/record"
 	stateInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/state"
+	syncInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/sync"
 )
 
-// stateStores es la FAMILIA que un destino produce: el almacén de registros y el
-// índice de contenido. Vienen juntas a propósito (Abstract Factory, spec 16
-// §5.3'): mezclar un índice local con un almacén remoto es un estado que no
-// debe ser construible, porque el índice apunta a registros por identificador y
-// esos identificadores sólo significan algo dentro de su almacén.
+// stateStores es la FAMILIA que un destino produce: el almacén de registros, el
+// índice de contenido, la cabeza del linaje y —desde la spec 21— el `Sink` que
+// empuja hacia él lo que se bufferizó. Vienen juntas a propósito (Abstract
+// Factory, spec 16 §5.3'): mezclar un índice local con un almacén remoto es un
+// estado que no debe ser construible, porque el índice apunta a registros por
+// identificador y esos identificadores sólo significan algo dentro de su almacén.
 type stateStores struct {
 	records  stateDom.Records
 	entries  cacheDom.Entries
 	lineages deploymentDom.LineageStore
+
+	// sink es la CUARTA pieza de la familia, y es de otra naturaleza que las tres
+	// de arriba: aquéllas se leen antes de decidir y por eso van directas al
+	// destino; ésta EMPUJA hacia él lo que se bufferizó en el área de trabajo
+	// (spec 21 §5.1). Sale del mismo `switch` que las demás porque añadir un
+	// `type` al vocabulario sin su familia tiene que fallar al arrancar, y un
+	// `Sink` nuevo colgado por fuera no daría esa garantía.
+	sink syncDom.Sink
 
 	// digestSecret es el secreto local con el que se derivan las claves de
 	// resumen de los parámetros (spec 20 §5.2). Sale de aquí y no del área de
@@ -52,7 +63,12 @@ type stateStores struct {
 //	keys/   NO es registro y no se sincroniza nunca: guarda el secreto local del
 //	        que se derivan las claves de resumen (spec 20 §5.2). Está aquí porque
 //	        es lo único que dos máquinas efímeras comparten, y separado del resto
-//	        porque lo que la spec 21 empuja son las otras tres.
+//	        para que «lo que se sincroniza» siga siendo enumerable.
+//
+// Las tres primeras llegan al destino DIRECTAS, y no por el `Sink`: hay que
+// LEERLAS antes de decidir. Lo que la spec 21 empuja es lo otro —`objects/` y
+// `events/`, que se bufferizan en el área de trabajo— y los dos directorios
+// aparecen bajo el destino sólo cuando el primer empuje los crea.
 const (
 	stateDirName   = "state"
 	cacheDirName   = "cache"
@@ -74,7 +90,11 @@ const digestSecretFileName = "digest-v1.key"
 // no es velocidad sino el identificador del recurso que se acaba de crear en la
 // nube. Por eso el destino se comprueba aquí, antes del primer step, y un fallo
 // es del mismo tipo que una configuración ausente.
-func newStateStores(cfg syncconfig.Config) (stateStores, error) {
+//
+// `stagingPath` entra aquí porque el `Sink` es el paso de UN sitio a OTRO: sin
+// saber de dónde lee, la familia estaría a medias. Es también la razón por la
+// que el área de trabajo se resuelve antes que la familia en `BuildRunCommand`.
+func newStateStores(cfg syncconfig.Config, stagingPath string) (stateStores, error) {
 	switch cfg.Type() {
 	case syncconfig.TypeLocal:
 		base := cfg.Path()
@@ -114,6 +134,7 @@ func newStateStores(cfg syncconfig.Config) (stateStores, error) {
 			records:      stateInfra.NewFileRecordsRepository(statePath),
 			entries:      cacheInfra.NewFileEntriesRepository(cachePath),
 			lineages:     deploymentInfra.NewFileLineageStore(lineagePath),
+			sink:         syncInfra.NewLocalSink(stagingPath, base),
 			digestSecret: secreto,
 		}, nil
 

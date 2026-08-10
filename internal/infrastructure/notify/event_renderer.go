@@ -120,6 +120,15 @@ func lineOf(payload domRecord.Payload) (string, bool) {
 		return fmt.Sprintf("Comando %s ejecución fallida (exit code %d)",
 			carga.CommandName, carga.ExitCode), true
 
+	case domRecord.SyncFailed:
+		// Éste sí produce línea, y no por simetría: un hueco en el registro remoto
+		// que sólo se puede descubrir leyendo el archivo local es exactamente lo
+		// que la spec 21 §5.5 existe para evitar. Que la línea se DERIVE del hecho
+		// —en vez de imprimirla el sincronizador— es lo que garantiza que las dos
+		// versiones digan lo mismo.
+		return fmt.Sprintf("Registro no sincronizado con %s: %s",
+			carga.Destination, carga.Cause), true
+
 	default:
 		return "", false
 	}

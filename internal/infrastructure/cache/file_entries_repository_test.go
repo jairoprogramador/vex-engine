@@ -154,6 +154,28 @@ func TestFileEntriesRepository_Contrato(t *testing.T) {
 		assert.Len(t, archivosDe(t, base), 1, "una entrada por clave, no un historial")
 	})
 
+	t.Run("con dos máquinas compartiendo destino gana el registro más reciente", func(t *testing.T) {
+		// El desempate que la spec 21 §8 tenía abierto y cierra: desde la spec 16
+		// el índice cuelga del destino, así que dos máquinas pueden escribir la
+		// MISMA clave apuntando a dos registros distintos y ambos válidos. Gana el
+		// `record_id` mayor —que por ser un ULID es el más reciente— y no «el
+		// último que escriba», que depende del orden de llegada y no de los hechos.
+		base := t.TempDir()
+		repo := infraCache.NewFileEntriesRepository(base)
+		key := claveDePrueba(t, "supply")
+
+		reciente := entradaDePrueba(t, "02-supply", instante.Add(24*time.Hour))
+		anterior := entradaDePrueba(t, "02-supply", instante)
+
+		require.NoError(t, repo.Put(&ctx, key, reciente))
+		require.NoError(t, repo.Put(&ctx, key, anterior))
+
+		leida, _, err := repo.Get(&ctx, key)
+		require.NoError(t, err)
+		assert.Equal(t, reciente.RecordID.String(), leida.RecordID.String(),
+			"escribir uno anterior no hace retroceder el índice")
+	})
+
 	t.Run("la clave vacía se rechaza en los dos sentidos", func(t *testing.T) {
 		repo := infraCache.NewFileEntriesRepository(t.TempDir())
 		var cero domCache.CacheKey

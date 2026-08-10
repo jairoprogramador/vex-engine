@@ -102,12 +102,37 @@ func (r *FileEntriesRepository) Get(_ *context.Context, key domCache.CacheKey) (
 
 // Put publica la entrada con el escritor atómico de la spec 02: un lector nunca
 // ve un archivo a medias.
+//
+// # El desempate cuando dos máquinas comparten destino (spec 21 §8)
+//
+// Desde la spec 16 el índice cuelga del destino, así que dos máquinas pueden
+// escribir la MISMA `cache_key` apuntando a dos `record_id` distintos y ambos
+// válidos: los registros son append-only y cada ejecución real deja el suyo. El
+// criterio no puede ser una caducidad —`expires_at` murió con la spec 11— ni «el
+// último que escriba», que depende del orden de llegada y no de los hechos.
+//
+// **Gana el `record_id` MAYOR**, que por ser un ULID es el más reciente: el
+// orden lexicográfico de su alfabeto es el orden temporal (spec 11 §5.3), así que
+// el desempate no necesita relojes ni metadatos. Lo que el índice guarda es «el
+// registro más reciente de este contenido», y esto lo hace cierto también cuando
+// quien escribe no es quien llegó último.
+//
+// No decide nada del motor —el índice sigue sin participar en ninguna decisión—
+// pero sí decide lo que el ingestor de la spec 26 tiene que implementar, y por eso
+// se escribe aquí en vez de dejarse al azar del orden de llegada.
 func (r *FileEntriesRepository) Put(_ *context.Context, key domCache.CacheKey, entry domCache.Entry) error {
 	if key.IsZero() {
 		return errors.New("file entries repository: clave vacía")
 	}
 
 	path := r.filePath(key)
+	if r.masRecienteQue(path, entry) {
+		// Lo que hay ya apunta a un registro posterior. No escribir es la
+		// operación correcta y no una omisión: reescribirlo con uno anterior sería
+		// hacer retroceder el índice.
+		return nil
+	}
+
 	dto := ToFileCacheEntryDTO(key, entry)
 
 	err := r.writer.Write(path, func(out io.Writer) error {
@@ -119,4 +144,27 @@ func (r *FileEntriesRepository) Put(_ *context.Context, key domCache.CacheKey, e
 		return fmt.Errorf("file entries repository: escribir %s: %w", path, err)
 	}
 	return nil
+}
+
+// masRecienteQue dice si lo que ya está en disco apunta a un registro POSTERIOR
+// al que se quiere escribir.
+//
+// Una entrada ausente o ilegible responde que no, con la misma política que
+// `Get`: ilegible ⇒ ausente. Aquí la duda se resuelve escribiendo, que es lo que
+// reconstruye el índice.
+func (r *FileEntriesRepository) masRecienteQue(path string, entry domCache.Entry) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	var dto FileCacheEntryDTO
+	if err := json.NewDecoder(file).Decode(&dto); err != nil {
+		return false
+	}
+	// La comparación es de CADENAS y es correcta porque el alfabeto de Crockford
+	// está en orden ASCII ascendente: el orden lexicográfico de dos ULID es su
+	// orden temporal, sin parsear ninguno.
+	return dto.RecordID > entry.RecordID.String()
 }

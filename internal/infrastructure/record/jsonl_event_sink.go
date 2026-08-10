@@ -12,6 +12,15 @@ import (
 	domRecord "github.com/jairoprogramador/vex-engine/internal/domain/record"
 )
 
+// EventsDirName es el directorio de las tiras dentro del área de trabajo del
+// motor, y dentro del destino cuando la spec 21 las empuja.
+//
+// Está exportado porque el LAYOUT TIENE UN DUEÑO: quien escribe las tiras. El
+// cableado lo usa para construir este sink y el empuje lo usa para saber de
+// dónde lee y a dónde escribe; que cada uno declarara su propia constante sería
+// tener el mismo nombre escrito en tres sitios y esperar que nadie lo mueva.
+const EventsDirName = "events"
+
 const (
 	// eventsFileExt es JSON Lines: un hecho por línea, y el archivo sigue siendo
 	// legible aunque la última esté a medias. Un JSON array no lo sería, y la
@@ -57,17 +66,32 @@ func NewJSONLEventSink(basePath string) domRecord.EventSink {
 }
 
 func (s *JSONLEventSink) filePath(stream domRecord.EventStream) string {
-	return filepath.Join(s.basePath, directoryOf(stream.Deployment), stream.ExecutionID+eventsFileExt)
+	return filepath.Join(s.basePath, StreamRelPath(stream))
 }
 
-// directoryOf traduce el `deployment_id` a un tramo de ruta.
+// StreamRelPath es la ruta de la tira de un intento RELATIVA a la raíz de
+// `events/`, sea la del área de trabajo o la del destino.
+//
+// Existe exportada porque el empuje de la spec 21 lee ARCHIVOS y no el puerto
+// —`EventSink.Append` es de escritura, y el lector lo publica la spec 22—, así
+// que necesita componer la misma ruta que este sink escribe. Que la componga
+// esta función y no una copia en el sincronizador es lo que impide que las dos
+// mitades del mismo layout se separen.
+func StreamRelPath(stream domRecord.EventStream) string {
+	return filepath.Join(StreamDir(stream.Deployment), stream.ExecutionID+eventsFileExt)
+}
+
+// StreamDir traduce el `deployment_id` a un tramo de ruta.
 //
 // La forma canónica es `dep-v1:<hash>` y los dos puntos son ilegales en rutas de
 // Windows —el mismo motivo por el que el ámbito del estado aporta dos segmentos
 // en vez de uno (spec 11 §5.4)—. Se parte en `<versión>/<hash>` en vez de
 // sustituir el separador: así la versión de la regla encabeza el directorio y
 // dos reglas distintas no mezclan sus tiras.
-func directoryOf(id domDeployment.DeploymentID) string {
+//
+// Lo usa además el puntero de confirmación de la spec 21, que se dirige por la
+// misma tira con otra extensión.
+func StreamDir(id domDeployment.DeploymentID) string {
 	return filepath.Join(id.Version(), id.Hash())
 }
 

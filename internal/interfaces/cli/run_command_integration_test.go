@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/jairoprogramador/vex-engine/internal/domain/record"
 	"github.com/jairoprogramador/vex-engine/internal/domain/syncconfig"
 	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
 )
@@ -2273,4 +2274,155 @@ func TestRunCommand_ElStatusTerminalSigueLlegandoASuEndpoint(t *testing.T) {
 	assert.Equal(t, args.ExecutionID, terminal["execution_id"])
 	assert.Equal(t, "succeeded", terminal["status"])
 	assert.Equal(t, float64(cli.ExitSucceeded), terminal["exit_code"])
+}
+
+// ── Spec 21: lo registrado llega al destino ─────────────────────────────────
+
+// §3, y es la spec entera en un caso: hasta aquí el motor producía un registro
+// perfecto que moría con el área de trabajo. En modo remoto eso significa una Fly
+// Machine con `auto_destroy` que se lleva el registro al terminar; en local, un
+// `staging/` que vive fuera del volumen precisamente para no depender de él.
+func TestRunCommand_LoRegistradoLlegaAlDestino(t *testing.T) {
+	h := newHarness(t)
+
+	result := h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	// El objeto llega ENTERO —su material, no su hash— porque es lo que un
+	// tercero tiene que poder recomponer para verificar la identidad.
+	objetos := h.objetosDelDestino()
+	require.Len(t, objetos, 1)
+	assert.Equal(t, h.elObjeto().ContentID, objetos[0].ContentID)
+	assert.Equal(t, h.elObjeto().Canonical, objetos[0].Canonical)
+
+	// Y la tira llega COMPLETA, incluido el último hecho: `attempt_finished` lo
+	// emite el caso de uso después de la cadena, así que sólo el empuje de cierre
+	// puede llevarlo. Si estuviera, el empuje por step no bastaría.
+	enDestino := h.hechosDelDestino()
+	enStaging := h.hechos()
+	require.NotEmpty(t, enStaging)
+	assert.Equal(t, len(enStaging), len(enDestino),
+		"el empuje no filtra: transporta")
+
+	tipos := make([]string, 0, len(enDestino))
+	for _, hecho := range enDestino {
+		tipos = append(tipos, hecho.Type)
+	}
+	assert.Equal(t, record.TypeAttemptStarted.String(), tipos[0])
+	assert.Equal(t, record.TypeAttemptFinished.String(), tipos[len(tipos)-1],
+		"el empuje de cierre es el que se lleva el desenlace")
+}
+
+// §5.1 y §5.5 hechos observables a la vez: lo que se empuja es ENUMERABLE.
+// `objects/` y `events/` aparecen en el destino porque el empuje los crea;
+// `keys/` está allí y no se empuja nunca —lo pone el cableado—, y `.clones/` y
+// `.copias/` no están porque no son del registro.
+func TestRunCommand_LoQueSeSincronizaEsEnumerable(t *testing.T) {
+	h := newHarness(t)
+
+	result := h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	assert.Equal(t,
+		[]string{"cache", "events", "keys", "lineage", "objects", "state"},
+		h.directoriosDelDestino())
+}
+
+// §5.3: el `ack` existe, apunta a lo último confirmado, y NO se avanza antes de
+// tiempo. Su valor tiene que ser el del último hecho de la tira, porque el
+// empuje de cierre confirma hasta ahí.
+func TestRunCommand_ElAckApuntaALoUltimoConfirmadoPorElDestino(t *testing.T) {
+	h := newHarness(t)
+
+	result := h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	ack, existe := h.ackDelDestino()
+	require.True(t, existe, "el empuje dejó su puntero")
+
+	tira := h.ultimaTira()
+	require.NotEmpty(t, tira)
+	assert.Equal(t, tira[len(tira)-1].Seq, ack.Seq)
+
+	// Vive en el ÁREA DE TRABAJO, fuera del volumen: perderlo degrada a reenvío
+	// total, así que hacerlo depender del volumen al que optimiza sería circular.
+	assert.NoDirExists(t, filepath.Join(h.destino, "ack"))
+}
+
+// §5.5 y §7: un destino que siempre falla NO cambia el exit code del pipeline,
+// y el hueco queda explicado en vez de descubrirse por casualidad.
+func TestRunCommand_UnDestinoQueFallaNoCambiaElResultadoYDejaElHuecoExplicado(t *testing.T) {
+	h := newHarness(t)
+	h.bloquearElDestino()
+
+	result := h.run()
+
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps(),
+		"el registro no puede hacer fallar lo que observa")
+
+	// Un `sync_failed` por EMPUJE, y los empujes son «uno por step más el del
+	// cierre» (§7): con los dos steps del fixture, tres. Ni uno por hecho —que es
+	// lo que la opción A costaba— ni uno solo al final.
+	fallos := deTipo(h.ultimaTira(), record.TypeSyncFailed.String())
+	require.Len(t, fallos, 3, "dos steps y el cierre: n+1 empujes, no n·hechos y no 1")
+	assert.Contains(t, texto(fallos[0].Payload, "destination"), "local:"+h.destino)
+	assert.NotEmpty(t, texto(fallos[0].Payload, "cause"))
+
+	// El del cierre va DESPUÉS del desenlace, y es el único que no puede llegar
+	// al destino: si el último empuje falló, nada emitido después de él puede
+	// llegar por definición. Los dos anteriores sí habrían viajado con el empuje
+	// siguiente, porque el `ack` no avanzó.
+	tira := h.ultimaTira()
+	assert.Equal(t, record.TypeSyncFailed.String(), tira[len(tira)-1].Type)
+	assert.Equal(t, record.TypeAttemptFinished.String(), tira[len(tira)-2].Type)
+
+	// Y lo escrito localmente sigue íntegro: registrar es incondicional, empujar
+	// es lo que la spec 21 añade encima.
+	assert.NotEmpty(t, h.hechos())
+	assert.Len(t, h.objetos(), 1)
+	assert.Empty(t, h.hechosDelDestino())
+}
+
+// §7, «recuperación»: con un destino que falla en un step y funciona en el
+// siguiente, el destino final contiene TODOS los hechos, incluidos los del step
+// que falló. No hay código de recuperación: hay ausencia de checkpoint. El `ack`
+// no avanzó, así que la selección siguiente arranca donde arrancaba la anterior.
+func TestRunCommand_ElEmpujeSiguienteRecogeLoPendienteDelQueFallo(t *testing.T) {
+	// El primer comando de 02-supply retira el bloqueo, así que el empuje del
+	// step 01 falla y el del step 02 ya encuentra el destino sano.
+	h := newHarness(t, withPipelineFile("steps/02-supply/commands.yaml",
+		"- name: unblock\n"+
+			"  description: retira el bloqueo del destino\n"+
+			"  cmd: rm -f \"$VEX_TEST_UNBLOCK\"\n"+
+			"- name: provision\n"+
+			"  description: aprovisiona el registro de contenedores\n"+
+			"  cmd: echo '02-supply acr_name = \"${var.registry_prefix}-${var.artifact_name}\"'"+
+			" | tee -a \"$VEX_TEST_LOG\"\n"+
+			"  outputs:\n"+
+			"    - name: acr_name\n"+
+			"      description: nombre del registro aprovisionado\n"+
+			"      probe: acr_name = \"([^\"]+)\"\n"))
+
+	h.bloquearElDestino()
+	t.Setenv("VEX_TEST_UNBLOCK", h.bloqueoDelDestino())
+
+	result := h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	// El fallo quedó registrado…
+	require.NotEmpty(t, deTipo(h.ultimaTira(), record.TypeSyncFailed.String()),
+		"control: el primer empuje falló de verdad")
+
+	// …y aun así el destino acabó con TODA la tira, la parte anterior al fallo
+	// incluida. Es el `ack` que no se movió haciendo su trabajo.
+	assert.Equal(t, len(h.hechos()), len(h.hechosDelDestino()))
+	require.Len(t, h.objetosDelDestino(), 1, "y la intención llegó con el primer empuje que funcionó")
+
+	posiciones := make([]uint64, 0, len(h.hechosDelDestino()))
+	for _, hecho := range h.hechosDelDestino() {
+		posiciones = append(posiciones, hecho.Seq)
+	}
+	assert.Equal(t, uint64(1), posiciones[0],
+		"la tira del destino arranca en el primer hecho, no en el primero que se pudo mandar")
 }
