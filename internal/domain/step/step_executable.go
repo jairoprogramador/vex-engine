@@ -5,18 +5,34 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/cache"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	"github.com/jairoprogramador/vex-engine/internal/domain/state"
 )
 
+// StepExecutable posee el ciclo before/exec/after de un step y VE su error, así
+// que es quien emite `step_started` y `step_finished` (spec 19 §5.1).
+//
+// # El runner ANOTA; el ejecutable EMITE
+//
+// La decisión de saltar un step no vive aquí sino en `StepRunnerHandler`, y la
+// frontera se mantiene en esa dirección a propósito (§5.1'): el runner *decide*
+// y deja la decisión anotada en el request —motivo, huella para informar,
+// evidencia—, el ejecutable *ejecuta, observa y publica*. Al revés —el runner
+// emitiendo— el hecho lo pondría quien no ve el error del ciclo, y un step que
+// falla en su limpieza se registraría como exitoso.
+//
+// Funciona porque el `StepRequestHandler` se crea en el ámbito de este método,
+// así que los dos closures y el cierre lo ven.
 type StepExecutable struct {
 	command.BaseExecutable
 	handler   StepHandler
 	records   state.Records
 	recordIDs state.RecordIDFactory
 	entries   cache.Entries
+	facts     FactSink
 }
 
 var _ command.Executable = (*StepExecutable)(nil)
@@ -25,21 +41,52 @@ func NewStepExecutable(
 	handler StepHandler,
 	records state.Records,
 	recordIDs state.RecordIDFactory,
-	entries cache.Entries) *StepExecutable {
+	entries cache.Entries,
+	facts FactSink) *StepExecutable {
 
 	return &StepExecutable{
 		handler:   handler,
 		records:   records,
 		recordIDs: recordIDs,
 		entries:   entries,
+		facts:     facts,
 	}
 }
 
 func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) error {
+	// El request se compone AQUÍ y no dentro del `exec` porque el cierre del par
+	// tiene que poder leer lo que el runner anotó en él, y el cierre corre incluso
+	// cuando el `exec` no llegó a correr.
+	request := NewStepRequestHandler(executionContext, executionContext.StepName())
+
+	var startedAt time.Time
+	opened := false
+
 	return s.Run(
 		executionContext,
 		func() error {
-			executionContext.Emit("Step " + executionContext.StepName() + " en ejecución")
+			// El hecho de apertura es lo PRIMERO del `before`, y el instante se toma
+			// antes de emitirlo: la duración mide el step, no lo que cueste escribir
+			// su hecho.
+			//
+			// Aquí vivía `Emit("Step … en ejecución")`. La línea no desaparece: se
+			// DERIVA de este hecho (§5.5), que es la inversión que la spec compra —el
+			// registro pasa a ser la fuente y la narrativa su proyección—.
+			startedAt = executionContext.Now()
+			if err := s.facts.StepStarted(executionContext.Ctx(), StepStartedFact{
+				StepID: executionContext.StepFullName(),
+			}); err != nil {
+				return err
+			}
+			opened = true
+
+			// La etapa que el portal consume deja de ser un vocabulario paralelo sin
+			// llamadores (BL-5/R-10): la emite el dueño del hecho, en el mismo punto
+			// y derivada de él. Se CABLEA y no se borra porque `--status-endpoint`
+			// sobrevive (spec 16) y es el canal del portal; se va cuando el sink
+			// `http` lo subsuma (spec 26).
+			executionContext.NotifyStage("running_step:" + executionContext.StepFullName())
+
 			executionContext.ResetFileSessions()
 			// La cuenta de lo PRODUCIDO se abre aquí, con la del step: lo que dejó
 			// el step anterior ya está en su registro y en el mapa acumulado, y
@@ -55,7 +102,6 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 			return nil
 		},
 		func() error {
-			request := NewStepRequestHandler(executionContext, executionContext.StepName())
 			err := s.handler.Handle(request.Ctx(), request)
 			switch {
 			case err == nil && request.WasSkipped():
@@ -63,8 +109,9 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 				// almacén dejaría escrito «esto corrió» sobre cero evidencia, y eso
 				// es lo que hacía que un `commands.yaml` vacío no se pudiera volver
 				// a intentar nunca (spec 04 §5.3).
-				executionContext.Emit(fmt.Sprintf("Step %s saltado: %s",
-					executionContext.StepName(), request.SkipReason()))
+				//
+				// La línea que aquí se emitía la deriva ahora el renderizador del
+				// `step_finished{SKIPPED}` que este camino produce.
 
 			case err == nil && !request.WasExecuted():
 				// El step revivió: sus comandos no corrieron porque el último
@@ -73,7 +120,11 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 				// duplicaría en cada corrida y, como el camino de revivir no anota
 				// huella, el registro nuevo dejaría al step sin poder revivir nunca
 				// más (spec 11 §5.3).
-				request.MarkStepSuccess()
+				//
+				// Se marca `CACHED` y no `SUCCESS`: desde la spec 19 el status
+				// alimenta el hecho, y «se ejecutó correctamente» sobre cero comandos
+				// sería una conclusión.
+				request.MarkStepCached()
 
 			case err == nil:
 				request.MarkStepSuccess()
@@ -106,7 +157,11 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 				// mejor que arreglarlo: un compensador solo revierte lo que el
 				// programa alcanza a ejecutar, y la muerte dura —la que de verdad
 				// dejaba un `deploy` saltado— nunca pasa por él.
-				executionContext.Emit("Step " + executionContext.StepName() + " ejecución fallida:")
+				//
+				// La cabecera del fallo la deriva el renderizador del
+				// `step_finished{FAILURE}`; el TEXTO del error se sigue emitiendo por
+				// el canal de líneas porque es diagnóstico y su hecho equivalente —el
+				// extracto acotado y redactado— es de la spec 20.
 				executionContext.Emit(err.Error())
 			}
 			return err
@@ -126,7 +181,46 @@ func (s *StepExecutable) Execute(executionContext *command.ExecutionContext) err
 			}
 			return nil
 		},
+		// El cierre del par, y corre SIEMPRE: también cuando el `before` falló
+		// después de haber emitido su apertura, que es el camino que la garantía de
+		// la spec 06 no cubre y que dejaba el par abierto (§5.2', 06 §9.5).
+		//
+		// Recibe el error DEFINITIVO —incluido el de la limpieza— porque es el que
+		// el hecho tiene que contar: un step cuyo `terraform apply` fue bien y cuya
+		// plantilla no se pudo restaurar no terminó bien.
+		func(err error) error {
+			if !opened {
+				// Lo que nunca se abrió no se cierra. Emitir sólo el cierre sería
+				// inventar un hueco en vez de taparlo.
+				return nil
+			}
+			return s.facts.StepFinished(executionContext.Ctx(), StepFinishedFact{
+				StepID:          executionContext.StepFullName(),
+				Scope:           request.StateScope(),
+				Status:          stepStatusOf(request, err),
+				Duration:        executionContext.Now().Sub(startedAt),
+				FromCache:       err == nil && !request.WasSkipped() && !request.WasExecuted(),
+				Reason:          request.Reason(),
+				StepFingerprint: request.ReportedFingerprint(),
+				Evidence:        request.Evidence(),
+				Err:             err,
+			})
+		},
 	)
+}
+
+// stepStatusOf lee el status que el request ya calculaba y NADIE leía a medias
+// (BL-4): `StepExecutable` miraba el `SKIPPED` para no persistir, y ahí se
+// acababa su vida.
+//
+// El error manda sobre lo anotado, y no es un caso teórico: `exec` puede
+// terminar bien y fallar la limpieza después. Un step cuyo ciclo acabó en error
+// no terminó con éxito por mucho que su cadena lo marcara.
+func stepStatusOf(request *StepRequestHandler, err error) command.StepStatus {
+	if err != nil {
+		return command.StepFailure
+	}
+	return request.StepStatus()
 }
 
 // appendRecord deja constancia de que ESTE step acaba de ejecutarse aquí, y de
@@ -186,9 +280,27 @@ func (s *StepExecutable) appendRecord(
 	// El índice apunta a un registro que YA existe: si el registro no se pudo
 	// escribir, no hay a qué apuntar y no se escribe entrada. Un índice con
 	// punteros rotos dejaría de ser reconstruible sin distinguir cuáles lo están.
-	if !recordID.IsZero() {
-		s.putIndexEntry(request, executionContext, key, recordID)
+	if recordID.IsZero() {
+		return
 	}
+	s.putIndexEntry(request, executionContext, key, recordID)
+
+	// LA MITAD SIMÉTRICA de la evidencia (spec 19 §5.1, 28 §5.3): el registro que
+	// estuvo vigente para este step viaja en su hecho de cierre **también cuando
+	// el step ejecutó** —el que acaba de escribir—, y no sólo cuando revivió. Sin
+	// ella, un rollback anclado a una ejecución pasada tendría que derivar por
+	// fechas qué registro estuvo vigente en cada step, que es guardar una
+	// conclusión en vez de un hecho.
+	//
+	// Se anota DESPUÉS de escribir y sólo si se escribió: una evidencia que apunta
+	// a un registro que no llegó al disco afirma que hay algo detrás y no deja
+	// llegar hasta él, que es peor que no afirmar nada (`EvidenceRef.Validate`).
+	request.RecordEvidence(EvidenceFact{
+		ExecutionID: producedBy.ExecutionID,
+		At:          producedBy.At,
+		StateKey:    key,
+		RecordID:    recordID,
+	})
 }
 
 // writeRecord escribe un registro y devuelve su identificador, o el

@@ -1,5 +1,12 @@
 package record
 
+import (
+	"context"
+	"errors"
+
+	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+)
+
 // ErrorClass es el vocabulario CERRADO de por qué algo falló.
 //
 // # `unknown` es un valor legítimo, y preferible a forzar una clasificación
@@ -74,4 +81,55 @@ func (c ErrorClass) IsKnown() bool {
 	default:
 		return false
 	}
+}
+
+// ClassifyError traduce el error que el motor OBSERVA a la clase que el hecho
+// transporta.
+//
+// Vive aquí y no en cada emisor por lo mismo que `Fold` vive en dominio puro:
+// tres capas ven fallar cosas —el comando, el step, el intento— y una sola
+// traducción es lo que impide que el mismo fallo se cuente de tres maneras.
+//
+// # `unknown` no es un hueco a rellenar
+//
+// Lo que no se sabe clasificar se dice. Meterlo a martillazos en la clase que
+// más se le parezca produciría un agregado que cuenta cosas que no pasaron, y de
+// un agregado en el que no se puede confiar no se deriva nada. Las clases que
+// hoy no se derivan de un error —`invalid_pipelinecode`, `source_unavailable`,
+// `state_unavailable`— se quedan sin emisor a propósito: no hay un tipo de error
+// del que salgan, y una clase adivinada por el texto del mensaje sería una
+// conclusión disfrazada de hecho.
+//
+// La cancelación se mira ANTES que el fallo del comando y no al revés: al
+// cancelar el contexto el comando en curso muere y devuelve un exit code, así
+// que quedarse con el primero contaría una decisión como una desgracia.
+func ClassifyError(err error) ErrorClass {
+	if err == nil {
+		return ErrorClassNone
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return ErrorClassCancelled
+	}
+	var failed *command.CommandFailedError
+	if errors.As(err, &failed) {
+		return ErrorClassCommandFailed
+	}
+	return ErrorClassUnknown
+}
+
+// ExitCodeOf recupera el código de salida del comando que falló, si lo hubo.
+//
+// La segunda salida es la que hace que `step_finished.ExitCode` sea un puntero:
+// un step exitoso, revivido o saltado no tiene código que reportar, y un `0`
+// diría lo contrario. Un fallo que no es de un comando —un clon, una validación
+// del pipelinecode— tampoco tiene uno propio.
+func ExitCodeOf(err error) (int, bool) {
+	if err == nil {
+		return 0, false
+	}
+	var failed *command.CommandFailedError
+	if errors.As(err, &failed) {
+		return failed.ExitCode(), true
+	}
+	return 0, false
 }

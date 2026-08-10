@@ -3,7 +3,6 @@ package step
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/cache"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
@@ -27,6 +26,11 @@ import (
 // era el defecto, que nunca fue el tipo sino el silencio: «no pude componer la
 // huella» ejecuta igual que «el contenido cambió», pero NO se disfraza de ello
 // —viaja en su propio motivo—.
+// Desde la spec 19 los seis dejan de ser lo único que hay: cada uno tiene su
+// gemelo en `command.StepReason` y viaja como DATO en `step_finished`. Lo que
+// queda aquí es la FRASE, y sólo para la línea que se emite ANTES de ejecutar,
+// que no tiene hecho equivalente —el hecho cuenta cómo terminó, no lo que se va
+// a intentar—. Las líneas del desenlace las deriva el renderizador (§5.5).
 const (
 	reasonNoRecord     = "no consta que este step se haya ejecutado aquí"
 	reasonChanged      = "el contenido del step cambió desde la última ejecución"
@@ -35,6 +39,30 @@ const (
 	reasonNoScope      = "el step no declara ámbito en su config.yaml: no hay dónde recordarlo"
 	reasonNoRules      = "el step no declara reglas de re-ejecución en su config.yaml: no hay nada que comprobar"
 )
+
+// frasePor traduce el motivo del registro a la frase que el usuario lee antes de
+// que el step corra.
+//
+// La traducción va en esta dirección —del dato a la frase— y no al revés, que es
+// la inversión de R-7: el hecho es la fuente y la narrativa se deriva de él.
+// Hasta la spec 19 el motivo SÓLO existía como frase, así que no había de dónde
+// derivar nada.
+func frasePor(reason command.StepReason) string {
+	switch reason {
+	case command.ReasonNoRecord:
+		return reasonNoRecord
+	case command.ReasonChanged:
+		return reasonChanged
+	case command.ReasonExpired:
+		return reasonExpired
+	case command.ReasonNoScope:
+		return reasonNoScope
+	case command.ReasonNoRules:
+		return reasonNoRules
+	default:
+		return reasonUndetermined
+	}
+}
 
 // AQUÍ vivía `defaultMaxAge`, y con él el TTL global de 30 días. Lo retira la
 // spec 15 §5.7: **un step sin `max_age` no caduca**.
@@ -53,14 +81,14 @@ const (
 // step, no de la regla, porque lo que se emite es «este step se re-ejecuta porque
 // X» y X es la primera regla que dijo que sí. Una regla que devolviera su propia
 // frase estaría hablando con el usuario, que no es su trabajo.
-func reasonOf(kind RuleKind) string {
+func reasonOf(kind RuleKind) command.StepReason {
 	switch kind {
 	case RuleKindStateChanged:
-		return reasonChanged
+		return command.ReasonChanged
 	case RuleKindMaxAge:
-		return reasonExpired
+		return command.ReasonExpired
 	default:
-		return reasonUndetermined
+		return command.ReasonUndetermined
 	}
 }
 
@@ -96,6 +124,9 @@ func (h *StepRunnerHandler) Handle(ctx *context.Context, request *StepRequestHan
 	// es lo que hacía que un `commands.yaml` vacío quedara escrito como «sin
 	// cambios» para siempre (spec 04 §5.3, D-A12).
 	if len(commands) == 0 {
+		// `MarkStepSkipped` deja anotado el motivo en el vocabulario del registro:
+		// el hecho de cierre lo emite el ejecutable, que es quien ve el error del
+		// ciclo (spec 19 §5.1).
 		request.MarkStepSkipped(SkipReasonNoCommands)
 		request.Emit(fmt.Sprintf("%s se salta: no hay comandos para ejecutar (%s)",
 			request.StepNameExe(), SkipReasonNoCommands))
@@ -126,14 +157,28 @@ func (h *StepRunnerHandler) Handle(ctx *context.Context, request *StepRequestHan
 	// No hay registro bajo su clave, luego se ejecuta; al terminar bien, deja el
 	// suyo; la corrida siguiente lo revive. Es el destino de P1, entregado por
 	// eliminación (spec 10 §5.3bis).
-	fingerprint, run, reason, err := h.decide(ctx, request, commands)
+	fingerprint, run, reason, evidence, err := h.decide(ctx, request, commands)
 	if err != nil {
 		return err
 	}
 
+	// El motivo y la huella PARA INFORMAR se anotan por los dos caminos: el hecho
+	// de cierre los lleva tanto si el step ejecutó como si revivió, y un
+	// `from_cache: true` sin la regla que lo sostiene no distingue un caché que
+	// funciona de una configuración que revive basura (spec 15 §5.4).
+	request.RecordReason(reason)
+	request.ReportStepFingerprint(fingerprint)
+
 	if !run {
-		request.Emit(fmt.Sprintf("%s ya fue ejecutado y se mantiene sin cambios%s",
-			request.StepNameExe(), reason))
+		// La evidencia del salto: QUÉ registro revivió a este step. Es la respuesta
+		// a «¿cuándo se probó esto por última vez?», que es la afirmación de valor
+		// del motor y hasta ahora sólo existía como frase dentro de una línea de
+		// log (spec 19 §5.1, I-5).
+		request.RecordEvidence(evidence)
+
+		// El STATUS no se marca aquí, y es la frontera de §5.1': el runner decide y
+		// anota; quien publica el desenlace es el ejecutable, que además ve el error
+		// del ciclo. Este camino se reconoce allí por no haber marcado ejecución.
 		if h.Next != nil {
 			return h.Next.Handle(ctx, request)
 		}
@@ -145,6 +190,11 @@ func (h *StepRunnerHandler) Handle(ctx *context.Context, request *StepRequestHan
 	// a mitad— la anotación muere con la cadena, y la corrida siguiente vuelve a
 	// no encontrar registro. Ésa es la ventana que la spec 09 cerró y que esta
 	// spec sólo tiene que no reabrir al cambiar QUÉ se escribe.
+	//
+	// Ésta es la anotación PARA ESCRIBIR, y es la que el camino del salto no hace:
+	// escribirla allí reescribiría la entrada de índice del step revivido y le
+	// refrescaría el TTL (spec 09 §9.4). Las dos anotaciones son campos distintos
+	// justamente para que confundirlas no sea posible.
 	if !fingerprint.IsZero() {
 		request.RecordStepFingerprint(fingerprint)
 	}
@@ -154,14 +204,18 @@ func (h *StepRunnerHandler) Handle(ctx *context.Context, request *StepRequestHan
 	// arriba sin pasar por aquí: revivir no es un hecho nuevo del step.
 	request.MarkStepExecuted()
 
-	request.Emit(fmt.Sprintf("Ejecutando %s: %s", request.StepNameExe(), reason))
+	request.Emit(fmt.Sprintf("Ejecutando %s: %s", request.StepNameExe(), frasePor(reason)))
 	for _, cmd := range commands {
 		request.AddCommand(cmd)
 		if err := request.Execute(); err != nil {
 			return err
 		}
 	}
-	request.Emit(fmt.Sprintf("%s ejecutado correctamente", request.StepNameExe()))
+	// Aquí se emitía «X ejecutado correctamente». La línea la deriva ahora el
+	// renderizador del `step_finished` que cierra el step, que es además el único
+	// sitio desde el que puede ser cierta: este `return` todavía tiene por delante
+	// la limpieza del ciclo, y una plantilla que no se restaura hace fallar el
+	// step después de haber dicho que fue bien.
 
 	if h.Next != nil {
 		return h.Next.Handle(ctx, request)
@@ -187,6 +241,27 @@ func (h *StepRunnerHandler) Handle(ctx *context.Context, request *StepRequestHan
 //
 // Su sitio natural es un `vex plan` o un linter de pipelinecode, y ahí se moverá
 // cuando exista (spec 22).
+//
+// # Y NO se convierte en hecho, que es la decisión que la spec 15 §5.4 dejó
+// abierta para aquí
+//
+// La 15 lo dejó escrito como «se emite hoy por el log, y como hecho cuando la
+// spec 19 le dé vocabulario», y la respuesta es que no cabe en este modelo: es
+// un hecho de CONFIGURACIÓN y no de ejecución, y esa configuración **ya está en
+// el registro**. `deployment.StepContent` lleva el `StepConfig` de cada step
+// dentro del objeto —reglas incluidas, y en su forma canónica—, así que un
+// `vex stats` puede contar cuántos steps declaran `max_age` sin `state_changed`
+// leyendo objetos, sin que ninguna ejecución tenga que emitir nada.
+//
+// Emitirlo sería guardar dos veces el mismo dato por dos vías distintas y dejar
+// que las dos copias se contradigan, que es exactamente lo que el modelo evita
+// no repitiendo el `deployment_id` en cada hecho. Un hecho por ejecución para
+// una propiedad que no cambia entre ejecuciones es, además, una conclusión
+// disfrazada de observación.
+//
+// La ADVERTENCIA se queda: no aborta —el puerto de la spec 04 sólo sabe abortar,
+// que es por lo que vive aquí— y sigue siendo lo que convierte la configuración
+// en una elección consciente y no en un olvido.
 func (h *StepRunnerHandler) warnIfOnlyExpires(request *StepRequestHandler, config StepConfig) {
 	if !config.Rules().ExpiresWithoutInvalidating() {
 		return
@@ -219,7 +294,13 @@ func (h *StepRunnerHandler) decide(
 	ctx *context.Context,
 	request *StepRequestHandler,
 	commands []command.Command,
-) (fingerprint cache.CacheKey, run bool, reason string, err error) {
+) (
+	fingerprint cache.CacheKey,
+	run bool,
+	reason command.StepReason,
+	evidence EvidenceFact,
+	err error,
+) {
 
 	// La clave de POSICIÓN se compone antes que nada: sin ella no hay dónde leer
 	// ni dónde escribir, y eso no es una duda que ejecutar resuelva. Es un
@@ -230,7 +311,7 @@ func (h *StepRunnerHandler) decide(
 	// justo lo que hace que dos ambientes puedan compartirla.
 	key, declarado, err := request.StateKey()
 	if err != nil {
-		return cache.CacheKey{}, false, "", fmt.Errorf(
+		return cache.CacheKey{}, false, command.ReasonNone, EvidenceFact{}, fmt.Errorf(
 			"componer la clave de estado de %s: %w", request.StepNameExe(), err)
 	}
 
@@ -239,7 +320,7 @@ func (h *StepRunnerHandler) decide(
 	// con huella cero a propósito —no sólo evita el registro, evita también la
 	// entrada de índice, que apunta a un registro que no va a existir.
 	if !declarado {
-		return cache.CacheKey{}, true, reasonNoScope, nil
+		return cache.CacheKey{}, true, command.ReasonNoScope, EvidenceFact{}, nil
 	}
 
 	// Sin reglas tampoco, y por otra razón (spec 15 §5.5): hay dónde recordarse,
@@ -250,12 +331,12 @@ func (h *StepRunnerHandler) decide(
 	// usar.
 	rules := request.StepConfig().Rules()
 	if rules.IsEmpty() {
-		return cache.CacheKey{}, true, reasonNoRules, nil
+		return cache.CacheKey{}, true, command.ReasonNoRules, EvidenceFact{}, nil
 	}
 
 	last, found, err := h.records.Last(ctx, key)
 	if err != nil {
-		return cache.CacheKey{}, false, "", fmt.Errorf(
+		return cache.CacheKey{}, false, command.ReasonNone, EvidenceFact{}, fmt.Errorf(
 			"leer el último registro de %s: %w", request.StepNameExe(), err)
 	}
 
@@ -278,7 +359,7 @@ func (h *StepRunnerHandler) decide(
 			request.Emit(fmt.Sprintf(
 				"advertencia: no se pudo componer la huella de %s: %v",
 				request.StepNameExe(), err))
-			return cache.CacheKey{}, true, reasonUndetermined, nil
+			return cache.CacheKey{}, true, command.ReasonUndetermined, EvidenceFact{}, nil
 		}
 	}
 
@@ -287,7 +368,7 @@ func (h *StepRunnerHandler) decide(
 	// la razón equivocada y `max_age` no diría nada. Lo que falta no es una regla
 	// que se cumpla: es el sujeto sobre el que se evalúan.
 	if !found {
-		return fingerprint, true, reasonNoRecord, nil
+		return fingerprint, true, command.ReasonNoRecord, EvidenceFact{}, nil
 	}
 
 	// EL OR. Cada regla es una razón independiente para desconfiar de lo
@@ -306,16 +387,24 @@ func (h *StepRunnerHandler) decide(
 		Now:         request.StartedAt(),
 	})
 	if run {
-		return fingerprint, true, reasonOf(kind), nil
+		return fingerprint, true, reasonOf(kind), EvidenceFact{}, nil
 	}
 
 	// La procedencia es la razón de ser de `Provenance`: sin ella, «se revive»
 	// dejaría sin respuesta «¿cuándo se probó esto por última vez?», que es la
 	// afirmación de valor del motor (spec 10 §5.4). Que se lea aquí no la
 	// convierte en parte de la decisión: la decisión ya está tomada.
-	return fingerprint, false, fmt.Sprintf(" (ejecutado el %s por %s)",
-		last.ProducedBy().At.UTC().Format(time.RFC3339),
-		last.ProducedBy().ExecutionID), nil
+	//
+	// Hasta la spec 19 esto se formateaba en una frase y salía por el log, o sea
+	// que la respuesta a la pregunta que el motor promete responder era texto
+	// libre descartable. Ahora sale como EVIDENCIA —la referencia al registro
+	// entera, no su resumen— y la frase se deriva de ella.
+	return fingerprint, false, command.ReasonUpToDate, EvidenceFact{
+		ExecutionID: last.ProducedBy().ExecutionID,
+		At:          last.ProducedBy().At,
+		StateKey:    key,
+		RecordID:    last.ID(),
+	}, nil
 }
 
 // fingerprintOf compone la huella del step con el alcance que su regla

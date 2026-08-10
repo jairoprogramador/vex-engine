@@ -1980,15 +1980,21 @@ func TestRunCommand_ViasDeInput(t *testing.T) {
 
 // ── Composición de observers ────────────────────────────────────────────────
 
-func TestRunCommand_ObserverDeStatusNuncaRecibeStages(t *testing.T) {
-	// CARACTERIZACIÓN: con --quiet=false, RunCommand compone un
-	// StdoutStatusObserver sobre el writer que recibe... y nada lo notifica
-	// nunca. `ExecutionContext.NotifyStage` existe y `PipelineRequestHandler`
-	// lo expone, pero ningún handler lo llama.
-	//
-	// El writer se queda vacío. Cuando el registro de despliegue (specs 17-19)
-	// empiece a emitir hechos, este test se pone en rojo, que es justo lo que
-	// se quiere: que la aparición de stages sea una decisión visible.
+// EL SILENCIO SE ACABA, y sustituir este caso por su contrario es parte del
+// alcance de la spec 19 (§7), no un test roto que se borra.
+//
+// Aquí vivía `TestRunCommand_ObserverDeStatusNuncaRecibeStages`, una
+// CARACTERIZACIÓN escrita en la spec 01 §9.2: con `--quiet=false` el
+// `StdoutStatusObserver` se componía sobre el writer y nadie lo notificaba
+// jamás, así que el writer se quedaba vacío. `NotifyStage` estaba cableado de
+// punta a punta y `grep` no encontraba un solo llamador (BL-5/R-10). Aquel test
+// se escribió para ponerse en rojo el día que eso cambiara, y este es el día.
+//
+// Se CABLEA y no se borra porque `--status-endpoint` sobrevive (spec 16) y es el
+// canal que el portal usa: darle una fuente real es más barato que mantener dos
+// vocabularios. La etapa la emite el dueño del hecho de apertura del step, en el
+// mismo punto y derivada de él.
+func TestRunCommand_ElObserverDeStatusRecibeUnaEtapaPorStep(t *testing.T) {
 	h := newHarness(t)
 
 	args := h.args()
@@ -1996,7 +2002,13 @@ func TestRunCommand_ObserverDeStatusNuncaRecibeStages(t *testing.T) {
 	result := h.execute(args, strings.NewReader(string(h.marshal(h.request()))))
 
 	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
-	assert.Empty(t, result.stdout, "ningún handler llama a NotifyStage")
+
+	etapas := make([]string, 0, 2)
+	for _, linea := range strings.Split(strings.TrimSpace(result.stdout), "\n") {
+		etapas = append(etapas, strings.TrimPrefix(strings.TrimSpace(linea), "→ "))
+	}
+	assert.Equal(t, []string{"running_step:01-test", "running_step:02-supply"}, etapas,
+		"una etapa por step, en orden, y con el identificador completo del step")
 }
 
 // ── El destino del estado es configuración (spec 16) ────────────────────────
@@ -2246,8 +2258,19 @@ func TestRunCommand_ElStatusTerminalSigueLlegandoASuEndpoint(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.Len(t, recibidos, 1, "un POST y sólo uno: el terminal")
-	assert.Equal(t, args.ExecutionID, recibidos[0]["execution_id"])
-	assert.Equal(t, "succeeded", recibidos[0]["status"])
-	assert.Equal(t, float64(cli.ExitSucceeded), recibidos[0]["exit_code"])
+
+	// Hasta la spec 19 éste era el ÚNICO POST, porque nadie emitía etapas. Ahora
+	// hay uno por step además del terminal, que es precisamente lo que §5.4 compra:
+	// el portal deja de ver una ejecución muda hasta que termina.
+	require.Len(t, recibidos, 3)
+	assert.Equal(t, "running_step:01-test", recibidos[0]["current_stage"])
+	assert.Equal(t, "running_step:02-supply", recibidos[1]["current_stage"])
+
+	// Y el terminal sigue siendo el último y sigue llevando lo suyo. Es la
+	// corrección a I-6 (spec 16) puesta a prueba desde el otro lado: cablear las
+	// etapas no puede costar la única señal de que el contenedor terminó.
+	terminal := recibidos[len(recibidos)-1]
+	assert.Equal(t, args.ExecutionID, terminal["execution_id"])
+	assert.Equal(t, "succeeded", terminal["status"])
+	assert.Equal(t, float64(cli.ExitSucceeded), terminal["exit_code"])
 }

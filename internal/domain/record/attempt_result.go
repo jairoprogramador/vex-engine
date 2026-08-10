@@ -48,8 +48,14 @@ type StepResult struct {
 	// «terminó mal», que son dos hechos distintos y sólo uno es un fallo.
 	Finished bool
 
-	Duration        time.Duration
-	FromCache       bool
+	Duration  time.Duration
+	FromCache bool
+
+	// Reason es por qué terminó así: qué regla dijo que sí, o que ninguna lo
+	// dijo. Junto a `FromCache` es lo que separa un caché que funciona de una
+	// configuración que revive basura (spec 19).
+	Reason command.StepReason
+
 	StepFingerprint string
 	Evidence        EvidenceRef
 	ExitCode        *int

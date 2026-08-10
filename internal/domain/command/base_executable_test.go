@@ -62,6 +62,7 @@ func TestBaseExecutable_UnExecFallidoDejaLaPlantillaEnSuContenidoOriginal(t *tes
 			return errExec
 		},
 		func() error { return sesion.Restore() },
+		nil,
 	)
 
 	require.ErrorIs(t, err, errExec)
@@ -81,6 +82,7 @@ func TestBaseExecutable_ComposicionDeErrores(t *testing.T) {
 		err := ejecutable.Run(nil, nil,
 			func() error { return errExec },
 			func() error { return errAfter },
+			nil,
 		)
 
 		require.ErrorIs(t, err, errExec)
@@ -96,6 +98,7 @@ func TestBaseExecutable_ComposicionDeErrores(t *testing.T) {
 		err := ejecutable.Run(nil, nil,
 			func() error { return nil },
 			func() error { return errAfter },
+			nil,
 		)
 
 		require.ErrorIs(t, err, errAfter)
@@ -110,6 +113,7 @@ func TestBaseExecutable_ComposicionDeErrores(t *testing.T) {
 			func() error { return nil },
 			func() error { return nil },
 			func() error { vecesAfter++; return nil },
+			nil,
 		))
 		assert.Equal(t, 1, vecesAfter)
 	})
@@ -126,11 +130,104 @@ func TestBaseExecutable_BeforeFallidoNoDisparaLaLimpieza(t *testing.T) {
 		func() error { return errBefore },
 		func() error { vecesExec++; return nil },
 		func() error { vecesAfter++; return nil },
+		nil,
 	)
 
 	require.ErrorIs(t, err, errBefore)
 	assert.Zero(t, vecesExec)
 	assert.Zero(t, vecesAfter, "no hay sesión abierta que restaurar")
+}
+
+// EL CASO QUE LA SPEC 06 NO CUBRE, y el que la 19 tiene que cerrar (06 §9.5,
+// 19 §5.2' y §7).
+//
+// La garantía de la 06 es sobre la LIMPIEZA, y por decisión explícita de su §8
+// `after` no corre si `before` falló. Pero `before` puede fallar DESPUÉS de
+// haber emitido: el hecho de apertura del step es su primera línea y la
+// construcción de `step_workdir` viene detrás y puede devolver error. Con el par
+// colgado de `before`/`after`, ese camino queda ABIERTO — un `step_started` sin
+// su `step_finished`, que es exactamente el hueco que el registro no puede
+// tener.
+//
+// De las tres salidas que la spec plantea se eligió cerrar desde `Run`, y esto
+// es lo que esa elección compra: `closing` corre aunque `after` no lo haga.
+func TestBaseExecutable_UnBeforeQueEmiteYFallaCierraSuCicloIgual(t *testing.T) {
+	var ejecutable command.BaseExecutable
+	abierto, cerradoCon, vecesAfter := false, error(nil), 0
+	cerrado := false
+
+	err := ejecutable.Run(nil,
+		func() error {
+			abierto = true // el hecho de apertura ya salió
+			return errBefore
+		},
+		func() error { return nil },
+		func() error { vecesAfter++; return nil },
+		func(err error) error {
+			cerrado = true
+			cerradoCon = err
+			return nil
+		},
+	)
+
+	require.ErrorIs(t, err, errBefore)
+	require.True(t, abierto)
+	assert.Zero(t, vecesAfter, "sigue sin haber sesión abierta que restaurar (spec 06 §8)")
+	assert.True(t, cerrado, "el par se cierra aunque la limpieza no corra")
+	assert.ErrorIs(t, cerradoCon, errBefore,
+		"y el cierre recibe el error, que es lo que el hecho tiene que contar")
+}
+
+// El cierre recibe el error DEFINITIVO, no el de `exec`: un step cuyo comando
+// fue bien y cuya plantilla no se pudo restaurar no terminó bien, y su hecho no
+// puede decir que sí.
+func TestBaseExecutable_ElCierreVeTambienElErrorDeLaLimpieza(t *testing.T) {
+	var ejecutable command.BaseExecutable
+	var cerradoCon error
+
+	err := ejecutable.Run(nil, nil,
+		func() error { return nil },
+		func() error { return errAfter },
+		func(err error) error { cerradoCon = err; return nil },
+	)
+
+	require.ErrorIs(t, err, errAfter)
+	assert.ErrorIs(t, cerradoCon, errAfter)
+}
+
+// Y su propio fallo se compone con la misma regla que el de `after`: la causa
+// antes que la consecuencia. Un hecho que no se pudo escribir no es cosmético
+// —el registro es la fuente de la que se deriva todo lo demás— pero tampoco
+// tapa el fallo que lo precedió.
+func TestBaseExecutable_UnCierreFallidoNoTapaLaCausa(t *testing.T) {
+	errCierre := errors.New("no se pudo escribir el hecho")
+
+	t.Run("sin otro error, el del cierre manda", func(t *testing.T) {
+		var ejecutable command.BaseExecutable
+
+		err := ejecutable.Run(nil, nil,
+			func() error { return nil },
+			nil,
+			func(error) error { return errCierre },
+		)
+
+		require.ErrorIs(t, err, errCierre)
+	})
+
+	t.Run("con un exec fallido, encabeza la causa", func(t *testing.T) {
+		var ejecutable command.BaseExecutable
+
+		err := ejecutable.Run(nil, nil,
+			func() error { return errExec },
+			nil,
+			func(error) error { return errCierre },
+		)
+
+		require.ErrorIs(t, err, errExec)
+		require.ErrorIs(t, err, errCierre)
+		assert.True(t, strings.HasPrefix(err.Error(), errExec.Error()),
+			"el mensaje empieza por la causa: %q", err.Error())
+	})
 }
 
 // ── Dobles ──────────────────────────────────────────────────────────────────

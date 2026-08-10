@@ -32,19 +32,38 @@ var variableInterpolationRegex = regexp.MustCompile(`\$\{var\.`)
 // es la capa más interna decidiendo sobre material de la más externa —y la razón
 // de que la identidad de la operación no se pudiera componer antes de ejecutar—.
 // Lo que hace este handler es resolver, que es lo suyo.
+//
+// # Y es uno de los dos dueños de `parameter_resolved` (spec 19 §5.1)
+//
+// Los resolutores emiten en la CARGA del step y no cuando el valor llegue: aquí
+// el par (declaración, valor resuelto) está junto y completo, que es exactamente
+// lo que hace falta para que el hecho sea POR PARÁMETRO y no un digest agregado
+// (N-3). El otro dueño es `05_vars_extractor_handler`, que emite lo que NACE al
+// ejecutar; son dos momentos distintos del mismo hecho.
+//
+// Los LITERALES no lo emiten, y es una decisión: su declaración y su valor son
+// la misma cosa, así que ya viajan enteros dentro del objeto de despliegue
+// (spec 18) y un hecho por literal repetiría el material de identidad en cada
+// corrida sin añadir nada. Lo que se registra es lo que el motor RESOLVIÓ.
 type VarsHandler struct {
 	StepBaseHandler
 	loaded    *LoadedPipelinecode
 	resolvers DeclarationResolvers
+	facts     FactSink
 }
 
 var _ StepHandler = (*VarsHandler)(nil)
 
-func NewVarsHandler(loaded *LoadedPipelinecode, resolvers DeclarationResolvers) StepHandler {
+func NewVarsHandler(
+	loaded *LoadedPipelinecode,
+	resolvers DeclarationResolvers,
+	facts FactSink) StepHandler {
+
 	return &VarsHandler{
 		StepBaseHandler: StepBaseHandler{Next: nil},
 		loaded:          loaded,
 		resolvers:       resolvers,
+		facts:           facts,
 	}
 }
 
@@ -71,6 +90,18 @@ func (h *VarsHandler) Handle(ctx *context.Context, request *StepRequestHandler) 
 			return fmt.Errorf("crear variable resuelta por declaración: %w", err)
 		}
 		request.AddAccumulatedVars(variable)
+
+		// El `Origin` viaja como DATO y no como conclusión: `resolved` es lo que
+		// permite distinguir «se lo dio una declaración» de «lo derivó el motor»
+		// sin que el consumidor reconstruya el cableado. El valor no entra —entra
+		// su resumen—, que es la regla de la spec 14 aplicada al registro.
+		if err := h.facts.ParameterResolved(ctx, command.ParameterFact{
+			Name:   declaration.Name(),
+			Source: command.OriginResolved,
+			Value:  value,
+		}); err != nil {
+			return fmt.Errorf("registrar la variable resuelta '%s': %w", declaration.Name(), err)
+		}
 	}
 
 	resolvedVars, err := h.Resolve(request.AccumulatedVars(), literals)

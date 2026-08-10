@@ -49,5 +49,10 @@ func (s *PipelineExecutable) Execute(executionContext *command.ExecutionContext)
 			}
 			return nil
 		},
+		// Sin cierre de ciclo: el par del INTENTO no cuelga de aquí sino de
+		// `CreateExecutionUseCase`, la única capa que ve tanto el éxito como el
+		// fallo (spec 19 §5.1). Esta cadena no ve la cancelación —le llega como un
+		// error cualquiera— y `attempt_finished` tiene que poder distinguirla.
+		nil,
 	)
 }

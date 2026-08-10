@@ -297,12 +297,17 @@ func TestStepExecutable_UnStepFallidoNoDejaSuWorkdirEnElMapaAcumulado(t *testing
 
 // ── Dobles ──────────────────────────────────────────────────────────────────
 
+// El sumidero de hechos va MUDO en estos tests, y es deliberado: lo que miden es
+// qué se PERSISTE —un registro por ejecución real, ninguno cuando se revive— y
+// no qué se emite. La emisión tiene sus propios casos, y los que valen de verdad
+// son de integración: un `step_finished` sólo dice la verdad si sale del
+// cableado completo.
 func nuevoEjecutable(
 	handler domStep.StepHandler,
 	registros domState.Records,
 	indice domCache.Entries) *domStep.StepExecutable {
 
-	return domStep.NewStepExecutable(handler, registros, idsFijos{}, indice)
+	return domStep.NewStepExecutable(handler, registros, idsFijos{}, indice, domStep.NoFacts{})
 }
 
 type handlerQueFalla struct{ err error }

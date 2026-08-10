@@ -46,6 +46,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
+	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	"github.com/jairoprogramador/vex-engine/internal/domain/deployment"
+	"github.com/jairoprogramador/vex-engine/internal/domain/record"
 	"github.com/jairoprogramador/vex-engine/internal/domain/state"
 	infraCache "github.com/jairoprogramador/vex-engine/internal/infrastructure/cache"
 	infraDeployment "github.com/jairoprogramador/vex-engine/internal/infrastructure/deployment"
@@ -687,16 +690,297 @@ func (h *harness) hechos() []infraRecord.JSONLEventDTO {
 	return hechos
 }
 
-// hechosDeTipo filtra el vocabulario.
-func (h *harness) hechosDeTipo(tipo string) []infraRecord.JSONLEventDTO {
+// jsonlEvento es la línea del archivo de hechos, con el nombre corto que los
+// casos usan.
+type jsonlEvento = infraRecord.JSONLEventDTO
+
+// ultimaTira son los hechos de la ÚLTIMA ejecución, en el orden de su `seq`.
+//
+// Hace falta porque `hechos()` ACUMULA —el área de trabajo es estable entre
+// corridas del mismo harness— y `seq` es la posición dentro de UN intento, no
+// una secuencia global: ordenar dos corridas por `seq` las intercala. Es la
+// misma propiedad que hace útil el modelo (cada intento se numera solo) vista
+// desde el lado incómodo.
+//
+// «Última» se resuelve por instante de modificación del archivo y no por su
+// nombre: el archivo lo nombra el `execution_id`, que es único pero no
+// ordenable.
+func (h *harness) ultimaTira() []jsonlEvento {
 	h.t.Helper()
-	filtrados := make([]infraRecord.JSONLEventDTO, 0, 2)
+
+	var ultimo string
+	var cuando time.Time
+	err := filepath.WalkDir(filepath.Join(h.staging, "events"),
+		func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || filepath.Ext(path) != ".jsonl" {
+				return nil
+			}
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			if ultimo == "" || info.ModTime().After(cuando) {
+				ultimo, cuando = path, info.ModTime()
+			}
+			return nil
+		})
+	require.NoError(h.t, err)
+	require.NotEmpty(h.t, ultimo, "no hay ninguna tira de hechos escrita")
+
+	return h.tira(ultimo)
+}
+
+func (h *harness) tira(path string) []jsonlEvento {
+	h.t.Helper()
+
+	data, err := os.ReadFile(path)
+	require.NoError(h.t, err)
+
+	hechos := make([]jsonlEvento, 0, 8)
+	for _, linea := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(linea) == "" {
+			continue
+		}
+		var dto jsonlEvento
+		require.NoError(h.t, json.Unmarshal([]byte(linea), &dto))
+		hechos = append(hechos, dto)
+	}
+	sort.SliceStable(hechos, func(i, j int) bool { return hechos[i].Seq < hechos[j].Seq })
+	return hechos
+}
+
+// deTipo filtra una tira ya seleccionada.
+func deTipo(hechos []jsonlEvento, tipo string) []jsonlEvento {
+	filtrados := make([]jsonlEvento, 0, 2)
+	for _, hecho := range hechos {
+		if hecho.Type == tipo {
+			filtrados = append(filtrados, hecho)
+		}
+	}
+	return filtrados
+}
+
+// hechosDeTipo filtra el vocabulario.
+func (h *harness) hechosDeTipo(tipo string) []jsonlEvento {
+	h.t.Helper()
+	filtrados := make([]jsonlEvento, 0, 2)
 	for _, hecho := range h.hechos() {
 		if hecho.Type == tipo {
 			filtrados = append(filtrados, hecho)
 		}
 	}
 	return filtrados
+}
+
+// eventos son los mismos hechos DEVUELTOS AL DOMINIO, para poder plegarlos.
+//
+// # Por qué el decodificador vive aquí y no en infraestructura
+//
+// Porque todavía no tiene otro consumidor. El motor sólo ESCRIBE hechos; quien
+// los lee es `record log` (spec 22) y el pliegue del backend (spec 26), y
+// escribir hoy el lector de producción sería fijar una superficie sin nadie
+// detrás. Lo que la spec 19 §7 necesita es comprobar que **emisión y modelo
+// encajan**, y para eso hace falta leer lo escrito — no publicar un lector.
+//
+// Tiene un efecto lateral que conviene: cada campo que un emisor añada y este
+// decodificador no sepa leer se nota aquí, no seis meses después en el
+// consumidor.
+//
+// El `event_id` se reconstruye del texto y el resto del sobre también, así que
+// lo único que este decodificador no comprueba es la entropía — que no entra en
+// ninguna decisión del pliegue.
+func (h *harness) eventos() []record.Event {
+	h.t.Helper()
+
+	hechos := h.hechos()
+	eventos := make([]record.Event, 0, len(hechos))
+	for _, hecho := range hechos {
+		eventos = append(eventos, h.evento(hecho))
+	}
+	return eventos
+}
+
+func (h *harness) evento(dto jsonlEvento) record.Event {
+	h.t.Helper()
+
+	id, err := record.ParseEventID(dto.EventID)
+	require.NoError(h.t, err)
+	seq, err := record.NewSeq(dto.Seq)
+	require.NoError(h.t, err)
+	at, err := time.Parse(time.RFC3339Nano, dto.At)
+	require.NoError(h.t, err)
+	attempt, err := deployment.NewAttempt(dto.Attempt)
+	require.NoError(h.t, err)
+
+	evento, err := record.NewEvent(id, seq, at, attempt, h.carga(dto))
+	require.NoError(h.t, err,
+		"el motor escribió un hecho que su propio modelo rechaza: %s", dto.Type)
+	return evento
+}
+
+// carga reconstruye la carga útil de cada tipo. El `default` es lo que avisa de
+// un tipo emitido y no contemplado, igual que en el traductor de salida.
+func (h *harness) carga(dto jsonlEvento) record.Payload {
+	h.t.Helper()
+
+	p := dto.Payload
+	switch record.EventType(dto.Type) {
+	case record.TypeAttemptStarted:
+		id, err := deployment.ParseDeploymentID(texto(p, "deployment_id"))
+		require.NoError(h.t, err)
+		return record.AttemptStarted{
+			Deployment: id,
+			Actor:      texto(p, "actor"),
+			Runner:     texto(p, "runner"),
+		}
+
+	case record.TypeStaleCloneUsed:
+		return record.StaleCloneUsed{
+			Source:   texto(p, "source"),
+			AgeHours: numero(p, "age_hours"),
+		}
+
+	case record.TypeStepStarted:
+		return record.StepStarted{
+			StepID:          texto(p, "step_id"),
+			Scope:           h.ambito(texto(p, "scope")),
+			StepFingerprint: texto(p, "step_fingerprint"),
+		}
+
+	case record.TypeStepFinished:
+		return record.StepFinished{
+			StepID:          texto(p, "step_id"),
+			Scope:           h.ambito(texto(p, "scope")),
+			Status:          command.StepStatus(texto(p, "status")),
+			Duration:        time.Duration(numero(p, "duration_ms")) * time.Millisecond,
+			FromCache:       p["from_cache"] == true,
+			Reason:          command.StepReason(texto(p, "reason")),
+			StepFingerprint: texto(p, "step_fingerprint"),
+			Evidence:        h.evidencia(p["evidence_from"]),
+			ExitCode:        entero(p, "exit_code"),
+			ErrorClass:      record.ErrorClass(texto(p, "error_class")),
+		}
+
+	case record.TypeCommandStarted:
+		return record.CommandStarted{
+			StepID:      texto(p, "step_id"),
+			CommandName: texto(p, "command"),
+		}
+
+	case record.TypeCommandFinished:
+		return record.CommandFinished{
+			StepID:      texto(p, "step_id"),
+			CommandName: texto(p, "command"),
+			Status:      command.CommandStatus(texto(p, "status")),
+			Duration:    time.Duration(numero(p, "duration_ms")) * time.Millisecond,
+			ExitCode:    int(numero(p, "exit_code")),
+			ErrorClass:  record.ErrorClass(texto(p, "error_class")),
+		}
+
+	case record.TypeParameterResolved:
+		return record.ParameterResolved{
+			Name:   texto(p, "name"),
+			Source: h.origen(texto(p, "source")),
+			Digest: texto(p, "digest"),
+		}
+
+	case record.TypeArtifactProduced:
+		return record.ArtifactProduced{
+			StepID: texto(p, "step_id"),
+			Kind:   texto(p, "type"),
+			Digest: texto(p, "digest"),
+		}
+
+	case record.TypeSyncFailed:
+		return record.SyncFailed{
+			Destination: texto(p, "destination"),
+			Cause:       texto(p, "cause"),
+		}
+
+	case record.TypeAttemptFinished:
+		return record.AttemptFinished{Status: record.AttemptStatus(texto(p, "status"))}
+
+	default:
+		h.t.Fatalf("hecho de tipo desconocido en el archivo: %s", dto.Type)
+		return nil
+	}
+}
+
+func (h *harness) evidencia(valor any) record.EvidenceRef {
+	h.t.Helper()
+
+	crudo, ok := valor.(map[string]any)
+	if !ok {
+		return record.EvidenceRef{}
+	}
+
+	clave, ok := crudo["state_key"].(map[string]any)
+	require.True(h.t, ok, "la evidencia no dice dónde vive el registro")
+	key, err := state.NewKey(
+		texto(clave, "subject"), h.ambito(texto(clave, "scope")), texto(clave, "step_id"))
+	require.NoError(h.t, err)
+	recordID, err := state.ParseRecordID(texto(crudo, "record_id"))
+	require.NoError(h.t, err)
+	at, err := time.Parse(time.RFC3339Nano, texto(crudo, "at"))
+	require.NoError(h.t, err)
+
+	return record.EvidenceRef{
+		ExecutionID: texto(crudo, "execution_id"),
+		At:          at,
+		StateKey:    key,
+		RecordID:    recordID,
+	}
+}
+
+func (h *harness) ambito(texto string) state.Scope {
+	h.t.Helper()
+	if texto == "" {
+		return state.Scope{}
+	}
+	scope, err := state.ParseScope(texto)
+	require.NoError(h.t, err)
+	return scope
+}
+
+// origen traduce la forma externa del `Origin` de vuelta al enum. El orden del
+// enum ES la precedencia, así que no se puede derivar de un número: se compara
+// contra el mismo `String()` que lo escribió.
+func (h *harness) origen(nombre string) command.Origin {
+	h.t.Helper()
+	for _, origen := range []command.Origin{
+		command.OriginDeclared, command.OriginState, command.OriginInjected,
+		command.OriginResolved, command.OriginRuntime,
+	} {
+		if origen.String() == nombre {
+			return origen
+		}
+	}
+	h.t.Fatalf("origen desconocido en el archivo: %s", nombre)
+	return command.OriginDeclared
+}
+
+func texto(payload map[string]any, clave string) string {
+	valor, _ := payload[clave].(string)
+	return valor
+}
+
+func numero(payload map[string]any, clave string) float64 {
+	valor, _ := payload[clave].(float64)
+	return valor
+}
+
+// entero devuelve nil cuando la clave no está, que es lo que la ausencia de
+// `exit_code` significa: no hubo ningún proceso del que reportarlo.
+func entero(payload map[string]any, clave string) *int {
+	valor, ok := payload[clave].(float64)
+	if !ok {
+		return nil
+	}
+	convertido := int(valor)
+	return &convertido
 }
 
 // cabezaDelLinaje es el último `deployment_id` registrado para un ambiente.

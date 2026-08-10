@@ -72,7 +72,9 @@ func TestVarsChain_ElOrdenDeLosHandlersYaNoDecideQuienGana(t *testing.T) {
 			cadena := orden.armar(
 				domStep.NewVarsStoreHandler(registros),
 				domStep.NewVarsHandler(
-					declaracionesCargadas(t), domStep.NewDeclarationResolvers(registros)),
+					declaracionesCargadas(t),
+					domStep.NewDeclarationResolvers(registros),
+					domStep.NoFacts{}),
 			)
 
 			request := domStep.NewStepRequestHandler(executionContext, "supply")

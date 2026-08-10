@@ -93,14 +93,26 @@ type RunCommand struct {
 	// hacia el destino, que es de la spec 21.
 	destino    syncconfig.Config
 	stagingDir string
+
+	// renderer es el decorador del sink de hechos: por él pasan los eventos antes
+	// de llegar al archivo, y de ellos se derivan las líneas para humanos
+	// (spec 19 §5.5). Se cablea al construir el motor y recibe su destino AQUÍ,
+	// porque los observers dependen de flags y los hechos no.
+	renderer *notify.EventRenderer
 }
 
 func NewRunCommand(
 	createExec *usecase.CreateExecutionUseCase,
 	destino syncconfig.Config,
 	stagingDir string,
+	renderer *notify.EventRenderer,
 ) *RunCommand {
-	return &RunCommand{createExec: createExec, destino: destino, stagingDir: stagingDir}
+	return &RunCommand{
+		createExec: createExec,
+		destino:    destino,
+		stagingDir: stagingDir,
+		renderer:   renderer,
+	}
 }
 
 // Destino es el destino del estado con el que se cableó el motor.
@@ -176,6 +188,13 @@ func (c *RunCommand) Execute(ctx context.Context, stdin io.Reader, stdout io.Wri
 
 	multiLogs := notify.NewMultiObserver(logObservers...)
 	multiStatus := notify.NewMultiStatusObserver(statusObservers...)
+
+	// La narrativa se engancha al flujo de HECHOS, no al revés (R-7). Es lo único
+	// que hay que decirle al renderizador: los hechos ya salían por él aunque
+	// nadie mirara, porque registrar es incondicional (§5.6).
+	if c.renderer != nil {
+		c.renderer.Observe(multiLogs)
+	}
 
 	createExec := c.createExec.WithObservers(multiLogs, multiStatus)
 

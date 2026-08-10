@@ -168,6 +168,17 @@ func (e *Execution) StartedAt() time.Time {
 	return e.startedAt
 }
 
+// Now es el instante actual según el reloj de ESTA ejecución.
+//
+// El reloj ya vivía aquí —de él salen `startedAt` y `finishedAt`— y lo que la
+// spec 19 necesita es medir duraciones dentro de la ejecución. Publicarlo por
+// aquí y no inyectar un `shared.Clock` en cada ejecutable es lo que impide que
+// dos partes del mismo intento midan contra relojes distintos, y mantiene la
+// prohibición de `time.Now()` en el dominio (spec 07) en un solo sitio.
+func (e *Execution) Now() time.Time {
+	return e.clock.Now()
+}
+
 func (e *Execution) FinishedAt() *time.Time {
 	e.mu.Lock()
 	defer e.mu.Unlock()

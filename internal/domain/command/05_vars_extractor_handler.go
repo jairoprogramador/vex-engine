@@ -5,15 +5,29 @@ import (
 	"fmt"
 )
 
+// VarsExtractorHandler es donde una variable NACE de la ejecución, y por eso es
+// uno de los dos dueños de `parameter_resolved` (spec 19 §5.1).
+//
+// Los otros —los resolutores de declaraciones— emiten en la CARGA del step,
+// antes del primer comando, porque ahí el par (declaración, valor resuelto) está
+// junto y completo. Éste emite lo que NACE al ejecutar, que es la respuesta
+// exacta a «¿qué dejó este step?» y ya no se confunde con nada desde la spec 14.
+//
+// La pregunta pasó a depender enteramente de este hecho por un camino que
+// conviene tener escrito: un step que ejecuta y no produce nada escribe hoy un
+// registro VACÍO, así que el registro dejó de servir para enumerar con qué
+// valores corrió.
 type VarsExtractorHandler struct {
 	CommandBaseHandler
+	facts FactSink
 }
 
 var _ CommandHandler = (*VarsExtractorHandler)(nil)
 
-func NewVarsExtractorHandler() CommandHandler {
+func NewVarsExtractorHandler(facts FactSink) CommandHandler {
 	return &VarsExtractorHandler{
 		CommandBaseHandler: CommandBaseHandler{Next: nil},
+		facts:              facts,
 	}
 }
 
@@ -51,6 +65,18 @@ func (h *VarsExtractorHandler) Handle(ctx *context.Context, request *CommandRequ
 		// como `OriginState` en la corrida siguiente y editarlo dejaba de surtir
 		// efecto.
 		request.AddProducedVar(executionVariable)
+
+		// Y el hecho, UNO POR PARÁMETRO (N-3, la variante agregada se retira). El
+		// `Origin` viaja como DATO y no como conclusión: el consumidor deriva de él
+		// quién ganó sin reconstruir el cableado. El valor no entra —entra su
+		// resumen—, que es la regla de la spec 14 aplicada al registro.
+		if err := h.facts.ParameterResolved(ctx, ParameterFact{
+			Name:   name,
+			Source: OriginRuntime,
+			Value:  value,
+		}); err != nil {
+			return fmt.Errorf("registrar la variable extraída '%s': %w", name, err)
+		}
 	}
 
 	if h.Next != nil {

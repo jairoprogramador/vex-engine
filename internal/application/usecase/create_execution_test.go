@@ -19,6 +19,7 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
 	"github.com/jairoprogramador/vex-engine/internal/application/usecase"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	"github.com/jairoprogramador/vex-engine/internal/domain/record"
 	"github.com/jairoprogramador/vex-engine/internal/domain/shared"
 )
 
@@ -38,6 +39,18 @@ type emisorMudo struct{}
 
 func (emisorMudo) Notify(string, string) {}
 
+// emisorDeHechos es un emisor SIN TIRA ABIERTA, que es exactamente el estado en
+// el que esta capa lo encuentra cuando la ejecución no llega al resolutor de
+// despliegue: retiene lo que se le entrega y no toca ningún sink.
+//
+// Es lo que hace que estos casos sigan midiendo lo suyo —qué estado terminal
+// publica el agregado— sin montar medio registro. Que `attempt_finished` llegue
+// al archivo es una propiedad del cableado completo y se mide en integración.
+func emisorDeHechos(t *testing.T) *record.Emitter {
+	t.Helper()
+	return record.NewEmitter(shared.NewFixedClock(instanteFijo), nil, nil)
+}
+
 func requestValido() dto.RequestInput {
 	return dto.RequestInput{
 		SchemaVersion: 1,
@@ -53,7 +66,8 @@ func requestValido() dto.RequestInput {
 
 func ejecutar(t *testing.T, ctx context.Context, pipeline command.Executable) (usecase.CreateExecutionOutput, error) {
 	t.Helper()
-	uc := usecase.NewCreateExecutionUseCase(pipeline, nil, nil, shared.NewFixedClock(instanteFijo)).
+	uc := usecase.NewCreateExecutionUseCase(
+		pipeline, nil, nil, shared.NewFixedClock(instanteFijo), emisorDeHechos(t)).
 		WithObservers(emisorMudo{}, nil)
 	return uc.Execute(ctx, requestValido(), "exec-1")
 }

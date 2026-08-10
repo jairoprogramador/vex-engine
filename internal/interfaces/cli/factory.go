@@ -11,6 +11,7 @@ import (
 	stepDom "github.com/jairoprogramador/vex-engine/internal/domain/step"
 	cmdInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/command"
 	deploymentInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/deployment"
+	notifyInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/notify"
 	pippInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
 	recordInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/record"
 	sharedInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/shared"
@@ -166,9 +167,20 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	//	                       empieza vacía en cada máquina efímera derivaría dos
 	//	                       veces el mismo `deployment_id`.
 	objectStore := deploymentInfra.NewFileObjectStore(filepath.Join(stagingPath, objectsDirName))
-	eventSink := recordInfra.NewJSONLEventSink(filepath.Join(stagingPath, eventsDirName))
 	lineageStore := stores.lineages
-	emitter := record.NewEmitter(clock, recordInfra.NewUUIDv7EventIDFactory(), eventSink)
+
+	// R-7 hecho cableado: el registro es la FUENTE y las líneas para humanos se
+	// derivan de él (spec 19 §5.5). El renderizador se interpone entre el emisor y
+	// el archivo —decorador del sink, no un bus— así que los hechos se escriben
+	// igual aunque nadie esté mirando: registrar es incondicional, narrar no.
+	eventRenderer := notifyInfra.NewEventRenderer(
+		recordInfra.NewJSONLEventSink(filepath.Join(stagingPath, eventsDirName)))
+	emitter := record.NewEmitter(clock, recordInfra.NewUUIDv7EventIDFactory(), eventRenderer)
+
+	// El adaptador de los dos puertos de hechos. Es UNO y no dos porque los tres
+	// hechos que traduce salen del mismo emisor y con la misma numeración: `seq`
+	// es la posición dentro del INTENTO, no dentro de una cadena.
+	facts := record.NewFacts(emitter)
 
 	// El material del pipelinecode se lee UNA vez, en la cadena de pipeline, y la
 	// de step lo consume (spec 18 §5.2). El objeto lo comparten los dos lados
@@ -248,10 +260,10 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	// caché de resolución, no el modelo.
 	stepHead := chainStepHandlers(
 		stepDom.NewVarsStoreHandler(records),
-		stepDom.NewVarsHandler(loadedPipelinecode, stepDom.NewDeclarationResolvers(records)),
+		stepDom.NewVarsHandler(loadedPipelinecode, stepDom.NewDeclarationResolvers(records), facts),
 		stepDom.NewStepRunnerHandler(loadedPipelinecode, records),
 	)
-	executableStep := stepDom.NewStepExecutable(stepHead, records, recordIDs, entries)
+	executableStep := stepDom.NewStepExecutable(stepHead, records, recordIDs, entries, facts)
 
 	// --- Domain: command handler chain ---
 	fileInterpolator := command.NewFileInterpolator(fileSystem)
@@ -260,9 +272,9 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		command.NewCommandInterpolatorHandler(),
 		command.NewCommandRunnerHandler(shellRunner),
 		command.NewRegexCheckerHandler(),
-		command.NewVarsExtractorHandler(),
+		command.NewVarsExtractorHandler(facts),
 	)
-	executableCommand := command.NewCommandExecutable(commandHead)
+	executableCommand := command.NewCommandExecutable(commandHead, facts)
 
 	// --- Application ---
 	createExec := usecase.NewCreateExecutionUseCase(
@@ -270,9 +282,10 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		executableCommand,
 		executableStep,
 		clock,
+		emitter,
 	)
 
-	return NewRunCommand(createExec, destino, stagingPath), nil
+	return NewRunCommand(createExec, destino, stagingPath, eventRenderer), nil
 }
 
 func chainPipelineHandlers(handlers ...pipDom.PipelineHandler) pipDom.PipelineHandler {

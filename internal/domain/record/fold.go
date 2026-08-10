@@ -91,15 +91,25 @@ func Fold(events []Event) AttemptResult {
 				result.Steps = append(result.Steps, StepResult{StepID: payload.StepID})
 			}
 			step := &result.Steps[position]
-			step.Scope = payload.Scope
 			step.Status = payload.Status
 			step.Finished = true
 			step.Duration = payload.Duration
 			step.FromCache = payload.FromCache
+			step.Reason = payload.Reason
 			step.Evidence = payload.Evidence
 			step.ExitCode = payload.ExitCode
 			step.ErrorClass = payload.ErrorClass
 			result.LastStep = payload.StepID
+
+			// El ámbito y la huella los pisa el cierre SÓLO si los trae: es aquí
+			// donde el dato existe en este motor (ver `StepStarted`), y un cierre
+			// que no los conoce no debe borrar los que la apertura sí trajo.
+			if !payload.Scope.IsZero() {
+				step.Scope = payload.Scope
+			}
+			if payload.StepFingerprint != "" {
+				step.StepFingerprint = payload.StepFingerprint
+			}
 
 			// El fallo del intento es el del PRIMER step que falló: los
 			// posteriores no llegaron a correr, así que atribuirle el último

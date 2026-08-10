@@ -68,6 +68,20 @@ func (p AttemptStarted) Validate() error {
 // —sólo `max_age`, por ejemplo— no compara contenidos, así que el motor no le
 // calcula huella. Hay steps que se saltan por VIGENCIA y no por contenido, y el
 // modelo no puede tratar la huella como obligatoria.
+//
+// # Y desde este motor van vacías SIEMPRE, que es un hallazgo de la spec 19
+//
+// El ámbito y la huella se conocen DENTRO de la cadena de step —el ámbito lo
+// anota el handler 03 al leer el `config.yaml`, la huella la compone su
+// `decide`— y este hecho se emite ANTES de entrar en ella: es lo que hace que un
+// `before` que falla no deje el par abierto (§5.2'). Emitirlo más tarde para
+// llenar dos campos costaría la propiedad que el par existe para dar.
+//
+// Los dos campos se conservan porque son del MODELO y no de este emisor: un
+// motor que compusiera la huella antes de abrir el step —lo que la spec 27
+// acerca, al mover el material de «acumulado resuelto» a «declarado»— la pondría
+// aquí sin cambiar nada. Mientras tanto los dos viajan en `step_finished`, que
+// es donde el dato existe, y `Fold` los toma de allí.
 type StepStarted struct {
 	StepID string
 	Scope  state.Scope
@@ -113,7 +127,27 @@ type StepFinished struct {
 	Duration time.Duration
 
 	// FromCache dice que el step revivió: no ejecutó ni un comando.
+	//
+	// Se lee mejor como «revivido», y por sí solo no basta: sin el `Reason` que lo
+	// acompaña, un `from_cache: true` no distingue un caché que funciona de una
+	// configuración que revive basura durante toda su ventana de vigencia
+	// (spec 15 §5.4).
 	FromCache bool
+
+	// Reason es POR QUÉ el step terminó como terminó: qué regla dijo que sí, o
+	// que ninguna lo dijo. Es lo que la spec 19 añade al modelo, y es extensión y
+	// no cambio — `Fold` sigue plegando los hechos anteriores sin tocarse.
+	//
+	// `ReasonNone` es legítimo: un step cuyo `before` falló nunca llegó a que
+	// nadie decidiera nada sobre él.
+	Reason command.StepReason
+
+	// StepFingerprint es la huella con la que este step se comparó y bajo la que
+	// se registró, en su forma canónica con prefijo. Vacía es legítima por las dos
+	// vías de `StepStarted` —fallo al componer el material, o un step que no
+	// declara `state_changed`— y además viaja aquí y no allí porque es aquí donde
+	// el dato existe (ver `StepStarted`).
+	StepFingerprint string
 
 	// Evidence es el registro que estuvo vigente para este step, tanto si revivió
 	// como si ejecutó. Ver `EvidenceRef`. El valor cero significa que este step no
@@ -141,6 +175,13 @@ func (p StepFinished) Validate() error {
 	}
 	if p.Duration < 0 {
 		return fmt.Errorf("record: '%s' con duración negativa", TypeStepFinished)
+	}
+	// Un motivo fuera del vocabulario es un error DEL EMISOR, no un hecho
+	// degradado: el consumidor agrega por este campo, y un valor inventado se
+	// cuenta aparte para siempre sin que nadie sepa de dónde salió.
+	if !p.Reason.IsKnown() {
+		return fmt.Errorf(
+			"record: '%s' con motivo '%s', que no es del vocabulario", TypeStepFinished, p.Reason)
 	}
 	return p.Evidence.Validate()
 }

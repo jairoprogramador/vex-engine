@@ -6,6 +6,7 @@ import (
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/cache"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+
 	"github.com/jairoprogramador/vex-engine/internal/domain/state"
 )
 
@@ -31,6 +32,40 @@ type StepRequestHandler struct {
 	// un registro escrito con `ck-v1:` nunca revivirá contra una huella `sf-v1:`,
 	// porque las cadenas difieren en el prefijo.
 	stepFingerprint cache.CacheKey
+
+	// reportedFingerprint es la MISMA huella, anotada para INFORMAR en vez de
+	// para escribir, y la separación no es cosmética (spec 19 §5.1).
+	//
+	// `stepFingerprint` gobierna dos escrituras —el registro y la entrada de
+	// índice— y por eso el camino del salto no la anota: hacerlo reescribiría la
+	// entrada del step revivido y le refrescaría el TTL, que es justo lo que la
+	// spec 09 §9.4 evitó a propósito. Pero un `step_finished{from_cache: true}`
+	// sin huella no deja comparar contra qué revivió, así que el dato hace falta
+	// igual. Un solo campo para los dos usos sería un salto que se auto-renueva.
+	reportedFingerprint cache.CacheKey
+
+	// evidence es el registro que estuvo VIGENTE para este step, y viaja en las
+	// DOS mitades (spec 19 §5.1, 28 §5.3):
+	//
+	//   - cuando el step revivió, el registro que lo revivió — la respuesta a
+	//     «¿cuándo se probó esto por última vez?», que es la afirmación de valor
+	//     del motor;
+	//   - cuando el step ejecutó, el que acaba de escribir. Sin esta mitad, un
+	//     rollback anclado a una ejecución pasada tendría que derivar por fechas
+	//     qué registro estuvo vigente, que es guardar una conclusión.
+	//
+	// El valor cero es legítimo y frecuente: los tres casos que ejecutan y no
+	// escriben registro —sin `config.yaml`, sin comandos, sin `rules`— no invocan
+	// ninguno.
+	evidence EvidenceFact
+
+	// reason es POR QUÉ el step terminó como terminó. Lo anota quien DECIDE —el
+	// handler 03— y lo emite quien PRESENCIA el cierre, que es el ejecutable: es
+	// la frontera que la spec 19 §5.1' declara para que no se implemente al revés.
+	//
+	// Hasta aquí los seis motivos eran constantes privadas del handler y viajaban
+	// por el log como frases, o sea texto libre descartable por diseño.
+	reason command.StepReason
 
 	// stepConfig es lo que el step declara sobre sí mismo en su `config.yaml`
 	// (spec 13). Vive aquí por la misma razón que la huella: es estado de ESTA
@@ -144,6 +179,18 @@ func (rh *StepRequestHandler) MarkStepSuccess() {
 	rh.stepStatus = command.StepSuccess
 }
 
+// MarkStepCached registra que el step REVIVIÓ: terminó bien sin ejecutar ni un
+// comando.
+//
+// Hasta la spec 19 este camino se marcaba `SUCCESS`, y no pasaba nada porque
+// nadie leía el status. Ahora alimenta el `status` de `step_finished` (BL-4), y
+// «se ejecutó correctamente» sobre cero comandos sería una conclusión y no un
+// hecho — la misma razón por la que un step sin comandos es `SKIPPED` y no
+// `SUCCESS` (spec 04 §5.3).
+func (rh *StepRequestHandler) MarkStepCached() {
+	rh.stepStatus = command.StepCached
+}
+
 // MarkStepExecuted registra que el step va a ejecutar sus comandos, y con ello
 // que dejará un registro si termina bien. Lo llama el handler 04 justo antes del
 // primer comando: un step que revive no pasa por aquí.
@@ -160,9 +207,21 @@ func (rh *StepRequestHandler) WasExecuted() bool {
 
 // MarkStepSkipped registra que el step no se ejecutó, y por qué. Es un resultado
 // propio: ni SUCCESS —que afirmaría una ejecución que no hubo— ni FAILURE.
+//
+// La razón se traduce AQUÍ al vocabulario del registro, con un `switch` y no con
+// una conversión de cadena: los dos vocabularios coinciden hoy en su único valor
+// y no tienen por qué seguir coincidiendo, y una conversión silenciosa haría que
+// añadir un `SkipReason` emitiera un motivo que el registro no conoce.
 func (rh *StepRequestHandler) MarkStepSkipped(reason SkipReason) {
 	rh.stepStatus = command.StepSkipped
 	rh.skipReason = reason
+
+	switch reason {
+	case SkipReasonNoCommands:
+		rh.reason = command.ReasonNoCommands
+	default:
+		rh.reason = command.ReasonNone
+	}
 }
 
 // RecordStepFingerprint anota qué huella se escribirá en el registro DESPUÉS de
@@ -184,6 +243,60 @@ func (rh *StepRequestHandler) RecordStepFingerprint(fingerprint cache.CacheKey) 
 // spec 11 §4 — ante la duda, guardar de más.
 func (rh *StepRequestHandler) StepFingerprint() string {
 	return rh.stepFingerprint.String()
+}
+
+// ReportStepFingerprint anota la huella para INFORMAR: la que el hecho de cierre
+// del step transporta, se vaya a escribir o no (ver `reportedFingerprint`).
+//
+// Se llama en los DOS caminos —el que ejecuta y el que revive—, que es lo que
+// `RecordStepFingerprint` no puede hacer sin refrescarle el TTL al step que
+// revivió.
+func (rh *StepRequestHandler) ReportStepFingerprint(fingerprint cache.CacheKey) {
+	rh.reportedFingerprint = fingerprint
+}
+
+// ReportedFingerprint es la huella anotada para informar, o la cadena vacía.
+//
+// Vacía es legítima por dos vías distintas y ninguna es un error: no se pudo
+// componer el material (spec 11 §4), o el step no declara `state_changed` y por
+// tanto no compara contenidos (spec 15 §5.4).
+func (rh *StepRequestHandler) ReportedFingerprint() string {
+	return rh.reportedFingerprint.String()
+}
+
+// RecordEvidence y Evidence transportan el registro que estuvo vigente para este
+// step desde quien lo conoce hasta quien emite el cierre. Ver `evidence`.
+func (rh *StepRequestHandler) RecordEvidence(evidence EvidenceFact) {
+	rh.evidence = evidence
+}
+
+func (rh *StepRequestHandler) Evidence() EvidenceFact {
+	return rh.evidence
+}
+
+// RecordReason y Reason transportan POR QUÉ este step terminó como terminó,
+// desde el handler que lo DECIDE hasta el ejecutable que lo EMITE.
+func (rh *StepRequestHandler) RecordReason(reason command.StepReason) {
+	rh.reason = reason
+}
+
+func (rh *StepRequestHandler) Reason() command.StepReason {
+	return rh.reason
+}
+
+// StateScope es el ámbito bajo el que este step se recuerda, o el ámbito cero si
+// no declara ninguno.
+//
+// Es `StateKey().Scope()` sin el error, y existe porque el HECHO no puede fallar
+// por no poder componer una clave: el ámbito viaja en `step_finished` como campo
+// —no dentro de un hash— para que un consumidor pueda filtrar por él, y no
+// saberlo es una ausencia legítima, no un motivo para no emitir el cierre.
+func (rh *StepRequestHandler) StateScope() state.Scope {
+	key, declared, err := rh.StateKey()
+	if err != nil || !declared {
+		return state.Scope{}
+	}
+	return key.Scope()
 }
 
 // IndexKey devuelve la clave con la que se indexa el registro. La segunda salida

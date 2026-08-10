@@ -9,6 +9,7 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	domNotify "github.com/jairoprogramador/vex-engine/internal/domain/notify"
+	"github.com/jairoprogramador/vex-engine/internal/domain/record"
 	"github.com/jairoprogramador/vex-engine/internal/domain/shared"
 )
 
@@ -40,22 +41,28 @@ type CreateExecutionUseCase struct {
 	executableCommand  command.Executable
 	executableStep     command.Executable
 	clock              shared.Clock
+	emitter            *record.Emitter
 	notify             domNotify.LogObserver
 	status             domNotify.StatusObserver
 }
 
 // NewCreateExecutionUseCase compone el use case sin observers; el caller debe
 // usar WithObservers antes de Execute si quiere recibir logs/stages.
+//
+// El emisor entra por el constructor y no por `WithObservers` porque no depende
+// de flags: registrar es incondicional (spec 19 §5.6), y los observers no.
 func NewCreateExecutionUseCase(
 	executablePipeline command.Executable,
 	executableCommand command.Executable,
 	executableStep command.Executable,
-	clock shared.Clock) *CreateExecutionUseCase {
+	clock shared.Clock,
+	emitter *record.Emitter) *CreateExecutionUseCase {
 	return &CreateExecutionUseCase{
 		executablePipeline: executablePipeline,
 		executableCommand:  executableCommand,
 		executableStep:     executableStep,
 		clock:              clock,
+		emitter:            emitter,
 	}
 }
 
@@ -154,10 +161,87 @@ func (uc *CreateExecutionUseCase) Execute(ctx context.Context, request dto.Reque
 	runErr := uc.executablePipeline.Execute(executionContext)
 	uc.markTerminal(ctx, execution, runErr)
 
+	// El desenlace se registra AQUÍ y sólo aquí, por lo mismo que el ciclo de vida
+	// del agregado se cierra aquí (spec 07 §5.2): es la única capa que ve tanto el
+	// éxito como el fallo, y la única que sabe distinguir una CANCELACIÓN de un
+	// fallo cualquiera — a la cadena la cancelación le llega como un error más.
+	//
+	// Y su AUSENCIA es lo que justifica el modelo entero: un intento sin este
+	// hecho pliega a `interrupted`, con el último step alcanzado, en vez de a
+	// nada. Por eso no se emite nunca `interrupted`: quien está vivo para
+	// escribirlo, por definición, no fue interrumpido.
+	if err := uc.recordAttemptFinished(ctx, execution); err != nil {
+		runErr = joinRunError(runErr, err)
+	}
+
 	if runErr != nil {
 		return uc.output(execution), fmt.Errorf("%w", runErr)
 	}
 	return uc.output(execution), nil
+}
+
+// recordAttemptFinished emite el cierre del intento con el estado que el
+// AGREGADO publica, no con uno deducido del error.
+//
+// Si el intento nunca llegó a tener identidad —la ejecución falló antes del
+// resolutor de despliegue— el emisor retiene el hecho y se pierde con el
+// proceso. Es correcto y no un agujero: sin `deployment_id` no hay tira a la que
+// pertenezca, y escribirlo en otro sitio sería inventar una segunda dirección
+// para los mismos hechos (spec 18 §5.1).
+func (uc *CreateExecutionUseCase) recordAttemptFinished(
+	ctx context.Context, execution *command.Execution) error {
+
+	status, ok := attemptStatusOf(execution.Status())
+	if !ok {
+		// El agregado no alcanzó un estado terminal. No hay desenlace que declarar,
+		// y `Fold` ya sabe leer esa ausencia.
+		return nil
+	}
+
+	// El contexto que se pasa es el del PROCESO y no el hijo cancelable: el hijo
+	// está muerto justo en el caso que más importa registrar, y escribir el
+	// desenlace de una cancelación es la única forma de distinguirla de una
+	// interrupción.
+	terminalCtx := ctx
+	if err := uc.emitter.Emit(&terminalCtx, record.AttemptFinished{Status: status}); err != nil {
+		return fmt.Errorf("registrar el desenlace del intento: %w", err)
+	}
+	return nil
+}
+
+// attemptStatusOf traduce el estado terminal del agregado al desenlace del
+// registro.
+//
+// `interrupted` no aparece porque no se puede alcanzar: es lo que se DERIVA de
+// la ausencia de este hecho, y `AttemptFinished.Validate` lo rechaza
+// explícitamente.
+func attemptStatusOf(status command.ExecutionStatus) (record.AttemptStatus, bool) {
+	switch status {
+	case command.StatusSucceeded:
+		return record.AttemptSucceeded, true
+	case command.StatusFailed:
+		return record.AttemptFailed, true
+	case command.StatusCancelled:
+		return record.AttemptCancelled, true
+	default:
+		return "", false
+	}
+}
+
+// joinRunError compone el fallo de la ejecución con el de su registro, con la
+// misma regla que el Template Method: la causa antes que la consecuencia.
+//
+// Que un fallo al registrar tumbe una ejecución que fue bien es deliberado y es
+// la otra cara de §5.6: el registro es la fuente de la que se deriva todo lo
+// demás, así que «no pude escribir el desenlace» no es un detalle cosmético. Es
+// lo contrario del criterio del ALMACÉN de estado, donde no poder guardar no
+// invalida el despliegue que sí ocurrió — allí lo que se pierde es la pista de
+// un recurso, aquí lo que se pierde es la historia entera del intento.
+func joinRunError(runErr, recordErr error) error {
+	if runErr == nil {
+		return recordErr
+	}
+	return errors.Join(runErr, recordErr)
 }
 
 // markTerminal pliega el resultado observado al estado del agregado.

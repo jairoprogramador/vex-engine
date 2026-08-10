@@ -106,6 +106,19 @@ func (rh *CommandRequestHandler) MarkCommandSuccess() {
 	rh.commandStatus = CommandSuccess
 }
 
+// CommandStatus deja de ser un campo que se asigna y nadie lee (BL-4): desde la
+// spec 19 alimenta el `status` de `command_finished`.
+func (rh *CommandRequestHandler) CommandStatus() CommandStatus {
+	return rh.commandStatus
+}
+
+// CommandResult es donde `CommandResult` deja de morir dentro de su handler
+// (BL-30). Se propaga hasta el emisor, que es quien necesita el exit code de un
+// comando que terminó BIEN — el del que falló viaja dentro de su error.
+func (rh *CommandRequestHandler) CommandResult() CommandResult {
+	return rh.commandResult
+}
+
 func (rh *CommandRequestHandler) StepName() string {
 	return rh.executionContext.Step().Name()
 }

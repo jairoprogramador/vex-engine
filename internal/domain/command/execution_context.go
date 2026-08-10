@@ -214,6 +214,18 @@ func (ec *ExecutionContext) SetEnvironment(environment string) {
 func (ec *ExecutionContext) StartedAt() time.Time {
 	return ec.execution.StartedAt()
 }
+
+// Now es el instante actual según el reloj inyectable del agregado (spec 07).
+//
+// Existe para las DURACIONES de los hechos (spec 19 §5.2), que es el campo con
+// más valor del vocabulario y hoy no existe a ningún nivel. Sale del agregado y
+// no de un `shared.Clock` inyectado en cada ejecutable por lo mismo que
+// `StartedAt`: el reloj de la ejecución ya viaja con ella, y darle un segundo a
+// los ejecutables permitiría que dos partes del mismo intento midieran contra
+// relojes distintos.
+func (ec *ExecutionContext) Now() time.Time {
+	return ec.execution.Now()
+}
 func (ec *ExecutionContext) StepFullName() string {
 	return ec.step.FullName()
 }
