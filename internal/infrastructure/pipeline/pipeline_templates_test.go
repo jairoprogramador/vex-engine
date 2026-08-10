@@ -16,6 +16,7 @@ import (
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	domPipeline "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
+	domStep "github.com/jairoprogramador/vex-engine/internal/domain/step"
 	infraPipeline "github.com/jairoprogramador/vex-engine/internal/infrastructure/pipeline"
 	infraStep "github.com/jairoprogramador/vex-engine/internal/infrastructure/step"
 	"github.com/stretchr/testify/assert"
@@ -62,7 +63,7 @@ func TestPipelinecodeReal_PasaLaValidacionSinModificarse(t *testing.T) {
 			stepNames, err := domPipeline.NewStepNames(entries)
 			require.NoError(t, err)
 			assert.Equal(t,
-				[]string{"01-test", "02-supply", "03-package", "04-deploy"},
+				[]string{"01-test", "02-acr", "03-supply", "04-package", "05-deploy"},
 				nombresDeSteps(stepNames),
 				"y en este orden")
 
@@ -73,19 +74,41 @@ func TestPipelinecodeReal_PasaLaValidacionSinModificarse(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, environments)
 
-			// EL ESTADO DE LOS TEMPLATES HOY, y es el residuo declarado de la
-			// spec 13 §6: ninguno declara `config.yaml` todavía, así que sus steps se
-			// ejecutan SIEMPRE y no persisten registro. Más lento que antes, nunca
-			// incorrecto. Lo cierra la spec 24, que parte `02-supply` en dos steps
-			// —uno de ámbito de proyecto para el ACR, otro de ambiente— y les pone su
-			// declaración. Cuando llegue, este bloque se pone en rojo y la decisión se
-			// hace visible.
-			for _, stepName := range stepNames {
-				config, err := configs.Get(&ctx, path, stepName.FullName())
+			// LA TESIS DE LA SPEC 24, medida sobre los archivos de verdad: los cinco
+			// steps declaran su `config.yaml`, y cada uno declara UN ámbito.
+			//
+			// Este bloque afirmaba lo contrario hasta que la migración llegó —era la
+			// forma de dejar escrito el residuo de la spec 13 §6— y cambia de signo
+			// aquí. Lo que comprueba ahora son las cuatro decisiones de la spec 24
+			// §5.2, que no son obvias ninguna: el ámbito de cada step, que los cinco
+			// PERSISTEN (ámbito sin `rules` no escribe registro, y en esta migración
+			// eso perdería los identificadores de recursos que ya existen en Azure) y
+			// que ninguno pide la advertencia de la spec 15 §5.4.
+			for _, esperado := range ambitosDeclarados {
+				config, err := configs.Get(&ctx, path, esperado.step)
 				require.NoError(t, err, "un config.yaml presente tiene que declarar un ámbito válido")
-				assert.False(t, config.IsDeclared(),
-					"%s ya declara ámbito: llegó la spec 24 y este test tiene que decirlo",
-					stepName.FullName())
+
+				require.True(t, config.IsDeclared(),
+					"%s no declara config.yaml: la spec 24 exige que los cinco lo hagan",
+					esperado.step)
+				assert.Equal(t, esperado.scope, config.Scope().String(),
+					"%s declara el ámbito equivocado", esperado.step)
+
+				rules := config.Rules()
+				assert.True(t, config.Remembers(),
+					"%s declara ámbito y ninguna regla: se ejecutaría siempre SIN escribir registro",
+					esperado.step)
+				assert.False(t, rules.ExpiresWithoutInvalidating(),
+					"%s caduca sin declarar qué lo invalida: la spec 15 §5.4 avisaría",
+					esperado.step)
+
+				stateChanged, declarada := rules.StateChanged()
+				require.True(t, declarada, "%s no declara 'state_changed'", esperado.step)
+				assert.Equal(t, esperado.watchesProject, stateChanged.WatchesProject(),
+					"%s vigila el código del proyecto cuando no debía, o al revés", esperado.step)
+
+				assert.Equal(t, esperado.expira, declara(rules, domStep.RuleKindMaxAge),
+					"%s declara 'max_age' cuando no debía, o al revés", esperado.step)
 			}
 
 			// Un `commands.yaml` vacío daría `skipped{no_commands}` en vez de
@@ -98,6 +121,42 @@ func TestPipelinecodeReal_PasaLaValidacionSinModificarse(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ambitosDeclarados es la spec 24 §5.2 escrita como tabla: qué declara cada step
+// de los tres templates, y por qué.
+//
+//   - `01-test` es de ámbito de PROYECTO —el resultado de `mvn clean verify`
+//     depende del código, no del ambiente— y es el ÚNICO que caduca: el TTL
+//     global de 30 días se retiró (spec 15 §5.7), así que declararlo aquí y sólo
+//     aquí es una decisión de estos templates, no lo que había.
+//   - `02-acr` es de proyecto porque el registro de contenedores es uno para todo
+//     el proyecto; no mira el código y no caduca.
+//   - `03-supply` es de ambiente —el AKS y su grupo de recursos son de cada uno—
+//     y tampoco mira el código: provisionar infraestructura no depende de que
+//     cambie una clase Java.
+//   - `04-package` y `05-deploy` sí lo miran, que es lo que la tabla cableada del
+//     motor hacía antes de que el pipelinecode pudiera decirlo.
+var ambitosDeclarados = []struct {
+	step           string
+	scope          string
+	watchesProject bool
+	expira         bool
+}{
+	{step: "01-test", scope: "project", watchesProject: true, expira: true},
+	{step: "02-acr", scope: "project", watchesProject: false, expira: false},
+	{step: "03-supply", scope: "environment", watchesProject: false, expira: false},
+	{step: "04-package", scope: "environment", watchesProject: true, expira: false},
+	{step: "05-deploy", scope: "environment", watchesProject: true, expira: false},
+}
+
+func declara(rules domStep.RuleSet, kind domStep.RuleKind) bool {
+	for _, rule := range rules.Rules() {
+		if rule.Kind() == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func nombresDeSteps(steps []command.StepName) []string {
