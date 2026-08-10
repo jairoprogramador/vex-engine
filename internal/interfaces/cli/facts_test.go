@@ -302,13 +302,17 @@ func TestHechos_CadaParametroResueltoDejaElSuyo(t *testing.T) {
 		assert.Equal(t, command.OriginRuntime.String(), parametro.Payload["source"],
 			"lo extraído del stdout es lo que el mundo real devolvió al ejecutar")
 
+		// El prefijo dice la CONVENCIÓN, y desde la spec 20 la convención es un
+		// HMAC con clave por proyecto: un `sha256` desnudo de un valor suelto es
+		// una búsqueda en una tabla, no un secreto (§5.2).
 		digest, _ := parametro.Payload["digest"].(string)
-		assert.True(t, strings.HasPrefix(digest, "sha256:"), "digest %q", digest)
+		assert.True(t, strings.HasPrefix(digest, record.DigestVersion+":"), "digest %q", digest)
 	}
 	assert.Equal(t, []string{"artifact_name", "acr_name"}, nombres)
 
-	// La afirmación que la spec 20 relaja de forma controlada, y hasta entonces es
-	// absoluta: NINGÚN hecho lleva el valor en claro ni salida de un comando.
+	// NINGÚN hecho lleva el valor en claro. La spec 20 eligió la alternativa B, así
+	// que esta afirmación NO se relaja: sigue siendo absoluta, y lo que cambia es
+	// que ahora el digest tampoco la deshace.
 	for _, parametro := range parametros {
 		for _, valor := range parametro.Payload {
 			texto, ok := valor.(string)
@@ -321,9 +325,10 @@ func TestHechos_CadaParametroResueltoDejaElSuyo(t *testing.T) {
 	}
 }
 
-// SIN EXTRACTOS TODAVÍA: ningún hecho contiene stdout ni stderr. La aserción es
-// explícita porque es la spec 20 quien la relaja, y hacerlo tiene que ser una
-// decisión visible y no un descuido.
+// SIN EXTRACTOS, y con la spec 20 eso deja de ser un «todavía»: la alternativa A
+// —guardar extractos redactados— se descartó porque la redacción es best-effort
+// por construcción (§5.3) y el registro es permanente. Un fallo de redacción en
+// un log rota; en el registro se queda.
 func TestHechos_NingunHechoLlevaLaSalidaDeUnComando(t *testing.T) {
 	h := newHarness(t, withPipelineFile("steps/01-test/commands.yaml",
 		"- name: build\n  cmd: echo SECRETO_EN_STDOUT; exit 5\n"))

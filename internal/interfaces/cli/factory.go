@@ -177,10 +177,24 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		recordInfra.NewJSONLEventSink(filepath.Join(stagingPath, eventsDirName)))
 	emitter := record.NewEmitter(clock, recordInfra.NewUUIDv7EventIDFactory(), eventRenderer)
 
+	// El resumidor de valores (spec 20 §5.2). Nace SIN clave: la deriva del
+	// proyecto, que sólo se conoce al leer el `RequestInput` —tres capas más
+	// adentro que este cableado—, así que `RunCommand.Execute` lo enlaza igual que
+	// instala el observador en el renderizador. Emitir un `parameter_resolved`
+	// antes de ese momento es un error y no un digest sin sal.
+	digester, err := record.NewParameterDigester(stores.digestSecret)
+	if err != nil {
+		return nil, fmt.Errorf("vexd run: %w", err)
+	}
+
 	// El adaptador de los dos puertos de hechos. Es UNO y no dos porque los tres
 	// hechos que traduce salen del mismo emisor y con la misma numeración: `seq`
 	// es la posición dentro del INTENTO, no dentro de una cadena.
-	facts := record.NewFacts(emitter)
+	//
+	// Y es el ÚNICO sitio donde un valor se convierte en resumen: los dos dueños
+	// de `parameter_resolved` entregan el valor crudo por su puerto, así que la
+	// convención del digest se cambia aquí y no recorriendo emisores.
+	facts := record.NewFacts(emitter, digester)
 
 	// El material del pipelinecode se lee UNA vez, en la cadena de pipeline, y la
 	// de step lo consume (spec 18 §5.2). El objeto lo comparten los dos lados
@@ -285,7 +299,7 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 		emitter,
 	)
 
-	return NewRunCommand(createExec, destino, stagingPath, eventRenderer), nil
+	return NewRunCommand(createExec, destino, stagingPath, eventRenderer, digester), nil
 }
 
 func chainPipelineHandlers(handlers ...pipDom.PipelineHandler) pipDom.PipelineHandler {

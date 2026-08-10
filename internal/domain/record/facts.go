@@ -2,6 +2,7 @@ package record
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	"github.com/jairoprogramador/vex-engine/internal/domain/step"
@@ -26,6 +27,13 @@ import (
 // dejaría tres traducciones del mismo error.
 type Facts struct {
 	emitter *Emitter
+
+	// digester es el ÚNICO sitio donde un valor se convierte en resumen. Los dos
+	// dueños de `parameter_resolved` entregan el valor crudo por su puerto y la
+	// traducción ocurre aquí, así que cambiar la convención —de `sha256` a
+	// `hmac-sha256` con la spec 20— es cambiar una dependencia y no recorrer
+	// emisores.
+	digester Digester
 }
 
 var (
@@ -33,8 +41,8 @@ var (
 	_ command.FactSink = (*Facts)(nil)
 )
 
-func NewFacts(emitter *Emitter) *Facts {
-	return &Facts{emitter: emitter}
+func NewFacts(emitter *Emitter, digester Digester) *Facts {
+	return &Facts{emitter: emitter, digester: digester}
 }
 
 // ── Cadena de step ──────────────────────────────────────────────────────────
@@ -105,9 +113,16 @@ func (f *Facts) CommandFinished(ctx *context.Context, fact command.CommandFinish
 // ── Los dos dueños de parameter_resolved ────────────────────────────────────
 
 func (f *Facts) ParameterResolved(ctx *context.Context, fact command.ParameterFact) error {
+	// Un resumen que no se puede calcular es un ERROR del emisor, no un hecho sin
+	// digest: el campo existe para responder «¿corrió con lo mismo que ayer?», y
+	// emitirlo vacío dejaría un hecho que parece completo y no lo está.
+	digest, err := f.digester.Digest(fact.Value)
+	if err != nil {
+		return fmt.Errorf("resumir el valor de '%s': %w", fact.Name, err)
+	}
 	return f.emitter.Emit(ctx, ParameterResolved{
 		Name:   fact.Name,
 		Source: fact.Source,
-		Digest: DigestOf(fact.Value),
+		Digest: digest,
 	})
 }

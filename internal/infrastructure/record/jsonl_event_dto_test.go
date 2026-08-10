@@ -135,6 +135,13 @@ func TestToJSONLEventDTO_ElExitCodeDeUnComandoVaSiempre(t *testing.T) {
 
 // ── Fixture ─────────────────────────────────────────────────────────────────
 
+// digestDePrueba es un resumen ya calculado, con el prefijo de convención que
+// la spec 20 puso en su forma externa. Va literal y no calculado: lo que este
+// archivo mide es el viaje del DTO, y calcularlo aquí obligaría a montar un
+// resumidor con secreto para comprobar que un string sobrevive a un `json.Marshal`.
+const digestDePrueba = domRecord.DigestVersion +
+	":41d7c9f0a8ee1b5c3d2f6a4b8e0c7d9152a3b4c5d6e7f8091a2b3c4d5e6f7081"
+
 func cargasDeCadaTipo(t *testing.T) map[domRecord.EventType]domRecord.Payload {
 	t.Helper()
 
@@ -151,7 +158,7 @@ func cargasDeCadaTipo(t *testing.T) map[domRecord.EventType]domRecord.Payload {
 		domRecord.TypeCommandFinished: domRecord.CommandFinished{
 			StepID: "01-test", CommandName: "build", Status: command.CommandSuccess},
 		domRecord.TypeParameterResolved: domRecord.ParameterResolved{
-			Name: "acr_name", Source: command.OriginRuntime, Digest: domRecord.DigestOf("vexsand")},
+			Name: "acr_name", Source: command.OriginRuntime, Digest: digestDePrueba},
 		domRecord.TypeArtifactProduced: domRecord.ArtifactProduced{
 			StepID: "03-package", Kind: "image", Digest: "sha256:abc"},
 		domRecord.TypeSyncFailed: domRecord.SyncFailed{

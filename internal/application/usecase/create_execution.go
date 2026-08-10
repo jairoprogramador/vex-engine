@@ -154,6 +154,19 @@ func (uc *CreateExecutionUseCase) Execute(ctx context.Context, request dto.Reque
 		uc.status,
 	)
 
+	// La redacción es política de la FRONTERA (spec 20 §5.1'), pero el
+	// vocabulario con el que redacta es del dominio: son los valores que el
+	// proceso conoce, y el único que los tiene todos es el mapa acumulado. Aquí
+	// es donde los dos se encuentran, porque es la capa que crea el contexto y la
+	// que recibe los observadores.
+	//
+	// Es OPCIONAL a propósito y no una segunda obligación del puerto: un
+	// observador que no redacta —los dos concretos, y el mudo de los tests— sigue
+	// siendo un `LogObserver` y nada más.
+	if aware, ok := uc.notify.(domNotify.VocabularyAware); ok {
+		aware.UseVocabulary(executionContext.AccumulatedVars())
+	}
+
 	if err := execution.MarkRunning(); err != nil {
 		return uc.output(execution), fmt.Errorf("use case create execution: %w", err)
 	}

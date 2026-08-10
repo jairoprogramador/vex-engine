@@ -175,6 +175,7 @@ type harness struct {
 	// pipelineDir es el repo fuente del pipelinecode; el motor lo clona.
 	pipelineDir string
 
+	projectID   string
 	projectURL  string
 	pipelineURL string
 
@@ -231,6 +232,11 @@ func newHarness(t *testing.T, opts ...harnessOption) *harness {
 		staging:     filepath.Join(base, "staging"),
 		projectDir:  filepath.Join(base, "project"),
 		pipelineDir: filepath.Join(base, "pipelinecode"),
+		// El identificador va POR HARNESS, igual que las urls: dos harness son dos
+		// proyectos, y desde la spec 20 eso importa —la clave con la que se resume
+		// el valor de un parámetro se deriva de este identificador, así que un id
+		// compartido haría indistinguibles dos proyectos que no lo son—.
+		projectID:   fmt.Sprintf("%08d-1111-1111-1111-111111111111", id),
 		projectURL:  fmt.Sprintf("%s/vex-test-%d/demo-app", gitHost, id),
 		pipelineURL: fmt.Sprintf("%s/vex-test-%d/pipelinecode", gitHost, id),
 		execLog:     filepath.Join(base, "exec.log"),
@@ -292,11 +298,18 @@ func withProjectTeam(team string) requestOption {
 	return func(r *dto.RequestInput) { r.Project.Team = team }
 }
 
+// withProjectId cambia —o vacía— el identificador del proyecto. Importa desde la
+// spec 20: de él se deriva la clave con la que se resume el valor de cada
+// parámetro.
+func withProjectId(id string) requestOption {
+	return func(r *dto.RequestInput) { r.Project.Id = id }
+}
+
 func (h *harness) request(opts ...requestOption) dto.RequestInput {
 	request := dto.RequestInput{
 		SchemaVersion: 2,
 		Project: dto.ProjectInput{
-			Id:   "11111111-1111-1111-1111-111111111111",
+			Id:   h.projectID,
 			Name: "demo-app",
 			Team: "plataforma",
 			Org:  "acme",
@@ -596,6 +609,51 @@ func (h *harness) envejecerRegistros(edad time.Duration) {
 	})
 	require.NoError(h.t, err)
 	require.NotZero(h.t, tocados, "no había ningún registro que envejecer")
+}
+
+// ── El resumen de los valores (spec 20) ─────────────────────────────────────
+
+// rutaDelSecreto es donde el motor guarda el secreto local del que deriva las
+// claves de resumen. Cuelga del DESTINO —es lo único que dos máquinas efímeras
+// comparten— y de un directorio propio, fuera de todo lo que se sincroniza.
+func (h *harness) rutaDelSecreto() string {
+	return filepath.Join(h.destino, "keys", "digest-v1.key")
+}
+
+// digestDe es el resumen que la ÚLTIMA ejecución emitió para un parámetro.
+//
+// Se lee de la última tira y no de `hechos()` porque aquélla ACUMULA: dos
+// corridas del mismo harness dejan dos `parameter_resolved` del mismo nombre, y
+// lo que los casos comparan es el de cada corrida.
+func (h *harness) digestDe(nombre string) string {
+	h.t.Helper()
+
+	for _, hecho := range deTipo(h.ultimaTira(), record.TypeParameterResolved.String()) {
+		if texto(hecho.Payload, "name") == nombre {
+			return texto(hecho.Payload, "digest")
+		}
+	}
+	h.t.Fatalf("la última tira no tiene ningún parámetro llamado %q", nombre)
+	return ""
+}
+
+// valoresDeLaEjecucion son los valores que la ejecución produjo o declaró, para
+// poder afirmar que NINGUNO aparece en el registro (spec 20 §7).
+//
+// Los producidos se leen del almacén de estado, que es donde el mapa acumulado
+// sobrevive a la ejecución; el literal del pipelinecode se nombra aquí porque no
+// llega a persistirse desde la spec 14 —lo que el registro de un step guarda es
+// lo que ese step PRODUJO— y aun así es un valor del que la promesa habla.
+func (h *harness) valoresDeLaEjecucion() map[string]string {
+	h.t.Helper()
+
+	valores := map[string]string{"registry_prefix": "vexsand"}
+	for _, stepID := range []string{"01-test", "02-supply"} {
+		for nombre, valor := range h.storedVars(fixtureEnvironment, stepID) {
+			valores[nombre] = valor
+		}
+	}
+	return valores
 }
 
 // ── El registro de despliegue (spec 18) ─────────────────────────────────────
@@ -1255,6 +1313,7 @@ func (h *harness) otraMaquina() *harness {
 		staging:     filepath.Join(base, "staging"),
 		projectDir:  filepath.Join(base, "project"),
 		pipelineDir: h.pipelineDir,
+		projectID:   h.projectID,
 		projectURL:  h.projectURL,
 		pipelineURL: h.pipelineURL,
 		execLog:     h.execLog,
@@ -1295,6 +1354,7 @@ func (h *harness) conOtroPipeline() *harness {
 		staging:     h.staging,
 		projectDir:  h.projectDir,
 		pipelineDir: filepath.Join(h.t.TempDir(), "pipelinecode"),
+		projectID:   h.projectID,
 		projectURL:  h.projectURL,
 		pipelineURL: fmt.Sprintf("%s/vex-test-%d/pipelinecode", gitHost, id),
 		execLog:     h.execLog,

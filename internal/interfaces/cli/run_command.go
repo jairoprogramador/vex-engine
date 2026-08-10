@@ -14,6 +14,7 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/application/usecase"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	domNotify "github.com/jairoprogramador/vex-engine/internal/domain/notify"
+	"github.com/jairoprogramador/vex-engine/internal/domain/record"
 	"github.com/jairoprogramador/vex-engine/internal/domain/syncconfig"
 	"github.com/jairoprogramador/vex-engine/internal/infrastructure/notify"
 )
@@ -99,6 +100,12 @@ type RunCommand struct {
 	// (spec 19 §5.5). Se cablea al construir el motor y recibe su destino AQUÍ,
 	// porque los observers dependen de flags y los hechos no.
 	renderer *notify.EventRenderer
+
+	// digester resume los valores de los parámetros con una clave POR PROYECTO
+	// (spec 20 §5.2), y el proyecto se lee aquí: el cableado ocurre antes del
+	// `RequestInput`. Es el mismo reparto que el renderizador —se construye al
+	// cablear, se enlaza al ejecutar—.
+	digester *record.ParameterDigester
 }
 
 func NewRunCommand(
@@ -106,12 +113,14 @@ func NewRunCommand(
 	destino syncconfig.Config,
 	stagingDir string,
 	renderer *notify.EventRenderer,
+	digester *record.ParameterDigester,
 ) *RunCommand {
 	return &RunCommand{
 		createExec: createExec,
 		destino:    destino,
 		stagingDir: stagingDir,
 		renderer:   renderer,
+		digester:   digester,
 	}
 }
 
@@ -166,6 +175,23 @@ func (c *RunCommand) Execute(ctx context.Context, stdin io.Reader, stdout io.Wri
 		return ExitInputError
 	}
 
+	// La clave del resumen se deriva ANTES de ejecutar nada, y su fallo es un
+	// error de invocación: sin ella no se puede emitir `parameter_resolved`, y un
+	// intento a medio registrar es peor que uno que no arranca.
+	//
+	// El identificador vacío se deja pasar A PROPÓSITO: quien diagnostica los
+	// campos obligatorios del RequestInput es el use case, que los nombra los
+	// nueve, y enlazar aquí sustituiría «project id is required» por un mensaje
+	// sobre resúmenes. La ejecución no llega a ningún step, así que el resumidor
+	// se queda sin clave y nadie le pide nada; si alguien reordenara eso, `Digest`
+	// falla en vez de emitir un resumen sin sal.
+	if c.digester != nil && requestInput.Project.Id != "" {
+		if err := c.digester.Bind(requestInput.Project.Id); err != nil {
+			fmt.Fprintf(stderr, "vexd run: %v\n", err)
+			return ExitInputError
+		}
+	}
+
 	logObservers := make([]domNotify.LogObserver, 0, 2)
 	statusObservers := make([]domNotify.StatusObserver, 0, 2)
 
@@ -189,18 +215,31 @@ func (c *RunCommand) Execute(ctx context.Context, stdin io.Reader, stdout io.Wri
 	multiLogs := notify.NewMultiObserver(logObservers...)
 	multiStatus := notify.NewMultiStatusObserver(statusObservers...)
 
+	// La redacción se aplica en el BORDE DE SALIDA y una sola vez (spec 20 §5.4):
+	// envuelve al fan-out entero, así que stdout y Supabase reciben la MISMA línea
+	// redactada y un tercer destino no añade una tercera oportunidad de
+	// olvidarse. Aplicarla en las 34 llamadas a `Emit` garantizaría que la número
+	// 35 lo olvide.
+	//
+	// Va aquí y no en `BuildRunCommand` —que es donde el §6 de la spec lo
+	// situaba— porque aquí es donde los observadores existen: dependen de los
+	// flags de esta ejecución y el factory no los ve.
+	redactado := notify.NewRedactingObserver(multiLogs)
+
 	// La narrativa se engancha al flujo de HECHOS, no al revés (R-7). Es lo único
 	// que hay que decirle al renderizador: los hechos ya salían por él aunque
-	// nadie mirara, porque registrar es incondicional (§5.6).
+	// nadie mirara, porque registrar es incondicional (§5.6). Lo que recibe es el
+	// decorador, no el fan-out: las líneas derivadas de hechos salen del proceso
+	// por la misma puerta que las demás.
 	if c.renderer != nil {
-		c.renderer.Observe(multiLogs)
+		c.renderer.Observe(redactado)
 	}
 
-	createExec := c.createExec.WithObservers(multiLogs, multiStatus)
+	createExec := c.createExec.WithObservers(redactado, multiStatus)
 
 	output, runErr := createExec.Execute(ctx, requestInput, args.ExecutionID)
 
-	multiLogs.Close()
+	redactado.Close()
 
 	logsLost := false
 	if supabaseLogs != nil {

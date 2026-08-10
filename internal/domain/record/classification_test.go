@@ -70,28 +70,109 @@ func TestClassifyError(t *testing.T) {
 	})
 }
 
-func TestDigestOf(t *testing.T) {
-	t.Run("el valor no entra: entra su resumen", func(t *testing.T) {
-		digest := record.DigestOf("Server=tcp:prod;Password=s3cr3t")
+// ── El resumen de un parámetro (spec 20 §5.2) ───────────────────────────────
 
-		assert.True(t, strings.HasPrefix(digest, "sha256:"),
-			"el prefijo es lo que deja a la spec 20 cambiar de convención sin que los viejos mientan")
+const (
+	proyectoUno = "11111111-1111-1111-1111-111111111111"
+	proyectoDos = "22222222-2222-2222-2222-222222222222"
+)
+
+// secretoDePrueba es un secreto fijo: lo que estos casos miden es la regla de
+// derivación, no de dónde sale el secreto —eso es de infraestructura, y lo mide
+// `TestReadOrCreateDigestSecret_*`—.
+func secretoDePrueba(t *testing.T, marca byte) []byte {
+	t.Helper()
+	secreto := make([]byte, 32)
+	for i := range secreto {
+		secreto[i] = marca
+	}
+	return secreto
+}
+
+func resumidor(t *testing.T, marca byte, proyecto string) *record.ParameterDigester {
+	t.Helper()
+	d, err := record.NewParameterDigester(secretoDePrueba(t, marca))
+	require.NoError(t, err)
+	require.NoError(t, d.Bind(proyecto))
+	return d
+}
+
+func resumen(t *testing.T, d *record.ParameterDigester, valor string) string {
+	t.Helper()
+	digest, err := d.Digest(valor)
+	require.NoError(t, err)
+	return digest
+}
+
+func TestParameterDigester(t *testing.T) {
+	t.Run("el valor no entra: entra su resumen", func(t *testing.T) {
+		digest := resumen(t, resumidor(t, 0x01, proyectoUno), "Server=tcp:prod;Password=s3cr3t")
+
+		assert.True(t, strings.HasPrefix(digest, record.DigestVersion+":"),
+			"el prefijo es lo que impide que un resumen viejo y uno nuevo se comparen como iguales")
 		assert.NotContains(t, digest, "s3cr3t",
 			"un registro que viaja fuera de la organización no puede llevar secretos en claro")
 	})
 
-	t.Run("es determinista y sensible", func(t *testing.T) {
-		assert.Equal(t, record.DigestOf("demo-app"), record.DigestOf("demo-app"),
-			"dos corridas con el mismo valor tienen que poder compararse")
-		assert.NotEqual(t, record.DigestOf("demo-app"), record.DigestOf("demo-app2"))
+	// Es la propiedad que hace útil el hecho: «¿corrió con lo mismo que ayer?».
+	t.Run("es estable y sensible dentro del proyecto", func(t *testing.T) {
+		uno := resumidor(t, 0x01, proyectoUno)
+		otro := resumidor(t, 0x01, proyectoUno)
+
+		assert.Equal(t, resumen(t, uno, "demo-app"), resumen(t, otro, "demo-app"),
+			"dos ejecuciones del mismo proyecto tienen que poder compararse")
+		assert.NotEqual(t, resumen(t, uno, "demo-app"), resumen(t, uno, "demo-app2"))
+	})
+
+	// **La razón de ser de la spec 20 §5.2.** Con SHA-256 desnudo estos dos
+	// resúmenes serían idénticos y triviales de invertir: `sha256("3")` es una
+	// búsqueda en una tabla, no un secreto.
+	t.Run("dos proyectos con el mismo valor dan resúmenes distintos", func(t *testing.T) {
+		uno := resumidor(t, 0x01, proyectoUno)
+		dos := resumidor(t, 0x01, proyectoDos)
+
+		assert.NotEqual(t, resumen(t, uno, "3"), resumen(t, dos, "3"),
+			"la clave es POR PROYECTO: sin eso un valor de baja entropía es reversible")
+	})
+
+	// Y dos instalaciones tampoco coinciden, que es lo que impide construir una
+	// tabla de resúmenes válida en todas partes.
+	t.Run("dos secretos distintos dan resúmenes distintos", func(t *testing.T) {
+		assert.NotEqual(t,
+			resumen(t, resumidor(t, 0x01, proyectoUno), "3"),
+			resumen(t, resumidor(t, 0x02, proyectoUno), "3"))
 	})
 
 	// «Se resolvió a la cadena vacía» es un hecho distinto de «no se resolvió», y
 	// colapsarlos en la ausencia de digest perdería justo el caso que suele ser el
-	// defecto.
+	// defecto (spec 03 §5.3).
 	t.Run("la cadena vacía también tiene resumen", func(t *testing.T) {
-		assert.NotEmpty(t, record.DigestOf(""))
-		assert.NotEqual(t, record.DigestOf(""), record.DigestOf(" "))
+		d := resumidor(t, 0x01, proyectoUno)
+		assert.NotEmpty(t, resumen(t, d, ""))
+		assert.NotEqual(t, resumen(t, d, ""), resumen(t, d, " "))
+	})
+
+	// Un resumen sin clave sería un resumen SIN SAL, que es exactamente el defecto
+	// que esta spec quita de en medio. Se falla en vez de degradarse.
+	t.Run("sin proyecto no hay resumen, y eso es un error", func(t *testing.T) {
+		d, err := record.NewParameterDigester(secretoDePrueba(t, 0x01))
+		require.NoError(t, err)
+
+		_, err = d.Digest("3")
+		require.Error(t, err)
+
+		require.Error(t, d.Bind(""), "un proyecto vacío no deriva ninguna clave")
+	})
+
+	t.Run("enlazar dos veces es un error del cableado", func(t *testing.T) {
+		d := resumidor(t, 0x01, proyectoUno)
+		require.Error(t, d.Bind(proyectoDos),
+			"una ejecución es de UN proyecto: cambiarlo a mitad dejaría dos resúmenes del mismo valor")
+	})
+
+	t.Run("un secreto corto no se acepta", func(t *testing.T) {
+		_, err := record.NewParameterDigester([]byte("corto"))
+		require.Error(t, err)
 	})
 }
 

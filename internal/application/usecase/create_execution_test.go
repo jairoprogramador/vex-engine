@@ -19,6 +19,7 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
 	"github.com/jairoprogramador/vex-engine/internal/application/usecase"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	domNotify "github.com/jairoprogramador/vex-engine/internal/domain/notify"
 	"github.com/jairoprogramador/vex-engine/internal/domain/record"
 	"github.com/jairoprogramador/vex-engine/internal/domain/shared"
 )
@@ -38,6 +39,19 @@ func (p pipelineDePrueba) Execute(*command.ExecutionContext) error {
 type emisorMudo struct{}
 
 func (emisorMudo) Notify(string, string) {}
+
+// emisorQueRedacta es el observador de frontera visto desde esta capa: un
+// `LogObserver` que además implementa `VocabularyAware`. Lo que se mide con él
+// es el APRETÓN DE MANOS de la spec 20 —que el use case le entrega el mapa
+// acumulado— y no la redacción, que es de infraestructura y se mide allí.
+type emisorQueRedacta struct {
+	emisorMudo
+	vocabulary domNotify.Vocabulary
+}
+
+func (e *emisorQueRedacta) UseVocabulary(vocabulary domNotify.Vocabulary) {
+	e.vocabulary = vocabulary
+}
 
 // emisorDeHechos es un emisor SIN TIRA ABIERTA, que es exactamente el estado en
 // el que esta capa lo encuentra cuando la ejecución no llega al resolutor de
@@ -126,4 +140,37 @@ func TestCreateExecution_UnContextoCanceladoNoEsUnFallo(t *testing.T) {
 	require.Error(t, err, "el error de la cadena sigue propagándose")
 	assert.Equal(t, "canceled", output.Status)
 	assert.Nil(t, output.ExitCode, "una cancelación no lleva exit code")
+}
+
+// EL VOCABULARIO SE ENTREGA AL OBSERVADOR DE FRONTERA (spec 20 §5.3).
+//
+// La redacción es política de la frontera —el dominio trabaja con valores
+// reales— pero los VALORES son del dominio, y el único que los tiene todos es el
+// mapa acumulado. Esta capa es la que crea el contexto y la que recibe los
+// observadores, así que es donde los dos se encuentran.
+//
+// Sin este apretón de manos el decorador sigue construido y cableado, y no
+// redacta nada: un fallo silencioso, que es exactamente lo que este caso existe
+// para volver ruidoso.
+func TestCreateExecution_ElObservadorRecibeElVocabularioDeLaEjecucion(t *testing.T) {
+	observador := &emisorQueRedacta{}
+
+	uc := usecase.NewCreateExecutionUseCase(
+		pipelineDePrueba{}, nil, nil, shared.NewFixedClock(instanteFijo), emisorDeHechos(t)).
+		WithObservers(observador, nil)
+
+	_, err := uc.Execute(context.Background(), requestValido(), "exec-1")
+	require.NoError(t, err)
+
+	require.NotNil(t, observador.vocabulary,
+		"el observador de frontera no puede redactar lo que no sabe que es un valor")
+	assert.NotNil(t, observador.vocabulary.Values())
+}
+
+// Y un observador que NO redacta sigue siendo un `LogObserver` y nada más: el
+// apretón de manos es opcional a propósito, no una segunda obligación del
+// puerto.
+func TestCreateExecution_UnObservadorQueNoRedactaSigueValiendo(t *testing.T) {
+	_, err := ejecutar(t, context.Background(), pipelineDePrueba{})
+	require.NoError(t, err)
 }

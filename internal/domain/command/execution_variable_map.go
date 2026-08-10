@@ -1,6 +1,12 @@
 package command
 
+import (
+	domNotify "github.com/jairoprogramador/vex-engine/internal/domain/notify"
+)
+
 type ExecutionVariableMap map[string]Variable
+
+var _ domNotify.Vocabulary = (*ExecutionVariableMap)(nil)
 
 func NewExecutionVariableMap() *ExecutionVariableMap {
 	return &ExecutionVariableMap{}
@@ -88,6 +94,18 @@ func (vs ExecutionVariableMap) Filter(filter func(Variable) bool) *ExecutionVari
 func (vs ExecutionVariableMap) Get(key string) (Variable, bool) {
 	outputVar, exists := vs[key]
 	return outputVar, exists
+}
+
+// Values implementa `notify.Vocabulary`: los pares (nombre, valor) que el
+// proceso conoce en este instante.
+//
+// Existe para la REDACCIÓN del stream de logs (spec 20 §5.3), y es el mismo dato
+// que `ToStringMap` con otro nombre porque el puerto lo pide así. Que sea este
+// agregado quien lo implemente no es casualidad: `Add` es el único sitio por el
+// que un valor entra al proceso, así que es el único que puede responder «qué
+// valores hay» sin que nadie se olvide de registrar el suyo.
+func (vs ExecutionVariableMap) Values() map[string]string {
+	return vs.ToStringMap()
 }
 
 func (vs ExecutionVariableMap) ToStringMap() map[string]string {
