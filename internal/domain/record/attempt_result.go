@@ -121,6 +121,38 @@ func (r AttemptResult) IsTerminal() bool {
 	}
 }
 
+// IsValidTarget dice si este intento puede NOMBRARSE como destino: terminó bien
+// y todos sus steps alcanzaron un terminal correcto.
+//
+// Existe aquí, en el modelo de lectura, porque es derivación pura y porque el
+// listado que la spec 22 expone tiene que MARCARLO: quien elige una ejecución
+// pasada para volver a ella (spec 28 §5.2) necesita saber antes de elegir que
+// ese intento sirve. Sin la marca, el usuario escoge uno y falla después, que es
+// el modo de fallo que la consulta existe para evitar.
+//
+// Un step que revivió o que se saltó cuenta como correcto: no ejecutó nada, pero
+// su resultado es el que estaba vigente y eso es exactamente lo que un destino
+// declara. Lo que descalifica es un fallo, o un par que quedó ABIERTO —un step
+// que empezó y del que nadie escribió el cierre—, porque de ése no se sabe si
+// llegó a hacer lo que dice.
+func (r AttemptResult) IsValidTarget() bool {
+	if r.Status != AttemptSucceeded {
+		return false
+	}
+	if len(r.Steps) == 0 {
+		return false
+	}
+	for _, step := range r.Steps {
+		if !step.Finished {
+			return false
+		}
+		if step.Status == command.StepFailure {
+			return false
+		}
+	}
+	return true
+}
+
 // Step busca el resultado de un step por su identificador.
 func (r AttemptResult) Step(stepID string) (StepResult, bool) {
 	for _, step := range r.Steps {

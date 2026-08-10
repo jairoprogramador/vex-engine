@@ -20,6 +20,7 @@ func main() {
 	}
 
 	rootCmd.AddCommand(newRunCommand())
+	rootCmd.AddCommand(newRecordCommand())
 	rootCmd.AddCommand(newVersionCommand(version))
 
 	if err := rootCmd.Execute(); err != nil {

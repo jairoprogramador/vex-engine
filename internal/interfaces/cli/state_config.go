@@ -72,7 +72,18 @@ type stateConfigDTO struct {
 // Todos los errores envuelven ErrInputInvalido, incluido el de `type: http`: es
 // una invocación que el motor no puede atender, aunque la causa sea suya.
 func readStateConfig(args RunArgs) (syncconfig.Config, error) {
-	raw, origen, err := readStateConfigSource(args)
+	return readStateConfigFrom(args.StateConfigFile)
+}
+
+// readStateConfigFrom es la resolución misma, sin el struct de flags de `run`.
+//
+// Se separa para que `vexd record` lea el destino POR LA MISMA VÍA que el motor
+// (spec 22, recuadro de la 16): es la primera vez que un comando de consulta
+// necesita esa configuración, y darle otra puerta —una flag propia, un `$HOME`
+// derivado— haría que el `gc` pudiera barrer un directorio distinto del que el
+// motor escribe. Un mismo dato, un mismo camino.
+func readStateConfigFrom(file string) (syncconfig.Config, error) {
+	raw, origen, err := readStateConfigSource(file)
 	if err != nil {
 		return syncconfig.Config{}, err
 	}
@@ -80,25 +91,25 @@ func readStateConfig(args RunArgs) (syncconfig.Config, error) {
 	dto, err := decodeStateConfig(raw)
 	if err != nil {
 		return syncconfig.Config{}, inputErrorf(
-			"vexd run: configuración de destino (%s): %w", origen, err)
+			"vexd: configuración de destino (%s): %w", origen, err)
 	}
 
 	cfg, err := syncconfig.New(dto.Type, dto.Local.Path, dto.HTTP.Endpoint)
 	if err != nil {
 		return syncconfig.Config{}, inputErrorf(
-			"vexd run: configuración de destino (%s): %w", origen, err)
+			"vexd: configuración de destino (%s): %w", origen, err)
 	}
 	return cfg, nil
 }
 
-func readStateConfigSource(args RunArgs) ([]byte, string, error) {
-	if args.StateConfigFile != "" {
-		data, err := os.ReadFile(args.StateConfigFile)
+func readStateConfigSource(file string) ([]byte, string, error) {
+	if file != "" {
+		data, err := os.ReadFile(file)
 		if err != nil {
 			return nil, "", inputErrorf(
-				"vexd run: leer --state-config %s: %w", args.StateConfigFile, err)
+				"vexd: leer --state-config %s: %w", file, err)
 		}
-		return data, "--state-config " + args.StateConfigFile, nil
+		return data, "--state-config " + file, nil
 	}
 
 	if raw := strings.TrimSpace(os.Getenv(StateConfigEnvVar)); raw != "" {
@@ -110,7 +121,7 @@ func readStateConfigSource(args RunArgs) ([]byte, string, error) {
 	// destino era `--mode` y seis endpoints—, y ese diagnóstico sin la pista de
 	// la versión cuesta una tarde (spec 16 §7).
 	return nil, "", inputErrorf(
-		"vexd run: falta la configuración de destino del estado: pásala con --state-config <archivo>"+
+		"vexd: falta la configuración de destino del estado: pásala con --state-config <archivo>"+
 			" o con la env var %s (YAML/JSON, crudo o base64). Desde schema_version %d el motor no tiene"+
 			" un destino por defecto: --mode y los seis --step-*-endpoint se retiraron",
 		StateConfigEnvVar, supportedSchemaVersion)

@@ -51,11 +51,11 @@ func resolveStagingDir(flagDir, rootVexPath string) (string, error) {
 		dir := filepath.Clean(flagDir)
 		if estaBajo(dir, volumen) {
 			return "", inputErrorf(
-				"vexd run: --staging-dir %q cae bajo el volumen %q: el área de trabajo del motor"+
+				"vexd: --staging-dir %q cae bajo el volumen %q: el área de trabajo del motor"+
 					" tiene que estar fuera del destino", dir, volumen)
 		}
 		if err := prepararDirectorio(dir); err != nil {
-			return "", inputErrorf("vexd run: --staging-dir %q: %w", dir, err)
+			return "", inputErrorf("vexd: --staging-dir %q: %w", dir, err)
 		}
 		return dir, nil
 	}
@@ -82,7 +82,7 @@ func resolveStagingDir(flagDir, rootVexPath string) (string, error) {
 	}
 
 	return "", inputErrorf(
-		"vexd run: no hay dónde crear el área de trabajo del motor (probados: %s); pásala con"+
+		"vexd: no hay dónde crear el área de trabajo del motor (probados: %s); pásala con"+
 			" --staging-dir", strings.Join(intentados, ", "))
 }
 
