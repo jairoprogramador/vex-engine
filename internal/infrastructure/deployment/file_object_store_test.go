@@ -51,7 +51,7 @@ func contenidoDePrueba(t *testing.T, operacion, ambiente string) domDeployment.C
 	stepContent, err := domDeployment.NewStepContent(
 		"02-supply",
 		domStep.NoStepConfig(),
-		huella(fingerprint.InstructionsVersion, "33"),
+		huella(fingerprint.DeclarationVersion, "33"),
 		[]domStep.VariableDeclaration{declaracion})
 	require.NoError(t, err)
 

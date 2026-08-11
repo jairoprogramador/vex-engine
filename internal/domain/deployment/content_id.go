@@ -2,7 +2,7 @@ package deployment
 
 // ContentIDVersion identifica la regla con la que se compone la identidad de un
 // `Content`, y es INDEPENDIENTE de las tres versiones de huella (`v1`,
-// `inst-v1`, `vars-v1`) y de la de la clave de caché (`ck-v1`).
+// `pipe-v1`) y de la de la huella de un step (`sf-v1`).
 //
 // Son versionados distintos porque son reglas distintas sobre materiales
 // distintos: un `content_id` puede saltar a v2 sin que ninguna huella se mueva,

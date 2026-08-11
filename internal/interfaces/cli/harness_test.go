@@ -1212,7 +1212,7 @@ func (h *harness) cacheEntries() []string {
 		if err := json.Unmarshal(data, &dto); err != nil {
 			return fmt.Errorf("decodificar %s: %w", path, err)
 		}
-		claves = append(claves, dto.CacheKey)
+		claves = append(claves, dto.StepFingerprint)
 		return nil
 	})
 	if os.IsNotExist(err) {
@@ -1406,6 +1406,42 @@ func (h *harness) otraMaquina() *harness {
 	return otro
 }
 
+// conOtroSujeto devuelve un harness que despliega OTRO proyecto —otra url, otro
+// identificador, otro directorio— con EL MISMO pipelinecode, en su propio $HOME
+// y su propio destino.
+//
+// Existe para la mitad de §5.2bis que ningún otro montaje puede ver: que la
+// DIRECCIÓN no entre en la huella. Hasta la spec 27 el sujeto era una dimensión
+// de `cache.Material`, así que dos proyectos con el mismo pipelinecode producían
+// declaraciones distintas y la pregunta del índice —«¿este contenido ya corrió en
+// algún sitio?»— no tenía respuesta.
+func (h *harness) conOtroSujeto() *harness {
+	h.t.Helper()
+
+	id := nextHarnessID()
+	base := h.t.TempDir()
+	otro := &harness{
+		t:           h.t,
+		root:        filepath.Join(base, "home"),
+		destino:     filepath.Join(base, "destino"),
+		stateConfig: filepath.Join(base, "state-config.yaml"),
+		staging:     filepath.Join(base, "staging"),
+		projectDir:  filepath.Join(base, "project"),
+		pipelineDir: h.pipelineDir,
+		projectID:   fmt.Sprintf("%08d-1111-1111-1111-111111111111", id),
+		projectURL:  fmt.Sprintf("%s/vex-test-%d/otro-proyecto", gitHost, id),
+		pipelineURL: h.pipelineURL,
+		execLog:     h.execLog,
+	}
+
+	require.NoError(h.t, os.MkdirAll(otro.root, 0o755))
+	otro.prepararDestino()
+	copyTree(h.t, h.projectDir, otro.projectDir)
+	gitRepos.Store(endpointPath(otro.projectURL), otro.projectDir)
+
+	return otro
+}
+
 // compartiendoElDestinoCon apunta este harness al destino de otro. Es LA
 // operación que la spec 16 hace posible y que hasta ahora no tenía forma: dos
 // máquinas, dos $HOME, y un solo sitio donde vive el estado.
@@ -1420,9 +1456,13 @@ func (h *harness) compartiendoElDestinoCon(otro *harness) {
 //
 // Es lo que hace observable la decisión con la que D-A14 se cerró al revés
 // (spec 11 §5.2): la clave de estado no lleva el pipeline, así que los dos
-// escriben bajo la MISMA clave —el ACR pertenece al proyecto— y aun así no se
-// reviven entre sí, porque sus huellas difieren por construcción.
-func (h *harness) conOtroPipeline() *harness {
+// escriben bajo la MISMA clave — el ACR pertenece al proyecto.
+//
+// Lo que decide si se reviven entre sí es su CONTENIDO, no su url: desde la
+// spec 27 la url del pipelinecode salió de la huella, porque su contenido ya está
+// dentro (§5.5). Sin `opts` los dos son idénticos byte a byte; con ellos se
+// materializa un pipelinecode distinto de verdad.
+func (h *harness) conOtroPipeline(opts ...harnessOption) *harness {
 	h.t.Helper()
 
 	id := nextHarnessID()
@@ -1441,6 +1481,9 @@ func (h *harness) conOtroPipeline() *harness {
 	}
 
 	copyTree(h.t, filepath.Join("testdata", "pipelinecode"), otro.pipelineDir)
+	for _, opt := range opts {
+		opt(otro)
+	}
 	initRepo(h.t, otro.pipelineDir, "feat: otro pipelinecode")
 	gitRepos.Store(endpointPath(otro.pipelineURL), otro.pipelineDir)
 

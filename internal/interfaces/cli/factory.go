@@ -124,6 +124,12 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	pipelineVarsRepo := stepInfra.NewPipelineVarsRepository()
 	pipelineCommandRepo := stepInfra.NewPipelineCommandRepository()
 
+	// El cuarto lector del pipelinecode, y el único que no lee un archivo sino un
+	// DIRECTORIO: desde la spec 27 el árbol del directorio del step entero es
+	// material de identidad, porque lo que decide qué hace un step es su
+	// directorio y no la lista de archivos que su autor declaró en `templates:`.
+	pipelineStepTreeRepo := stepInfra.NewPipelineStepTreeRepository()
+
 	pipelineStructureValidator := pipDom.NewPipelineStructureValidator(
 		pipelineStepConfigRepo, pipelineManifestRepo, pipelineVarsRepo, pipelineCommandRepo)
 	pipelineWorkdirRepo := pippInfra.NewPipelineWorkdirRepository(projectsBasePath)
@@ -241,6 +247,7 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 			pipelineCommandRepo,
 			pipelineStepConfigRepo,
 			pipelineVarsRepo,
+			pipelineStepTreeRepo,
 			pipelineManifestRepo,
 			contentFingerprint,
 			loadedPipelinecode,

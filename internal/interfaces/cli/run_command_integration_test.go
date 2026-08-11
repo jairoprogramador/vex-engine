@@ -32,19 +32,38 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
 )
 
-// correHastaEstable ejecuta hasta que ningún paso corre. Hoy hacen falta TRES
-// ejecuciones, y por qué lo explica TestRunCommand_ReejecucionSinCambios.
-func correHastaEstable(t *testing.T, h *harness) {
+// AQUÍ vivía `correHastaEstable`, que ejecutaba hasta que ningún paso corría
+// porque hacían falta TRES ejecuciones para alcanzar un punto fijo.
+//
+// **Existía por un solo defecto y la spec 27 lo cierra**: el material de la
+// huella era el mapa acumulado RESUELTO, así que las salidas de una corrida
+// entraban como entradas de la siguiente y todo step con `outputs` se
+// re-ejecutaba exactamente una vez de más. Con el material en la DECLARACIÓN, la
+// segunda corrida ya no ejecuta nada. Su desaparición es parte del entregable de
+// la spec, no una limpieza: mientras el helper existía, ningún test podía
+// distinguir «se estabilizó» de «se estabilizó tarde».
+
+// unaCorridaYPuntoFijo ejecuta una vez —donde todo corre— y una segunda, donde
+// nada debe correr. Devuelve los steps de la primera.
+//
+// Lo que sustituye al helper anterior es la AFIRMACIÓN: el punto fijo se alcanza
+// a la primera, y si algún día vuelve a hacer falta una tercera corrida esto se
+// pone en rojo en vez de tragárselo.
+func unaCorridaYPuntoFijo(t *testing.T, h *harness) []string {
 	t.Helper()
-	for i := 0; i < 5; i++ {
-		h.resetLog()
-		result := h.run()
-		require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
-		if len(h.ranSteps()) == 0 {
-			return
-		}
-	}
-	t.Fatal("la pipeline nunca llegó a un estado estable")
+
+	h.resetLog()
+	primera := h.run()
+	require.Equal(t, cli.ExitSucceeded, primera.exitCode, primera.stderr)
+	corrieron := h.ranSteps()
+
+	h.resetLog()
+	segunda := h.run()
+	require.Equal(t, cli.ExitSucceeded, segunda.exitCode, segunda.stderr)
+	require.Empty(t, h.ranSteps(),
+		"la segunda corrida idéntica no ejecuta nada: el punto fijo se alcanza a la primera")
+
+	return corrieron
 }
 
 // ── Ejecución completa ──────────────────────────────────────────────────────
@@ -95,45 +114,44 @@ func TestRunCommand_ReejecucionSinCambios(t *testing.T) {
 	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
 	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
 
-	// DIVERGENCIA VIVA respecto de lo que la spec 01 §5.2 daba por hecho: la
-	// segunda ejecución idéntica NO se salta.
+	// EL REBOTE DE MÁS DESAPARECIÓ, y es un NÚMERO, no una impresión.
 	//
-	// Motivo: cada step guarda en el almacén las variables que él mismo produjo
-	// (`artifact_name`, `acr_name`). La ejecución siguiente las carga ANTES de
-	// decidir, así que la huella de variables que se compara ya no es la que se
-	// guardó, y el step se re-ejecuta exactamente una vez más. A partir de la
-	// tercera el punto es fijo.
+	// Hasta la spec 27 esta segunda ejecución re-ejecutaba los dos steps y hacía
+	// falta una TERCERA para alcanzar el punto fijo. El motivo: cada step guarda
+	// en el almacén las variables que él mismo produjo (`artifact_name`,
+	// `acr_name`), la corrida siguiente las cargaba ANTES de decidir, y la huella
+	// que se comparaba ya no era la que se guardó — porque el material de la
+	// huella era el mapa acumulado RESUELTO.
 	//
-	// La spec 14 acorta la cadena pero NO la corta: el registro dejó de guardar el
-	// mapa acumulado entero —así que un literal declarado ya no vuelve del
-	// almacén, ver `TestRunCommand_EditarUnLiteralVuelveASurtirEfecto`— pero lo
-	// que un step PRODUJO sigue guardándose, que es su razón de ser, y sigue
-	// entrando en la huella de la corrida siguiente porque el material de la
-	// huella es el mapa acumulado RESUELTO.
-	//
-	// Lo cierra la spec 27, cuando ese material pase de «acumulado resuelto» a
-	// «declarado» (§5.2): entonces las salidas de una corrida dejan de ser
-	// entradas de la siguiente. Las dos specs son necesarias —la 14 hace que
-	// «declarado» cubra también las variables que hoy aparecen de la nada, sin lo
-	// cual el material quedaría corto EN SILENCIO— y este test es el testigo:
-	// cuando la 27 llegue, la segunda ejecución se pondrá vacía.
+	// Las dos specs eran necesarias y las dos están: la 14 separó lo que un step
+	// CONSUME de lo que PRODUCE —sin lo cual «declarado» habría quedado corto en
+	// silencio— y la 27 cambió el material de la huella de «acumulado resuelto» a
+	// «declarado». Con eso las salidas de una corrida dejan de ser entradas de la
+	// siguiente, y el caso feliz —ejecutar dos veces lo mismo— cuesta UN
+	// despliegue en vez de dos.
 	h.resetLog()
 	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
-	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps(),
-		"la segunda ejecución todavía re-ejecuta: las variables de salida del propio step cambian su huella")
+	assert.Empty(t, h.ranSteps(),
+		"la segunda ejecución idéntica no ejecuta nada: la huella ya no lleva lo que el step produjo")
 
-	h.resetLog()
-	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
-	assert.Empty(t, h.ranSteps(), "la tercera ejecución sí se salta: policy y almacén persisten y se leen")
-
+	// Y el punto fijo se mantiene: revivir no escribe registro, así que no hay
+	// nada que pueda mover la huella de la corrida siguiente.
 	h.resetLog()
 	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
 	assert.Empty(t, h.ranSteps())
+
+	// Un registro por step y una entrada de índice por step: el número es el
+	// observable de que no hubo rebote. Con el defecto vivo eran dos de cada.
+	assert.Len(t, h.cacheEntries(), 2,
+		"dos steps, dos entradas — no cuatro")
+	assert.Len(t, h.persistedStepState("test"), 1,
+		"un registro por ejecución REAL del step, y sólo hubo una")
+	assert.Len(t, h.persistedStepState("supply"), 1)
 }
 
 func TestRunCommand_CambioEnElCodigoDelProyecto(t *testing.T) {
 	h := newHarness(t)
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 
 	// Un byte del proyecto. En modo local el motor enlaza el directorio en vez
 	// de clonarlo, así que la huella de código ve el árbol de trabajo.
@@ -172,7 +190,7 @@ func TestRunCommand_CambioEnElCodigoDelProyecto(t *testing.T) {
 func TestRunCommand_UnChmodEnElProyectoReejecutaElStep(t *testing.T) {
 	h := newHarness(t)
 	h.writeProjectFile("scripts/deploy.sh", "#!/bin/sh\necho desplegando\n")
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 
 	h.chmodProjectFile("scripts/deploy.sh", 0o755)
 
@@ -198,7 +216,7 @@ func TestRunCommand_CambiarElDestinoDeUnEnlaceReejecutaElStep(t *testing.T) {
 	h.writeProjectFile("src/a.txt", "a\n")
 	h.writeProjectFile("src/b.txt", "b\n")
 	h.symlinkProjectFile("src/actual.txt", "a.txt")
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 
 	h.symlinkProjectFile("src/actual.txt", "b.txt")
 
@@ -223,13 +241,13 @@ func TestRunCommand_CambiarElDestinoDeUnEnlaceReejecutaElStep(t *testing.T) {
 // las tres huellas.
 func TestRunCommand_LaClavePersistidaLlevaLaVersionDeLaRegla(t *testing.T) {
 	h := newHarness(t)
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 
 	claves := h.cacheEntries()
 
 	require.NotEmpty(t, claves)
 	for _, clave := range claves {
-		assert.Regexp(t, `^ck-v1:[0-9a-f]{64}$`, clave)
+		assert.Regexp(t, `^sf-v1:[0-9a-f]{64}$`, clave)
 	}
 }
 
@@ -250,7 +268,7 @@ func TestRunCommand_VolverAUnEstadoYaEjecutadoReejecuta(t *testing.T) {
 	h := newHarness(t)
 
 	// Estado A.
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 	entradasEnA := h.cacheEntries()
 	require.NotEmpty(t, entradasEnA)
 
@@ -281,7 +299,7 @@ func TestRunCommand_VolverAUnEstadoYaEjecutadoReejecuta(t *testing.T) {
 func TestRunCommand_ElRegistroDeAyerSigueAhi(t *testing.T) {
 	h := newHarness(t)
 
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 	registrosTrasLaPrimera := h.persistedStepState("02-supply")
 	require.NotEmpty(t, registrosTrasLaPrimera)
 
@@ -304,7 +322,7 @@ func TestRunCommand_ElRegistroDeAyerSigueAhi(t *testing.T) {
 // porque no había dos tiendas con reglas de vida distintas.
 func TestRunCommand_BorrarElIndiceNoCambiaNingunaDecision(t *testing.T) {
 	h := newHarness(t)
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 
 	// El valor extraído del stdout —el que en un pipeline real es un ARN— está
 	// en el almacén de registros, no en el índice.
@@ -534,7 +552,7 @@ func TestRunCommand_LoQueUnStepVigilaLoDeclaraElStep(t *testing.T) {
 	t.Run("state_changed: [pipeline] no ve el código del proyecto", func(t *testing.T) {
 		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml",
 			"scope: environment\nrules:\n  - state_changed: [pipeline]\n"))
-		correHastaEstable(t, h)
+		unaCorridaYPuntoFijo(t, h)
 
 		h.writeProjectFile("src/app.txt", "v2\n")
 
@@ -550,7 +568,7 @@ func TestRunCommand_LoQueUnStepVigilaLoDeclaraElStep(t *testing.T) {
 		// El control, y es el fixture tal cual: mismo pipelinecode, mismo step,
 		// misma huella de contenido; una línea de `config.yaml` de diferencia.
 		h := newHarness(t)
-		correHastaEstable(t, h)
+		unaCorridaYPuntoFijo(t, h)
 
 		h.writeProjectFile("src/app.txt", "v2\n")
 
@@ -569,7 +587,7 @@ func TestRunCommand_LoQueUnStepVigilaLoDeclaraElStep(t *testing.T) {
 	t.Run("la forma larga completa decide igual que la corta", func(t *testing.T) {
 		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml",
 			"scope: environment\nrules:\n  - state_changed: [pipeline, project]\n"))
-		correHastaEstable(t, h)
+		unaCorridaYPuntoFijo(t, h)
 
 		h.writeProjectFile("src/app.txt", "v2\n")
 
@@ -589,7 +607,7 @@ func TestRunCommand_LoQueUnStepVigilaLoDeclaraElStep(t *testing.T) {
 // despliegue es quien lo escribió.
 func TestRunCommand_SinMaxAgeUnRegistroNoCaduca(t *testing.T) {
 	h := newHarness(t)
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 
 	h.envejecerRegistros(400 * 24 * time.Hour)
 
@@ -609,7 +627,7 @@ func TestRunCommand_MaxAgeDeclaradoCaducaElRegistro(t *testing.T) {
 	t.Run("fuera de la ventana se ejecuta, con la huella intacta", func(t *testing.T) {
 		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml",
 			fmt.Sprintf(conVentana, "1h")))
-		correHastaEstable(t, h)
+		unaCorridaYPuntoFijo(t, h)
 
 		h.envejecerRegistros(2 * time.Hour)
 
@@ -624,7 +642,7 @@ func TestRunCommand_MaxAgeDeclaradoCaducaElRegistro(t *testing.T) {
 	t.Run("dentro de la ventana revive", func(t *testing.T) {
 		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml",
 			fmt.Sprintf(conVentana, "24h")))
-		correHastaEstable(t, h)
+		unaCorridaYPuntoFijo(t, h)
 
 		h.envejecerRegistros(2 * time.Hour)
 
@@ -642,7 +660,7 @@ func TestRunCommand_LasReglasSeCombinanConOr(t *testing.T) {
 
 	t.Run("la huella cambia dentro de la ventana", func(t *testing.T) {
 		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml", dosReglas))
-		correHastaEstable(t, h)
+		unaCorridaYPuntoFijo(t, h)
 
 		h.writeProjectFile("src/app.txt", "v2\n")
 
@@ -653,7 +671,7 @@ func TestRunCommand_LasReglasSeCombinanConOr(t *testing.T) {
 
 	t.Run("la huella no cambia y la ventana pasa", func(t *testing.T) {
 		h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml", dosReglas))
-		correHastaEstable(t, h)
+		unaCorridaYPuntoFijo(t, h)
 
 		h.envejecerRegistros(48 * time.Hour)
 
@@ -773,33 +791,64 @@ func TestRunCommand_UnaReglaInvalidaAbortaAntesDelPrimerStep(t *testing.T) {
 	}
 }
 
-// DOS PIPELINES, UN PROYECTO: comparten clave de estado y NO se reviven entre
-// sí. Es el test que fija el argumento con el que D-A14 se cerró al revés
-// (spec 11 §5.2).
+// DOS PIPELINES, UN PROYECTO: comparten clave de estado, y lo que decide si se
+// reviven entre sí es su CONTENIDO.
 //
-// Compartir clave es lo que se quiere: el ACR pertenece al proyecto, así que un
+// Compartir clave es lo que se quiere, y es el argumento con el que D-A14 se
+// cerró al revés (spec 11 §5.2): el ACR pertenece al proyecto, así que un
 // proyecto que cambia de plantilla no debe perder de vista los recursos que ya
-// creó. Lo que impide que uno lea el trabajo del otro no es la clave sino la
-// huella, que incluye el pipelinecode entero.
-func TestRunCommand_DosPipelinesCompartenClaveYNoSeRevivenEntreSi(t *testing.T) {
+// creó.
+//
+// **La spec 27 cambia la otra mitad, y es una decisión escrita.** Hasta aquí la
+// URL del pipelinecode entraba en la huella (`cache.Material.Pipeline`), así que
+// dos remotos distintos nunca se revivían aunque sirvieran el mismo árbol byte a
+// byte. Ahora la url NO entra —su contenido ya está dentro de `pipe-v1`— y la
+// respuesta la da el contenido: dos clones del mismo contenido desde remotos
+// distintos son el mismo trabajo, y dos pipelinecode que declaran cosas distintas
+// siguen sin revivirse.
+func TestRunCommand_DosPipelinesCompartenClaveYElContenidoDecide(t *testing.T) {
 	primero := newHarness(t)
-	correHastaEstable(t, primero)
+	unaCorridaYPuntoFijo(t, primero)
 	registrosDelPrimero := primero.persistedStepState("02-supply")
 	require.NotEmpty(t, registrosDelPrimero)
 
-	segundo := primero.conOtroPipeline()
+	t.Run("el mismo contenido desde otro remoto REVIVE", func(t *testing.T) {
+		mismoContenido := primero.conOtroPipeline()
 
-	segundo.resetLog()
-	result := segundo.run()
-	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
-	assert.Equal(t, []string{"01-test", "02-supply"}, segundo.ranSteps(),
-		"el pipelinecode entra en la huella: el segundo no revive el registro del primero")
+		mismoContenido.resetLog()
+		result := mismoContenido.run()
+		require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
 
-	registrosDeLosDos := segundo.persistedStepState("02-supply")
-	assert.Subset(t, registrosDeLosDos, registrosDelPrimero,
-		"y los del primero siguen ahí: nadie sobrescribe a nadie")
-	assert.Greater(t, len(registrosDeLosDos), len(registrosDelPrimero),
-		"los dos escriben bajo la MISMA clave, que es lo que la spec decide")
+		assert.Empty(t, mismoContenido.ranSteps(),
+			"la url del pipelinecode no entra en la huella: es el mismo trabajo")
+		assert.Equal(t, registrosDelPrimero,
+			mismoContenido.persistedStepState("02-supply"),
+			"y revivir no escribe: el registro del primero es el que sigue vigente")
+	})
+
+	t.Run("otro contenido NO revive, y escribe bajo la misma clave", func(t *testing.T) {
+		otroContenido := primero.conOtroPipeline(withPipelineFile(
+			"steps/02-supply/commands.yaml",
+			`- name: provision
+  cmd: echo '02-supply acr_name = "${var.registry_prefix}-${var.artifact_name}" (otro pipeline)' | tee -a "$VEX_TEST_LOG"
+  outputs:
+    - name: acr_name
+      probe: acr_name = "([^"]+)"
+`))
+
+		otroContenido.resetLog()
+		result := otroContenido.run()
+		require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+		assert.Contains(t, otroContenido.ranSteps(), "02-supply",
+			"el contenido del pipelinecode entra en la huella: no revive el registro del primero")
+
+		registrosDeLosDos := otroContenido.persistedStepState("02-supply")
+		assert.Subset(t, registrosDeLosDos, registrosDelPrimero,
+			"y los del primero siguen ahí: nadie sobrescribe a nadie")
+		assert.Greater(t, len(registrosDeLosDos), len(registrosDelPrimero),
+			"los dos escriben bajo la MISMA clave, que es lo que la spec 11 decide")
+	})
 }
 
 // La clave no depende de la máquina, y por eso el caché compartido de la spec 16
@@ -813,12 +862,12 @@ func TestRunCommand_DosPipelinesCompartenClaveYNoSeRevivenEntreSi(t *testing.T) 
 // verdad, este es el caso que hay que volver a mirar.
 func TestRunCommand_LaClaveNoDependeDeLaMaquina(t *testing.T) {
 	unaMaquina := newHarness(t)
-	correHastaEstable(t, unaMaquina)
+	unaCorridaYPuntoFijo(t, unaMaquina)
 
 	// La otra máquina arranca con el caché FRÍO, así que ejecuta todo: lo que se
 	// compara no es si se saltó, sino bajo QUÉ CLAVES quedaron sus entradas.
 	otraMaquina := unaMaquina.otraMaquina()
-	correHastaEstable(t, otraMaquina)
+	unaCorridaYPuntoFijo(t, otraMaquina)
 
 	assert.Equal(t, unaMaquina.cacheEntries(), otraMaquina.cacheEntries(),
 		"dos raíces distintas con el mismo árbol dan las mismas claves")
@@ -843,7 +892,7 @@ func TestRunCommand_AnadirShowReejecutaElStep(t *testing.T) {
 `
 
 	h := newHarness(t, withPipelineFile(supplyCmd, sinShow))
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 
 	// El ÚNICO cambio es `show: true`. Ni el comando, ni el workdir, ni los
 	// outputs, ni el código, ni las variables.
@@ -868,7 +917,7 @@ func TestRunCommand_AnadirShowReejecutaElStep(t *testing.T) {
 // oscilara entre ejecutar y revivir en corridas alternas.
 func TestRunCommand_RevivirNoEscribeNada(t *testing.T) {
 	h := newHarness(t)
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 
 	entradas := h.cacheEntries()
 	registros := h.persistedStepState("02-supply")
@@ -886,6 +935,251 @@ func TestRunCommand_RevivirNoEscribeNada(t *testing.T) {
 		"consultar no añadió ni cambió ninguna entrada de índice")
 	assert.Equal(t, registros, h.persistedStepState("02-supply"),
 		"ni un registro: revivir no es un hecho nuevo del step")
+}
+
+// ── La huella del step: qué la mueve y qué no (spec 27) ─────────────────────
+
+// EL CASO QUE DA NOMBRE A LA SPEC 27 (D14): editar el cuerpo de una plantilla
+// re-ejecuta el step.
+//
+// Hasta aquí `templates:` aportaba las RUTAS al material y el contenido de esos
+// archivos no entraba en ninguna huella, así que editar el `deployment.yaml` que
+// más se edita a mano de todo el pipelinecode producía un despliegue OMITIDO con
+// el mensaje «sin cambios». No había forma de que el usuario lo distinguiera de
+// un caché funcionando bien.
+func TestRunCommand_EditarUnaPlantillaReejecutaElStep(t *testing.T) {
+	h := newHarness(t,
+		withPipelineFile("steps/02-supply/k8s/deployment.yaml", "replicas: 3\n"),
+		withPipelineFile("steps/02-supply/commands.yaml", `
+- name: provision
+  cmd: echo '02-supply acr_name = "${var.registry_prefix}-${var.artifact_name}"' | tee -a "$VEX_TEST_LOG"
+  templates:
+    - k8s/deployment.yaml
+  outputs:
+    - name: acr_name
+      probe: acr_name = "([^"]+)"
+`))
+	unaCorridaYPuntoFijo(t, h)
+
+	h.commitPipelineFile("steps/02-supply/k8s/deployment.yaml", "replicas: 5\n")
+
+	h.resetLog()
+	result := h.run()
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	assert.Contains(t, h.ranSteps(), "02-supply",
+		"el cuerpo de la plantilla es material de la huella: HOY se saltaba")
+}
+
+// Y SU HERMANO SIN NOMBRE (defecto (b)): un archivo auxiliar que nadie declaró
+// en `templates:` re-ejecuta igual.
+//
+// Es la comprobación que distingue esta solución de la alternativa B —«sólo las
+// plantillas declaradas»—: un `.tf` que nadie interpola decide qué se
+// provisiona exactamente igual que un `deployment.yaml` declarado. Lo que decide
+// qué hace un step es su DIRECTORIO, no la lista que su autor se acordó de
+// declarar.
+func TestRunCommand_EditarUnAuxiliarNoDeclaradoReejecutaElStep(t *testing.T) {
+	h := newHarness(t, withPipelineFile("steps/02-supply/terraform/main.tf",
+		`resource "azurerm_container_registry" "acr" { sku = "Basic" }`))
+	unaCorridaYPuntoFijo(t, h)
+
+	h.commitPipelineFile("steps/02-supply/terraform/main.tf",
+		`resource "azurerm_container_registry" "acr" { sku = "Premium" }`)
+
+	h.resetLog()
+	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+
+	assert.Contains(t, h.ranSteps(), "02-supply",
+		"no está en `templates:` y decide qué se provisiona: entra en la huella igual")
+}
+
+// `config.yaml` CUENTA (defecto (d)), y es el único de los cuatro que aún se
+// podía evitar en vez de corregir.
+//
+// Si no entrara, cambiar las reglas de re-ejecución de un step no movería su
+// huella y el step se saltaría CON LAS REGLAS VIEJAS — el patrón exacto de
+// `show`, antes de que ocurriera.
+func TestRunCommand_ConfigYamlEntraEnLaHuella(t *testing.T) {
+	t.Run("cambiar las reglas re-ejecuta", func(t *testing.T) {
+		h := newHarness(t)
+		unaCorridaYPuntoFijo(t, h)
+
+		h.commitPipelineFile("steps/02-supply/config.yaml",
+			"scope: environment\nrules:\n  - state_changed\n  - max_age: 720h\n")
+
+		h.resetLog()
+		require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+		assert.Contains(t, h.ranSteps(), "02-supply")
+	})
+
+	t.Run("cambiar el ámbito también mueve la huella", func(t *testing.T) {
+		h := newHarness(t)
+		unaCorridaYPuntoFijo(t, h)
+
+		h.commitPipelineFile("steps/02-supply/config.yaml", configConScope("project"))
+
+		h.resetLog()
+		require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+		assert.Contains(t, h.ranSteps(), "02-supply",
+			"el `scope` DECLARADO es un campo como cualquier otro (§5.2bis)")
+	})
+
+	// La contrapartida, y es la que fija que lo hasheado sea el VALOR DE DOMINIO y
+	// no el texto: reescribir la forma corta como la larga completa NO re-ejecuta.
+	t.Run("el azúcar sintáctico de las reglas no re-ejecuta", func(t *testing.T) {
+		h := newHarness(t)
+		unaCorridaYPuntoFijo(t, h)
+
+		h.commitPipelineFile("steps/02-supply/config.yaml",
+			"scope: environment\nrules:\n  - state_changed: [project, pipeline]\n")
+
+		h.resetLog()
+		require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+		assert.Empty(t, h.ranSteps(),
+			"`- state_changed` y `[pipeline, project]` son la misma declaración")
+	})
+}
+
+// LA ASIMETRÍA DE §5.3, fijada como decisión y no como efecto: un comentario en
+// `commands.yaml` NO re-ejecuta; uno en un `Dockerfile` SÍ.
+//
+// Es el reparto «normalizado lo que el motor entiende, crudo lo que no». El
+// segundo el motor no lo sabe interpretar, y un comentario dentro de un `.tf` sí
+// cambia lo que terraform lee en algunos casos; normalizarlos exigiría un parser
+// por formato.
+func TestRunCommand_UnComentarioEnLaDeclaracionNoReejecutaYEnElArbolSi(t *testing.T) {
+	t.Run("en commands.yaml no", func(t *testing.T) {
+		h := newHarness(t)
+		unaCorridaYPuntoFijo(t, h)
+
+		original, err := os.ReadFile(
+			filepath.Join(h.pipelineDir, "steps", "02-supply", "commands.yaml"))
+		require.NoError(t, err)
+		h.commitPipelineFile("steps/02-supply/commands.yaml",
+			"# un comentario que explica el comando\n"+string(original))
+
+		h.resetLog()
+		require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+		assert.Empty(t, h.ranSteps())
+	})
+
+	t.Run("en un Dockerfile sí", func(t *testing.T) {
+		h := newHarness(t, withPipelineFile(
+			"steps/02-supply/Dockerfile", "FROM eclipse-temurin:21\n"))
+		unaCorridaYPuntoFijo(t, h)
+
+		h.commitPipelineFile("steps/02-supply/Dockerfile",
+			"# la imagen base\nFROM eclipse-temurin:21\n")
+
+		h.resetLog()
+		require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
+		assert.Contains(t, h.ranSteps(), "02-supply")
+	})
+}
+
+// EL ÁMBITO DE PROYECTO EMPIEZA A SERVIR PARA ALGO, y esta spec es la única que
+// podía darlo.
+//
+// La spec 13 le dio a un step `scope: project` un sitio común donde escribir y
+// leer, y eso ya funcionaba. Lo que NO ocurría era el salto: su huella difería
+// por el ambiente, que entraba por DOS vías —la dimensión `Scope` de
+// `cache.Material` y la variable `environment` del material de variables— así que
+// se ejecutaba una vez por ambiente.
+//
+// **Cerrar sólo una no habría cambiado nada**, y por eso el observable de este
+// test es el salto y no ninguna de las dos por separado. Es la precondición que
+// la spec 24 §7 da por cumplida.
+func TestRunCommand_UnStepDeAmbitoDeProyectoReviveEntreAmbientes(t *testing.T) {
+	// `01-test` es el step del fixture que NO declara variables por ambiente
+	// —igual que el `02-acr` de los templates reales, que no consume nada—, así
+	// que su declaración es idéntica en los dos ambientes. Con `scope: project` y
+	// sin el proyecto en su regla, no queda nada que dependa del ambiente.
+	h := newHarness(t, withPipelineFile("steps/01-test/config.yaml",
+		"scope: project\nrules:\n  - state_changed: [pipeline]\n"))
+
+	h.resetLog()
+	require.Equal(t, cli.ExitSucceeded, h.run(withEnvironment("sand")).exitCode)
+	assert.Contains(t, h.ranSteps(), "01-test")
+	registrosTrasSand := h.persistedStepState("01-test")
+	require.Len(t, registrosTrasSand, 1)
+
+	h.resetLog()
+	result := h.run(withEnvironment("prod"))
+	require.Equal(t, cli.ExitSucceeded, result.exitCode, result.stderr)
+
+	assert.NotContains(t, h.ranSteps(), "01-test",
+		"su trabajo es del proyecto: desplegar a prod no lo vuelve a hacer")
+	assert.Equal(t, registrosTrasSand, h.persistedStepState("01-test"),
+		"y revivir no escribe: sigue habiendo UN registro, el de sand")
+
+	// Y lo que produjo en `sand` sigue llegando al mapa acumulado de `prod`: lo
+	// inyecta el handler 01 del propio productor, ANTES de que el 03 decida
+	// revivir. Es la cadena de la que cuelga el reparto entero (spec 25), y hasta
+	// aquí casi no se ejercitaba —mientras el ambiente entrara en la huella, el
+	// productor ejecutaba de verdad en cada ambiente nuevo—.
+	assert.Equal(t, "demo-app", h.projectVars("01-test")["artifact_name"])
+	assert.Equal(t, `02-supply acr_name = "vexprod-demo-app"`, h.logLines()[0],
+		"02-supply, que sí es de ambiente, consume lo que el productor revivido dejó")
+
+	// EL CONTRAPESO, y es lo que hace que esto no sea una pérdida de aislamiento:
+	// un step con `scope: environment` sigue sin revivir el trabajo de otro
+	// ambiente, y ahora lo garantiza la CLAVE de estado y no el hash.
+	assert.Contains(t, h.ranSteps(), "02-supply")
+}
+
+// UNA CONSECUENCIA DECLARADA del caso anterior, y conviene no confundirla con un
+// defecto: un step de ámbito de proyecto que SÍ declara variables por ambiente
+// **no** revive entre ambientes, porque su declaración es distinta de verdad.
+//
+// Es el fixture tal cual —`02-supply` consume `registry_prefix`, que vale
+// `vexsand` o `vexprod`— y no hay nada que arreglar: `pipe-v1` hashea lo que el
+// step DECLARA, y declara literales distintos. Lo que la spec 27 saca de la
+// huella es el ambiente como DIMENSIÓN, no el contenido que el pipelinecode
+// escribe por ambiente.
+func TestRunCommand_UnAmbitoDeProyectoConVariablesPorAmbienteNoRevive(t *testing.T) {
+	h := newHarness(t, withPipelineFile("steps/02-supply/config.yaml",
+		"scope: project\nrules:\n  - state_changed: [pipeline]\n"))
+
+	require.Equal(t, cli.ExitSucceeded, h.run(withEnvironment("sand")).exitCode)
+
+	h.resetLog()
+	require.Equal(t, cli.ExitSucceeded, h.run(withEnvironment("prod")).exitCode)
+
+	assert.Contains(t, h.ranSteps(), "02-supply",
+		"declara `registry_prefix` distinto por ambiente: es otro trabajo")
+}
+
+// LA DIRECCIÓN NO CUENTA (§5.2bis): el mismo pipelinecode servido para dos
+// SUJETOS distintos declara lo mismo.
+//
+// Es el sitio donde es fácil escribir la distinción al revés: lo que sale del
+// hash es la RUTA resuelta, no el valor declarado. Hasta la spec 27 el sujeto era
+// una dimensión de `cache.Material`, así que la pregunta que el índice de la
+// spec 11 §5.5 responde —«¿este contenido ya corrió en algún sitio?»— no tenía
+// respuesta.
+func TestRunCommand_LaDeclaracionNoDependeDelSujeto(t *testing.T) {
+	uno := newHarness(t)
+	require.Equal(t, cli.ExitSucceeded, uno.run().exitCode)
+
+	otro := uno.conOtroSujeto()
+	require.Equal(t, cli.ExitSucceeded, otro.run().exitCode)
+
+	declaraciones := func(h *harness) []string {
+		objeto := h.elObjeto()
+		out := make([]string, 0, len(objeto.Steps))
+		for _, step := range objeto.Steps {
+			out = append(out, step.StepID+" "+step.Declaration)
+		}
+		return out
+	}
+
+	assert.Equal(t, declaraciones(uno), declaraciones(otro),
+		"dos proyectos con el mismo pipelinecode declaran el mismo trabajo")
+	assert.NotEqual(t, uno.elObjeto().Subject, otro.elObjeto().Subject,
+		"control: son dos sujetos distintos de verdad")
+	assert.NotEqual(t, uno.elObjeto().ContentID, otro.elObjeto().ContentID,
+		"y sus OBJETOS sí difieren: el sujeto es material del `content_id`, que es otra pregunta")
 }
 
 // ── Aislamiento de ambiente (regresión de R-22) ─────────────────────────────
@@ -906,9 +1200,15 @@ func TestRunCommand_AmbientesAislados(t *testing.T) {
 	// del código no llevaban el ambiente, y que `prod` no acertara con lo escrito
 	// por `sand` dependía únicamente de que la variable `environment` estuviera en
 	// el mapa acumulado y no figurara en la lista de exclusiones de la huella de
-	// variables. Desde la 10 el ambiente está en la clave por derecho propio, en
-	// `Scope`, y el caso que lo fija sin depender del material de variables es
-	// `TestNewCacheKey_ElAmbienteNoSePuedeCaerDeLaClave`.
+	// variables. La spec 10 lo metió en la clave por derecho propio (`Scope`).
+	//
+	// **Desde la spec 27 no lo garantiza el hash, sino la CLAVE DE ESTADO**, que es
+	// la propiedad que la spec 11 compró: el ambiente salió de la huella por sus dos
+	// vías —la dimensión `Scope` y la variable `environment`— y este par tiene que
+	// seguir verde igualmente, porque `02-supply` declara `scope: environment` y sus
+	// dos registros viven en direcciones distintas. El caso hermano —un step con
+	// `scope: project` que SÍ revive entre ambientes— es
+	// `TestRunCommand_UnStepDeAmbitoDeProyectoReviveEntreAmbientes`.
 	assert.Equal(t, []string{"01-test", "02-supply"}, h.ranSteps())
 	assert.Equal(t, "vexprod-demo-app", h.storedVars("prod", "02-supply")["acr_name"])
 
@@ -1098,7 +1398,7 @@ func TestRunCommand_UnLiteralPuedeInterpolarElRegistroDelPropioStep(t *testing.T
 // esta situación.
 func TestRunCommand_EditarUnLiteralVuelveASurtirEfecto(t *testing.T) {
 	h := newHarness(t)
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 	require.Equal(t, "vexsand-demo-app", h.storedVars("sand", "02-supply")["acr_name"])
 
 	h.commitPipelineFile("variables/sand/supply.yaml", "- name: registry_prefix\n  value: vexsand2\n")
@@ -1626,9 +1926,9 @@ func TestRunCommand_StepSinComandosNiSeEjecutaNiPersisteEstado(t *testing.T) {
 	require.Equal(t, cli.ExitSucceeded, h.run().exitCode)
 	assert.NotContains(t, h.ranSteps(), "02-supply")
 	assert.Empty(t, h.persistedStepState("supply"))
-	assert.Len(t, h.cacheEntries(), 2,
-		"las dos entradas son de 01-test —se re-ejecutó con otro material, ver "+
-			"TestRunCommand_ReejecucionSinCambios—; 02-supply sigue sin dejar ninguna")
+	assert.Len(t, h.cacheEntries(), 1,
+		"la única entrada sigue siendo la de 01-test, que la segunda corrida revive "+
+			"sin reescribir; 02-supply sigue sin dejar ninguna")
 }
 
 // ── Evaluar no escribe: el estado se persiste tras el éxito (spec 09) ───────
@@ -2193,7 +2493,7 @@ func TestRunCommand_UnDestinoInservibleFallaRuidosamente(t *testing.T) {
 // decisión no se puede tomar por omisión.
 func TestRunCommand_DosMaquinasQueComparteElDestinoSeRevivenEntreSi(t *testing.T) {
 	primera := newHarness(t)
-	correHastaEstable(t, primera)
+	unaCorridaYPuntoFijo(t, primera)
 	entradas := primera.cacheEntries()
 	registros := primera.persistedStepState("02-supply")
 	require.NotEmpty(t, entradas)
@@ -2218,7 +2518,7 @@ func TestRunCommand_DosMaquinasQueComparteElDestinoSeRevivenEntreSi(t *testing.T
 // escribiendo cada una en su rincón y el caso de arriba pasaría por accidente.
 func TestRunCommand_ElEstadoNoCuelgaDelHomeDelProceso(t *testing.T) {
 	h := newHarness(t)
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 
 	require.NotEmpty(t, h.persistedStepState("02-supply"), "control: el estado se escribió")
 

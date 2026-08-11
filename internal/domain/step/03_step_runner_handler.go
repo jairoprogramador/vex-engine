@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jairoprogramador/vex-engine/internal/domain/cache"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	domFingerprint "github.com/jairoprogramador/vex-engine/internal/domain/fingerprint"
 	"github.com/jairoprogramador/vex-engine/internal/domain/state"
 )
 
@@ -157,7 +157,7 @@ func (h *StepRunnerHandler) Handle(ctx *context.Context, request *StepRequestHan
 	// No hay registro bajo su clave, luego se ejecuta; al terminar bien, deja el
 	// suyo; la corrida siguiente lo revive. Es el destino de P1, entregado por
 	// eliminación (spec 10 §5.3bis).
-	fingerprint, run, reason, evidence, err := h.decide(ctx, request, commands)
+	fingerprint, run, reason, evidence, err := h.decide(ctx, request, material)
 	if err != nil {
 		return err
 	}
@@ -293,9 +293,9 @@ func (h *StepRunnerHandler) warnIfOnlyExpires(request *StepRequestHandler, confi
 func (h *StepRunnerHandler) decide(
 	ctx *context.Context,
 	request *StepRequestHandler,
-	commands []command.Command,
+	material LoadedStep,
 ) (
-	fingerprint cache.CacheKey,
+	fingerprint domFingerprint.Fingerprint,
 	run bool,
 	reason command.StepReason,
 	evidence EvidenceFact,
@@ -311,7 +311,7 @@ func (h *StepRunnerHandler) decide(
 	// justo lo que hace que dos ambientes puedan compartirla.
 	key, declarado, err := request.StateKey()
 	if err != nil {
-		return cache.CacheKey{}, false, command.ReasonNone, EvidenceFact{}, fmt.Errorf(
+		return domFingerprint.Fingerprint{}, false, command.ReasonNone, EvidenceFact{}, fmt.Errorf(
 			"componer la clave de estado de %s: %w", request.StepNameExe(), err)
 	}
 
@@ -320,7 +320,7 @@ func (h *StepRunnerHandler) decide(
 	// con huella cero a propósito —no sólo evita el registro, evita también la
 	// entrada de índice, que apunta a un registro que no va a existir.
 	if !declarado {
-		return cache.CacheKey{}, true, command.ReasonNoScope, EvidenceFact{}, nil
+		return domFingerprint.Fingerprint{}, true, command.ReasonNoScope, EvidenceFact{}, nil
 	}
 
 	// Sin reglas tampoco, y por otra razón (spec 15 §5.5): hay dónde recordarse,
@@ -331,12 +331,12 @@ func (h *StepRunnerHandler) decide(
 	// usar.
 	rules := request.StepConfig().Rules()
 	if rules.IsEmpty() {
-		return cache.CacheKey{}, true, command.ReasonNoRules, EvidenceFact{}, nil
+		return domFingerprint.Fingerprint{}, true, command.ReasonNoRules, EvidenceFact{}, nil
 	}
 
 	last, found, err := h.records.Last(ctx, key)
 	if err != nil {
-		return cache.CacheKey{}, false, command.ReasonNone, EvidenceFact{}, fmt.Errorf(
+		return domFingerprint.Fingerprint{}, false, command.ReasonNone, EvidenceFact{}, fmt.Errorf(
 			"leer el último registro de %s: %w", request.StepNameExe(), err)
 	}
 
@@ -349,7 +349,15 @@ func (h *StepRunnerHandler) decide(
 	// Su registro sale entonces SIN huella, que es el mecanismo que ya existía
 	// para «nunca revive» y no un camino nuevo.
 	if watched, ok := rules.StateChanged(); ok {
-		fingerprint, err = h.fingerprintOf(request, commands, watched)
+		// La huella se compone con la DECLARACIÓN que el resolutor dejó cargada
+		// (spec 27 §5.2): ya no hace falta el mapa acumulado, así que ya no
+		// depende de lo que el propio step produjo en la corrida anterior.
+		//
+		// Material incompleto ⇒ error, nunca una huella degradada: una huella con
+		// un hueco es válida y COLISIONA con la de cualquier material al que le
+		// falte lo mismo, y esa colisión se manifiesta como un step que revive sin
+		// haberse ejecutado jamás.
+		fingerprint, err = NewStepFingerprint(material.Declaration, request.ProjectStatus(), watched)
 		if err != nil {
 			// Sin material no hay huella. El step se ejecuta y su registro se escribe
 			// igual —lo que produjo es estado real— pero SIN huella, así que no
@@ -359,7 +367,7 @@ func (h *StepRunnerHandler) decide(
 			request.Emit(fmt.Sprintf(
 				"advertencia: no se pudo componer la huella de %s: %v",
 				request.StepNameExe(), err))
-			return cache.CacheKey{}, true, command.ReasonUndetermined, EvidenceFact{}, nil
+			return domFingerprint.Fingerprint{}, true, command.ReasonUndetermined, EvidenceFact{}, nil
 		}
 	}
 
@@ -405,23 +413,4 @@ func (h *StepRunnerHandler) decide(
 		StateKey:    key,
 		RecordID:    last.ID(),
 	}, nil
-}
-
-// fingerprintOf compone la huella del step con el alcance que su regla
-// `state_changed` declara.
-//
-// Material incompleto ⇒ error, nunca una huella degradada: una huella con un
-// hueco es válida y COLISIONA con la de cualquier material al que le falte lo
-// mismo, y esa colisión se manifiesta como un step que revive sin haberse
-// ejecutado jamás.
-func (h *StepRunnerHandler) fingerprintOf(
-	request *StepRequestHandler,
-	commands []command.Command,
-	watched StateChangedRule) (cache.CacheKey, error) {
-
-	material, err := NewCacheMaterial(request, commands, watched)
-	if err != nil {
-		return cache.CacheKey{}, err
-	}
-	return cache.NewCacheKey(material)
 }

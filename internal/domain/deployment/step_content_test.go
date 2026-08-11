@@ -16,7 +16,7 @@ func TestStepContent_ComposicionYAccesores(t *testing.T) {
 
 	assert.Equal(t, "02-supply", contenido.StepID())
 	assert.True(t, contenido.Config().IsDeclared())
-	assert.Equal(t, fingerprint.InstructionsVersion, contenido.Instructions().Version())
+	assert.Equal(t, fingerprint.DeclarationVersion, contenido.Declaration().Version())
 	assert.False(t, contenido.IsZero())
 
 	parametros := contenido.Parameters()
@@ -35,7 +35,7 @@ func TestStepContent_LosParametrosDevueltosSonUnaCopia(t *testing.T) {
 }
 
 func TestStepContent_MaterialInvalido(t *testing.T) {
-	instrucciones := huella(t, fingerprint.InstructionsVersion, "11")
+	instrucciones := huella(t, fingerprint.DeclarationVersion, "11")
 
 	casos := map[string]struct {
 		stepID       string
@@ -85,7 +85,7 @@ func TestStepContent_UnParametroDeclaradoDosVecesEsUnError(t *testing.T) {
 	_, err = deployment.NewStepContent(
 		"01-test",
 		step.NoStepConfig(),
-		huella(t, fingerprint.InstructionsVersion, "11"),
+		huella(t, fingerprint.DeclarationVersion, "11"),
 		[]step.VariableDeclaration{uno, otro})
 	require.Error(t, err)
 }
@@ -102,7 +102,7 @@ func TestStepContent_ElAmbitoDeProyectoSeReconoce(t *testing.T) {
 	config, err := step.NewStepConfig(step.NewEnvironmentScope(), reglas)
 	require.NoError(t, err)
 	deAmbiente, err := deployment.NewStepContent(
-		"03-deploy", config, huella(t, fingerprint.InstructionsVersion, "33"), nil)
+		"03-deploy", config, huella(t, fingerprint.DeclarationVersion, "33"), nil)
 	require.NoError(t, err)
 
 	assert.False(t, deAmbiente.IsProjectScoped())
@@ -125,7 +125,7 @@ func TestStepContent_LasReglasEntranEnLaIdentidad(t *testing.T) {
 		config, err := step.NewStepConfig(step.NewEnvironmentScope(), reglas)
 		require.NoError(t, err)
 		contenido, err := deployment.NewStepContent(
-			"01-test", config, huella(t, fingerprint.InstructionsVersion, "11"), nil)
+			"01-test", config, huella(t, fingerprint.DeclarationVersion, "11"), nil)
 		require.NoError(t, err)
 
 		material := materialBase(t)
@@ -154,7 +154,7 @@ func TestStepContent_ElAmbitoDeclaradoEntraEnLaIdentidad(t *testing.T) {
 		config, err := step.NewStepConfig(ambito, reglas)
 		require.NoError(t, err)
 		contenido, err := deployment.NewStepContent(
-			"01-test", config, huella(t, fingerprint.InstructionsVersion, "11"), nil)
+			"01-test", config, huella(t, fingerprint.DeclarationVersion, "11"), nil)
 		require.NoError(t, err)
 
 		material := materialBase(t)
@@ -177,7 +177,7 @@ func TestStepContent_SinConfigYConConfigVaciaNoSonLoMismo(t *testing.T) {
 	config, err := step.NewStepConfig(step.NewEnvironmentScope(), step.EmptyRuleSet())
 	require.NoError(t, err)
 	conConfigVacia, err := deployment.NewStepContent(
-		"01-test", config, huella(t, fingerprint.InstructionsVersion, "11"), nil)
+		"01-test", config, huella(t, fingerprint.DeclarationVersion, "11"), nil)
 	require.NoError(t, err)
 
 	declarada := materialBase(t)

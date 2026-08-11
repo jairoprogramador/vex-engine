@@ -19,18 +19,18 @@ const contenidoCanonicoEsperado = "vex-content/cnt-v1" +
 	"\n" + "\"2\"" +
 	"\n" + "\"true\"" +
 	"\n" + "2" +
-	"\n" + "\"01-test\"\x1e\"\"\x1e\"\"\x1e\"inst-v1:1111111111111111111111111111111111111111111111111111111111111111\"\x1e0" +
-	"\n" + "\"02-supply\"\x1e\"project\"\x1e\"state_changed\\x1e\\\"pipeline\\\"\"\x1e\"inst-v1:2222222222222222222222222222222222222222222222222222222222222222\"\x1e2" +
+	"\n" + "\"01-test\"\x1e\"\"\x1e\"\"\x1e\"pipe-v1:1111111111111111111111111111111111111111111111111111111111111111\"\x1e0" +
+	"\n" + "\"02-supply\"\x1e\"project\"\x1e\"state_changed\\x1e\\\"pipeline\\\"\"\x1e\"pipe-v1:2222222222222222222222222222222222222222222222222222222222222222\"\x1e2" +
 	"\n" + "\"acr_name\"\x1e\"\\\"vexacr\\\"\"" +
 	"\n" + "\"image\"\x1e\"step-output\\x1e\\\"01-test\\\"\\x1e\\\"image\\\"\""
 
 const (
 	// El material base, y el mismo material con `destination = "prod"`.
-	vectorContentIDBase = "cnt-v1:5864ee248315bd98beb77736d34e06d67774159e680cdcd16e890f342cd30a5f"
-	vectorContentIDProd = "cnt-v1:82a2a8b183e4a35d00f8497cd0e521b6bcd5a49b326701b48a151c368c44e0dc"
+	vectorContentIDBase = "cnt-v1:c1d0dd8880053c2c7829dd84bd9a24351c7f476aa718c77850180b7aede249e1"
+	vectorContentIDProd = "cnt-v1:e11db527e332d2b191d95d1610d03463a95209382b31548e247406f7f9d7303d"
 
 	// El primer despliegue del linaje —sin padre— y el segundo, que es el MISMO
 	// contenido colgando del primero.
-	vectorDeploymentIDRaiz    = "dep-v1:558d0c2d4548b3d22062804b671487f5bdc09c181e3cd91b4543d152d525e6fe"
-	vectorDeploymentIDSegundo = "dep-v1:dabfd7ad662a1f2ca4a79f23ae0a4da5d7e24edf944ad2877af296a935d83d48"
+	vectorDeploymentIDRaiz    = "dep-v1:8cfd173977dceb8ac0708882cc7069eacd412f6cea266cc3e67dfd59b9892c00"
+	vectorDeploymentIDSegundo = "dep-v1:15305711e5c548f5d875362e6fca527d9ca39396813e94d592db5b4393d8bc28"
 )

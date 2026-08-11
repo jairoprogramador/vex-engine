@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	domFingerprint "github.com/jairoprogramador/vex-engine/internal/domain/fingerprint"
 	domNotify "github.com/jairoprogramador/vex-engine/internal/domain/notify"
 	"github.com/jairoprogramador/vex-engine/internal/domain/shared"
 	domState "github.com/jairoprogramador/vex-engine/internal/domain/state"
@@ -265,12 +266,24 @@ func TestStepRunnerHandler_SinMaterialSeEjecutaYSeDice(t *testing.T) {
 // materialCargado es lo que el resolutor de la cadena de pipeline dejó cargado
 // para este step (spec 18 §5.2). Sustituye a los dos repositorios que el handler
 // tenía inyectados: desde la 18 no lee del disco, consume.
+// materialCargado es lo que el resolutor de la cadena de pipeline deja para la
+// cadena de step, huella `pipe-v1` incluida (spec 27 §5.2).
+//
+// La declaración llega YA COMPUESTA: es la propiedad que este handler estrena —la
+// huella deja de depender del mapa acumulado y se conoce antes de abrir el step—
+// y por eso el montaje puede darla como un valor fijo.
 func materialCargado(t *testing.T, config domStep.StepConfig) *domStep.LoadedPipelinecode {
 	t.Helper()
+
+	declaracion, err := domFingerprint.Parse(
+		domFingerprint.DeclarationVersion + ":" + strings.Repeat("5", 64))
+	require.NoError(t, err)
+
 	cargado := domStep.NewLoadedPipelinecode()
 	cargado.Put(stepDePrueba, domStep.LoadedStep{
-		Commands: []command.Command{comandoDePrueba(t)},
-		Config:   config,
+		Commands:    []command.Command{comandoDePrueba(t)},
+		Config:      config,
+		Declaration: declaracion,
 	})
 	return cargado
 }

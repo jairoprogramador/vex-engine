@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	"github.com/jairoprogramador/vex-engine/internal/domain/deployment"
 	"github.com/jairoprogramador/vex-engine/internal/domain/fingerprint"
 	"github.com/jairoprogramador/vex-engine/internal/domain/record"
@@ -56,6 +55,7 @@ type DeploymentResolverHandler struct {
 	commands     domStep.PipelineCommandRepository
 	configs      domStep.StepConfigRepository
 	declarations domStep.VarsPipelineRepository
+	trees        domStep.StepTreeRepository
 	manifests    ManifestRepository
 	fingerprints ContentFingerprint
 
@@ -74,6 +74,7 @@ func NewDeploymentResolverHandler(
 	commands domStep.PipelineCommandRepository,
 	configs domStep.StepConfigRepository,
 	declarations domStep.VarsPipelineRepository,
+	trees domStep.StepTreeRepository,
 	manifests ManifestRepository,
 	fingerprints ContentFingerprint,
 	loaded *domStep.LoadedPipelinecode,
@@ -86,6 +87,7 @@ func NewDeploymentResolverHandler(
 		commands:            commands,
 		configs:             configs,
 		declarations:        declarations,
+		trees:               trees,
 		manifests:           manifests,
 		fingerprints:        fingerprints,
 		loaded:              loaded,
@@ -234,43 +236,39 @@ func (h *DeploymentResolverHandler) loadSteps(
 			return nil, fmt.Errorf("cargar las variables de '%s': %w", stepID, err)
 		}
 
-		h.loaded.Put(stepID, domStep.LoadedStep{
+		loaded := domStep.LoadedStep{
 			Commands:     commands,
 			Config:       config,
 			Declarations: declarations,
-		})
+		}
 
-		stepContent, err := h.stepContentOf(stepID, config, commands, declarations)
+		// La huella de la declaración se compone AQUÍ, con los tres archivos
+		// recién leídos y el directorio del step a mano, y se comparte con la
+		// cadena de step: es el único punto de traducción de `commands.yaml`,
+		// `config.yaml` y `variables/` a material de huella (spec 27 §5.2').
+		//
+		// Que se pueda componer antes de ejecutar es lo que el cambio de material
+		// de la spec 27 entrega: mientras la huella dependió del mapa acumulado
+		// RESUELTO, no existía hasta que el step estaba abierto.
+		tree, err := h.trees.Get(ctx, pipelineLocalPath, stepID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("abrir el directorio de '%s': %w", stepID, err)
+		}
+		declaration, err := domStep.NewDeclarationFingerprint(loaded, tree)
+		if err != nil {
+			return nil, fmt.Errorf("huella de la declaración de '%s': %w", stepID, err)
+		}
+		loaded.Declaration = declaration
+
+		h.loaded.Put(stepID, loaded)
+
+		stepContent, err := deployment.NewStepContent(stepID, config, declaration, declarations)
+		if err != nil {
+			return nil, fmt.Errorf("material de '%s': %w", stepID, err)
 		}
 		steps = append(steps, stepContent)
 	}
 	return steps, nil
-}
-
-// stepContentOf traduce lo leído al material del objeto.
-//
-// La huella de las instrucciones sale de `step.NewInstructionsFingerprint`, que
-// es la MISMA que compone la huella del step: dos traducciones del mismo archivo
-// con dos propósitos serían dos fuentes de verdad para el mismo material.
-func (h *DeploymentResolverHandler) stepContentOf(
-	stepID string,
-	config domStep.StepConfig,
-	commands []command.Command,
-	declarations []domStep.VariableDeclaration) (deployment.StepContent, error) {
-
-	instructions, err := domStep.NewInstructionsFingerprint(commands)
-	if err != nil {
-		return deployment.StepContent{}, fmt.Errorf(
-			"huella de las instrucciones de '%s': %w", stepID, err)
-	}
-
-	stepContent, err := deployment.NewStepContent(stepID, config, instructions, declarations)
-	if err != nil {
-		return deployment.StepContent{}, fmt.Errorf("material de '%s': %w", stepID, err)
-	}
-	return stepContent, nil
 }
 
 // sourceOf son las DOS huellas de árbol, calculadas con la misma regla.

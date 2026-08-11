@@ -161,7 +161,7 @@ func TestHechos_UnStepQueReviveLoDiceYDiceContraQue(t *testing.T) {
 	// mueve una vez más (la divergencia viva que
 	// `TestRunCommand_ReejecucionSinCambios` fija). A partir de la tercera el
 	// punto es fijo, y es ahí donde hay un salto que observar.
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 
 	cerrados := deTipo(h.ultimaTira(), record.TypeStepFinished.String())
 	require.Len(t, cerrados, 2)
@@ -172,7 +172,7 @@ func TestHechos_UnStepQueReviveLoDiceYDiceContraQue(t *testing.T) {
 		"revivir no es SUCCESS: sobre cero comandos, «se ejecutó correctamente» es una conclusión")
 	assert.Equal(t, true, revivido.Payload["from_cache"])
 	assert.Equal(t, command.ReasonUpToDate.String(), revivido.Payload["reason"])
-	assert.Contains(t, revivido.Payload["step_fingerprint"], "ck-v1:",
+	assert.Contains(t, revivido.Payload["step_fingerprint"], "sf-v1:",
 		"la huella viaja aunque el salto no la escriba: se anota para informar, no para escribir")
 
 	evidencia, ok := revivido.Payload["evidence_from"].(map[string]any)
@@ -380,7 +380,7 @@ func TestHechos_FoldReconstruyeLaEjecucion(t *testing.T) {
 	assert.Equal(t, command.ReasonNoRecord, supply.Reason)
 	assert.Equal(t, "environment:"+fixtureEnvironment, supply.Scope.String(),
 		"el ámbito llega como campo del hecho, no descomponiendo un hash")
-	assert.Contains(t, supply.StepFingerprint, "ck-v1:")
+	assert.Contains(t, supply.StepFingerprint, "sf-v1:")
 	assert.False(t, supply.Evidence.IsZero())
 }
 

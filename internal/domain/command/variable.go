@@ -32,8 +32,18 @@ const (
 // `vars_rule.go` y en `step_executable.go`, sin nada que las mantuviera
 // sincronizadas; ahora hay un solo dueño (spec 10).
 //
-// La lista es NORMATIVA para la huella de variables: está transcrita en
-// `fingerprint/SPEC-VARIABLES-v1.md` §3.1, y `TestVolatileVarNames_...` la fija.
+// # Desde la spec 27 le queda UNA de las dos razones, y la lista sobrevive igual
+//
+// **Ya no es normativa de ninguna regla de huella.** El material de `pipe-v1` son
+// las DECLARACIONES del pipelinecode, y ninguna de las seis se declara nunca en
+// un `variables/<ambiente>/<paso>.yaml`: las inyecta el motor. No hay nada que
+// filtrar en la huella porque no hay nada que pueda entrar.
+//
+// Se conserva con la segunda razón —el filtro de lo que se PERSISTE en el
+// registro (spec 11)— y con un solo consumidor, `step.producedVariables`. Tres de
+// los seis nombres son rutas absolutas de la máquina que ejecutó, así que sigue
+// siendo lo que hace que un registro sincronizado al destino compartido
+// (spec 21) signifique algo en la máquina siguiente.
 var volatileVarNames = []string{
 	VarProjectVersion,
 	VarProjectRevision,
@@ -77,7 +87,7 @@ type Variable struct {
 	// (nombre, valor) resultante, no por dónde llegó. Dos ejecuciones que llegan
 	// al mismo valor por caminos distintos son la misma configuración —la misma
 	// regla que P9 aplica al código: la huella identifica, el commit documenta—.
-	// Está escrito en `fingerprint/SPEC-VARIABLES-v1.md` §4, que es donde lo
+	// Está escrito en `fingerprint/SPEC-PIPELINE-v1.md` §4, que es donde lo
 	// buscará quien lea la especificación de la huella.
 	origin Origin
 }

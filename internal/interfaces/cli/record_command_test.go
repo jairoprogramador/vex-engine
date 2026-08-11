@@ -595,7 +595,7 @@ func TestRecord_GCListaLosHuerfanosYNoLosBorra(t *testing.T) {
 // `lineage/` y `objects/`, que la llevan dentro.
 func TestRecord_RebuildDevuelveElIndiceQueElGCBorro(t *testing.T) {
 	h := newHarness(t)
-	correHastaEstable(t, h)
+	unaCorridaYPuntoFijo(t, h)
 
 	entradasAntes := h.cacheEntries()
 	require.NotEmpty(t, entradasAntes)

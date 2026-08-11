@@ -495,32 +495,51 @@ lo que el motor hacía entre las specs 10 y 11: ejecutar de más nunca omite un 
 
 ### 7.1 El material de la huella
 
-Siete dimensiones, **todas obligatorias**:
+La huella de un step —`sf-v1`, spec 27— tiene **dos términos**, y el segundo es condicional:
 
-| # | Dimensión | Qué es |
+```
+step_fingerprint(step) = sf-v1( pipe-v1(la declaración del step) [, v1(el árbol del proyecto)] )
+```
+
+| Término | Qué es | ¿Siempre? |
 |---|---|---|
-| 1 | proyecto | la url del repositorio del proyecto |
-| 2 | pipeline | la url del pipelinecode |
-| 3 | **ámbito** | el ambiente. *(Está decidido que el ámbito salga de la huella y pase a la clave de posición — ver P16 en la sección 9)* |
-| 4 | step | el nombre del step, sin el prefijo `NN-` |
-| 5 | instrucciones | la huella `inst-v1` de los comandos declarados |
-| 6 | variables | la huella `vars-v1` de las variables del step |
-| 7 | código | la huella `v1` del árbol del proyecto |
+| declaración | la huella `pipe-v1` de **todo lo que el step declara hacer** | sí |
+| código | la huella `v1` del árbol del proyecto a desplegar | **sólo si el step lo declara** en `state_changed` |
 
-El **ámbito es obligatorio y no anulable**, y ese es el punto: la clave no responde «¿son
-iguales las entradas?» sino **«¿esto ya se ejecutó *aquí*?»**. Un step tiene efectos sobre un
-ambiente real, y que dos ambientes tengan entradas idénticas no significa que ejecutar en uno
-haya dejado algo hecho en el otro. Hasta que la clave existió, el aislamiento entre `sand` y
-`prod` dependía de que la variable `environment` estuviera en el mapa acumulado y nadie la
-declarara volátil.
+El término del proyecto es condicional porque es lo que hace útil el ámbito de proyecto: un
+step que crea un registro de contenedores **no depende del código de la aplicación**, y si el
+código entrara siempre se re-ejecutaría en cada commit. El hueco va DECLARADO —no se deja el
+campo a cero— porque es lo que distingue «este step no lo vigila» de «no se pudo componer la
+huella», y las dos cosas tienen consecuencias opuestas.
 
-Si **falta cualquiera de las siete**, no se compone clave: el step se ejecuta y no se escribe
-entrada. Como *ausencia de entrada ⇒ ejecutar*, «no se pudo averiguar» y «no consta» llevan al
-mismo sitio, que es el seguro.
+**Ninguna dimensión de DIRECCIÓN entra.** La url del proyecto, la del pipelinecode, el
+ambiente y el nombre del step **no** están en el hash: son la clave de posición (sección 7.3).
+Las dos preguntas vuelven a ser dos:
 
-**El tiempo no entra.** El TTL —30 días— es metadato de expiración de la entrada, no material
-de la clave: una entrada que caduca se sustituye **bajo la misma clave**. Se aplica a todos los
-steps por igual.
+```
+clave  (subject, ámbito, step_id)  →  ¿DÓNDE se recuerda este trabajo?
+huella  sf-v1:…                     →  ¿ES el mismo trabajo?
+```
+
+Dos consecuencias que se ven en el uso diario:
+
+- **un step con `scope: project` desplegado a `sand` y luego a `prod` REVIVE en el segundo**,
+  siempre que su declaración no cambie por ambiente. El aislamiento entre ambientes de un step
+  `scope: environment` sigue intacto, y ahora lo garantiza la CLAVE y no el hash;
+- **dos clones del mismo pipelinecode desde remotos distintos son el mismo trabajo.** Lo que
+  decide si se reviven entre sí es su CONTENIDO, que ya está dentro de `pipe-v1`.
+
+Si **falta material**, no se compone huella: el step se ejecuta, escribe su registro **sin
+huella** —y un registro sin huella no revive jamás— y no se escribe entrada de índice. Como
+*ausencia ⇒ ejecutar*, «no se pudo averiguar» y «no consta» llevan al mismo sitio, que es el
+seguro.
+
+**El tiempo no entra.** La caducidad es una regla sobre la EDAD del último registro
+(`max_age`, sección 8), no una propiedad del contenido.
+
+**La huella sólo se compone si alguien la va a mirar.** Un step que declara nada más que
+`max_age` no compara contenidos, así que su registro sale con `step_fingerprint` vacío **por
+diseño** — no por fallo.
 
 ### 7.2 Las tres huellas
 
@@ -529,29 +548,42 @@ de versión y su especificación normativa** en `internal/domain/fingerprint/`:
 
 | Huella | Token | Material |
 |---|---|---|
-| instrucciones | `inst-v1:` | por comando y **en el orden declarado**: `name`, `cmd`, `workdir`, `show`, la lista de `templates` y la de outputs (`name` + `probe`). **No** entra `description` |
-| variables | `vars-v1:` | el mapa acumulado, ordenado, con nombre + valor + un tercer campo constante `false`, **menos las seis volátiles** de la sección 5.2 |
-| código | `v1:` | el árbol del proyecto: una entrada por archivo visible, con su contenido, su bit de ejecución y el destino de los enlaces |
+| árbol | `v1:` | una entrada por archivo visible, con su contenido, su bit de ejecución y el destino de los enlaces. Se aplica a **tres raíces** con la misma función: el proyecto, el pipelinecode entero y el directorio de un step |
+| declaración | `pipe-v1:` | lo que un step declara hacer: `config.yaml` entero (`scope` + `rules`), los comandos de `commands.yaml` en el orden declarado, las **declaraciones** de `variables/<ambiente>/<paso>.yaml`, y el árbol **crudo** del directorio del step |
+| step | `sf-v1:` | la composición de las dos anteriores (sección 7.1) |
 
-Tres cosas que conviene no perder de vista:
+`inst-v1` (comandos) y `vars-v1` (variables) **ya no existen**: la spec 27 las retiró con sus
+especificaciones porque `pipe-v1` absorbe su material. Donde había dos respuestas que había
+que acordarse de componer hay una sola a una sola pregunta: *¿qué declara este step?*
+
+Cinco cosas que conviene no perder de vista:
 
 - **`show` entra**, aunque no cambie qué se ejecuta. Si no entrara, añadir `show: true` para
-  depurar un comando no invalidaría el caché: el step se saltaría y no se imprimiría nada, y
-  un caché que ignora una edición deliberada del pipelinecode es indistinguible de uno roto.
-  La regla general es que **todo campo declarable en `commands.yaml` entra**; excluir uno
-  exige justificarlo por campo, y hoy la única exclusión justificada es `description`, que ni
-  siquiera llega al modelo de ejecución.
-- **`description` no entra**, ni el del comando ni el de un output.
-- **El cuerpo de las plantillas no entra en ninguna de las tres.** `templates:` aporta las
-  *rutas*; el contenido de esos archivos no está en el material de instrucciones, y la huella
-  del árbol es la del **proyecto**, no la del pipelinecode. Consecuencia viva: **editar
-  `steps/02-supply/k8s/deployment.yaml` y volver a ejecutar hace que el step se salte.** Es un
-  defecto conocido, anotado como D14 en la sección 9.2, y está decidido cómo se corrige
-  (P15).
+  depurar un comando no invalidaría nada: el step se saltaría y no se imprimiría nada, y una
+  huella que ignora una edición deliberada del pipelinecode es indistinguible de una rota. La
+  regla general es que **todo campo declarable en `commands.yaml` o en `config.yaml` entra**;
+  excluir uno exige justificarlo por campo, y hoy la única exclusión justificada es
+  `description`, que ni siquiera llega al modelo de ejecución.
+- **`description` no entra**, ni el del comando, ni el de un output, ni el de una variable.
+- **El cuerpo de las plantillas SÍ entra**, y con él todo lo demás del directorio del step:
+  un `.tf` que nadie declaró en `templates:` decide qué se provisiona exactamente igual. Lo que
+  decide qué hace un step es su DIRECTORIO, no la lista que su autor se acordó de declarar.
+  Era D14 —«editar `steps/02-supply/k8s/deployment.yaml` hacía que el step se saltara»— y
+  está cerrado.
+- **La asimetría del reparto es deliberada:** los tres archivos de declaración entran
+  NORMALIZADOS —claves ordenadas, sin comentarios, con el valor de dominio de `rules` y no su
+  texto— y el resto del directorio entra CRUDO. Consecuencia: un comentario en `commands.yaml`
+  no re-ejecuta y uno en un `Dockerfile` sí. Es el reparto correcto: el segundo el motor no lo
+  sabe interpretar, y normalizarlo exigiría un parser por formato.
+- **De una variable entra su DECLARACIÓN, nunca su valor resuelto.** El literal tal como se
+  escribió, o la terna `resolve`/`from`/`key`/`scope`. Es lo que permite conocer la identidad
+  ANTES de ejecutar, lo que hizo desaparecer el rebote de más de todo step con `outputs`, y lo
+  que impide que un valor de runtime salga de la organización dentro de un hash sin sal
+  (sección 6).
 
-Cada huella lleva su token en la forma externa, y la clave se compone sobre esas cadenas
+Cada huella lleva su token en la forma externa, y la composición es sobre esas cadenas
 **completas**, nunca sobre el hash pelado. De ahí sale que subir de versión cualquiera de las
-tres reglas invalide todas las claves emitidas sin código extra.
+reglas invalide todo lo derivado sin código extra.
 
 ### 7.3 Cómo se guarda el estado
 
@@ -580,7 +612,7 @@ re-ejecución, nunca un despliegue omitido.
 {
   "schema_version": 2,
   "record_id": "01KZBF3MG0000G40R40M30E209",
-  "step_fingerprint": "ck-v1:6d12da1d…",
+  "step_fingerprint": "sf-v1:6d12da1d…",
   "variables": [{ "name": "acr_name", "value": "acmeregistry.azurecr.io" }],
   "produced_by": { "execution_id": "…", "at": "2026-08-06T12:00:00Z" }
 }
@@ -590,14 +622,14 @@ Esta tienda **no se borra nunca**: aquí viven los identificadores de recursos q
 verdad en la nube, y borrarlos implicaría perderlos de vista o crear duplicados. La clave
 **no lleva el pipeline** a propósito: el ACR pertenece al proyecto, y un proyecto que cambia
 de plantilla no debe perder de vista lo que ya creó. Que dos pipelines no se reviven entre
-sí lo garantiza la huella, que incluye el pipelinecode entero.
+sí se reviven entre sí lo garantiza la huella, que incluye lo que cada uno declara.
 
 **El índice — `cache/`, desechable.** Mismo layout direccionado por contenido de siempre,
 otra carga: responde «¿este contenido exacto ya corrió alguna vez, y cuál fue el registro?».
 
 ```
 <destino>/cache/<versión de la clave>/<2 primeros del hash>/<resto>.json
-   →  { cache_key, state_key: {subject, scope, step_id}, record_id }
+   →  { step_fingerprint, state_key: {subject, scope, step_id}, record_id }
 ```
 
 **No participa en ninguna decisión del motor**, y esa es su definición: es derivable
@@ -1266,6 +1298,8 @@ Cinco reglas de semántica, y ninguna es obvia:
    pipelinecode.
 
 **P15 — La huella de un step incluye todo lo que declara y nada de lo que produce.**
+**Entregado por la spec 27** (`pipe-v1` + `sf-v1`); lo que sigue describe el diseño, y las
+secciones 7.1 y 7.2 describen lo implementado.
 Hay **tres identificadores** y son independientes entre sí:
 
 | Identificador | Responde | Cambia cuando |
@@ -1317,6 +1351,8 @@ comentario no dispare una re-ejecución; el resto del árbol son archivos arbitr
 motor no sabe interpretar, y normalizarlos exigiría un parser por formato.
 
 **P16 — El estado de un step es append-only, y la dirección sale del hash.**
+**Entregado: la mitad append-only por la spec 11, y la salida de la dirección del hash por
+la spec 27** (`cache.Material` y `cache.CacheKey` ya no existen).
 La clave deja de derivarse del contenido y pasa a ser **posición**:
 
 ```
@@ -1411,7 +1447,7 @@ Ningún paso consulta `deployment_id`, `content_id` ni `parent`.
 | D10 | ~~Un `Ctrl-C` mata la ejecución sin dejar rastro de cancelación: no hay manejador de señales y el mecanismo de cancelación que el motor declara no se invoca nunca. «Cancelado» e «interrumpido» son indistinguibles~~ **Corregido (spec 07 §5.4): `cmd/vexd` maneja `SIGINT`/`SIGTERM` cancelando el contexto de la ejecución, que queda registrada como `canceled` y sale con exit code 130. Es best-effort y así se documenta (sección 5.4): `SIGKILL` y OOM siguen plegando a «interrumpido», que es la respuesta honesta. De paso, el `cancelFn` que se guardaba sin llamar nunca obtuvo su `defer`** |
 | D11 | ~~Si el identificador de ejecución tiene menos de cuatro caracteres, la línea de log que lo abrevia provoca un panic~~ **Corregido (spec 07 §5.5): se abrevia solo a partir de ocho caracteres. El plan lo describía como «menos de 8»; el código panicaba con menos de 4 y solapaba las dos mitades entre 4 y 7** |
 | D12 | ~~El estado de la ejecución no se usa: `status` se queda en `queued` de principio a fin, `finishedAt` y `exitCode` son siempre `nil`, y el estado terminal lo deduce la CLI a partir del error devuelto~~ **Corregido (spec 07 §5.2): el use case invoca las transiciones y el agregado publica su estado terminal con sus instantes. Ver sección 5.4** |
-| D14 | **El cuerpo de las plantillas no participa en ninguna huella.** `templates:` aporta las *rutas* al material de instrucciones; el contenido de esos archivos no entra ahí, y la huella del árbol es la del **proyecto**, no la del pipelinecode. Consecuencia reproducida en el harness: **editar `steps/02-supply/k8s/deployment.yaml` y volver a ejecutar hace que el step se salte** — el despliegue no ocurre y el motor dice «sin cambios», sobre el archivo que más se edita a mano de todo el pipelinecode. Es la forma exacta del criterio de corrección de la spec 08 («lo que cambia el despliegue sin cambiar la huella») y la misma clase que el `chmod` que aquella arregló. **No lo introduce el direccionamiento por contenido**; lo hace visible haber escrito por primera vez qué entra en cada huella. **Arreglo decidido (P15):** entra el árbol del **directorio del step** — ni el pipelinecode entero, que haría que tocar `09-notify` moviera la identidad de `01-test`, ni solo las plantillas declaradas, que dejaría fuera un `.tf` que nadie declara. Cambia todas las huellas emitidas una vez |
+| D14 | ~~**El cuerpo de las plantillas no participa en ninguna huella.**~~ **Cerrado (spec 27):** el árbol del **directorio del step** entra crudo en `pipe-v1`, así que editar un `deployment.yaml` —o un `.tf` que nadie declaró— re-ejecuta el step. Enunciado original: `templates:` aporta las *rutas* al material de instrucciones; el contenido de esos archivos no entra ahí, y la huella del árbol es la del **proyecto**, no la del pipelinecode. Consecuencia reproducida en el harness: **editar `steps/02-supply/k8s/deployment.yaml` y volver a ejecutar hace que el step se salte** — el despliegue no ocurre y el motor dice «sin cambios», sobre el archivo que más se edita a mano de todo el pipelinecode. Es la forma exacta del criterio de corrección de la spec 08 («lo que cambia el despliegue sin cambiar la huella») y la misma clase que el `chmod` que aquella arregló. **No lo introduce el direccionamiento por contenido**; lo hace visible haber escrito por primera vez qué entra en cada huella. **Arreglo decidido (P15):** entra el árbol del **directorio del step** — ni el pipelinecode entero, que haría que tocar `09-notify` moviera la identidad de `01-test`, ni solo las plantillas declaradas, que dejaría fuera un `.tf` que nadie declara. Cambia todas las huellas emitidas una vez |
 | D13 | ~~Dos relojes en la misma función: el cálculo de versión tomaba el instante de `time.Now()` en una rama y del `startedAt` de la ejecución en la otra, para la misma decisión~~ **Corregido (spec 07 §5.1, R-25): el puerto `Clock` es la única fuente de instantes del dominio, y las dos ramas la comparten** |
 
 ### 9.3 Decisiones abiertas

@@ -389,10 +389,10 @@ func (s *StepExecutable) warn(executionContext *command.ExecutionContext, err er
 //     EDITARLO EN EL PIPELINECODE DEJABA DE SURTIR EFECTO —y el step ni se
 //     re-ejecutaba, porque la huella tampoco cambiaba— (spec 12 §9.2);
 //   - y las salidas de una corrida entraban como entradas de la siguiente, que es
-//     la raíz de que todo step con `outputs` se re-ejecute una vez de más. Esa
-//     mitad la termina de cerrar la spec 27, cuando el material de la huella pase
-//     de «acumulado resuelto» a «declarado»: aquí se le quita al almacén la copia
-//     de lo consumido, allí se le quita a la huella.
+//     la raíz de que todo step con `outputs` se re-ejecutara una vez de más. Esa
+//     mitad la cerró la spec 27 al pasar el material de la huella de «acumulado
+//     resuelto» a «declarado»: aquí se le quitó al almacén la copia de lo
+//     consumido, allí se le quitó a la huella lo producido.
 //
 // Lo que el step consume no se pierde: viaja por el mapa acumulado durante la
 // corrida, y entre corridas vuelve de donde vino —el registro de su productor, o
@@ -400,9 +400,11 @@ func (s *StepExecutable) warn(executionContext *command.ExecutionContext, err er
 // una copia de todo lo que pasó por delante.
 //
 // El filtro de volátiles se conserva aunque hoy ninguna salida pueda serlo —haría
-// falta un `probe` que capturara `project_version`—: la lista tiene un solo dueño
-// y está especificada en `fingerprint/SPEC-VARIABLES-v1.md` §3.1, y aplicarla
-// aquí es más barato que razonar cada vez sobre si alguien puede alcanzarla.
+// falta un `probe` que capturara `project_version`—, y desde la spec 27 éste es
+// su ÚNICO consumidor: la huella dejó de necesitarlo, porque su material son
+// declaraciones y ninguna volátil se declara jamás. Aplicarlo aquí es más barato
+// que razonar cada vez sobre si alguien puede alcanzarla, y es lo que hace que un
+// registro empujado al destino compartido signifique algo en otra máquina.
 //
 // Desapareció con el modelo la comparación previa por `reflect.DeepEqual`: en un
 // almacén append-only no hay nada que comparar antes de escribir, porque no se

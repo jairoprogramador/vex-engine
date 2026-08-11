@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/jairoprogramador/vex-engine/internal/domain/cache"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	"github.com/jairoprogramador/vex-engine/internal/domain/fingerprint"
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/state"
 )
@@ -25,13 +25,12 @@ type StepRequestHandler struct {
 	// secundario: si el step no llega al final, la huella se pierde sin que nadie
 	// tenga que borrarla.
 	//
-	// Es un `cache.CacheKey` porque hoy la huella del step ES la clave `ck-v1`
-	// —las tres huellas más las cuatro dimensiones de dirección—. La spec 27 la
-	// sustituye por `sf-v1`, con las dimensiones de dirección fuera; el tipo
-	// cambia entonces, el papel no. Y la sustitución es segura por construcción:
-	// un registro escrito con `ck-v1:` nunca revivirá contra una huella `sf-v1:`,
-	// porque las cadenas difieren en el prefijo.
-	stepFingerprint cache.CacheKey
+	// Es una `fingerprint.Fingerprint` `sf-v1` desde la spec 27, donde antes era
+	// una `cache.CacheKey` `ck-v1` —las tres huellas más las cuatro dimensiones
+	// de DIRECCIÓN—. Cambió el tipo y el material; el papel no. Y la sustitución
+	// fue segura por construcción: un registro escrito con `ck-v1:` nunca revive
+	// contra una huella `sf-v1:`, porque las cadenas difieren en el prefijo.
+	stepFingerprint fingerprint.Fingerprint
 
 	// reportedFingerprint es la MISMA huella, anotada para INFORMAR en vez de
 	// para escribir, y la separación no es cosmética (spec 19 §5.1).
@@ -42,7 +41,7 @@ type StepRequestHandler struct {
 	// spec 09 §9.4 evitó a propósito. Pero un `step_finished{from_cache: true}`
 	// sin huella no deja comparar contra qué revivió, así que el dato hace falta
 	// igual. Un solo campo para los dos usos sería un salto que se auto-renueva.
-	reportedFingerprint cache.CacheKey
+	reportedFingerprint fingerprint.Fingerprint
 
 	// evidence es el registro que estuvo VIGENTE para este step, y viaja en las
 	// DOS mitades (spec 19 §5.1, 28 §5.3):
@@ -230,8 +229,8 @@ func (rh *StepRequestHandler) MarkStepSkipped(reason SkipReason) {
 // Anotar no es escribir: si el step falla —o si el proceso muere a mitad— esto
 // se pierde con la cadena, que es exactamente lo que se quiere. Un registro sólo
 // debe existir para steps que terminaron.
-func (rh *StepRequestHandler) RecordStepFingerprint(fingerprint cache.CacheKey) {
-	rh.stepFingerprint = fingerprint
+func (rh *StepRequestHandler) RecordStepFingerprint(stepFingerprint fingerprint.Fingerprint) {
+	rh.stepFingerprint = stepFingerprint
 }
 
 // StepFingerprint es la huella anotada en su forma canónica, o la cadena vacía
@@ -251,8 +250,8 @@ func (rh *StepRequestHandler) StepFingerprint() string {
 // Se llama en los DOS caminos —el que ejecuta y el que revive—, que es lo que
 // `RecordStepFingerprint` no puede hacer sin refrescarle el TTL al step que
 // revivió.
-func (rh *StepRequestHandler) ReportStepFingerprint(fingerprint cache.CacheKey) {
-	rh.reportedFingerprint = fingerprint
+func (rh *StepRequestHandler) ReportStepFingerprint(stepFingerprint fingerprint.Fingerprint) {
+	rh.reportedFingerprint = stepFingerprint
 }
 
 // ReportedFingerprint es la huella anotada para informar, o la cadena vacía.
@@ -302,7 +301,7 @@ func (rh *StepRequestHandler) StateScope() state.Scope {
 // IndexKey devuelve la clave con la que se indexa el registro. La segunda salida
 // es falsa cuando no hay nada que indexar: el step revivió, o no se pudo
 // componer su material.
-func (rh *StepRequestHandler) IndexKey() (cache.CacheKey, bool) {
+func (rh *StepRequestHandler) IndexKey() (fingerprint.Fingerprint, bool) {
 	return rh.stepFingerprint, !rh.stepFingerprint.IsZero()
 }
 

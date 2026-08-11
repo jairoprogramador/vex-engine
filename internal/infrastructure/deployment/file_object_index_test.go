@@ -102,7 +102,7 @@ func TestVerify_UnaReglaQueEsteBinarioNoCalculaNoEsCorrupcion(t *testing.T) {
 		{
 			nombre: "la huella de las instrucciones de un step",
 			mutar: func(dto *infraDeployment.FileObjectDTO) {
-				dto.Steps[0].Instructions = "inst-v2:" + strings.Repeat("33", 32)
+				dto.Steps[0].Declaration = "inst-v2:" + strings.Repeat("33", 32)
 			},
 			regla: "inst-v2",
 		},
@@ -168,7 +168,7 @@ func TestVerify_UnTokenIlegibleEsUnArchivoRotoYNoUnaReglaNueva(t *testing.T) {
 		{
 			nombre: "un hash que no tiene forma de hash",
 			mutar: func(dto *infraDeployment.FileObjectDTO) {
-				dto.Steps[0].Instructions = "inst-v1:no-es-un-sha256"
+				dto.Steps[0].Declaration = "inst-v1:no-es-un-sha256"
 			},
 		},
 	} {

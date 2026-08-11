@@ -15,6 +15,7 @@ import (
 
 	cacheDom "github.com/jairoprogramador/vex-engine/internal/domain/cache"
 	domDeployment "github.com/jairoprogramador/vex-engine/internal/domain/deployment"
+	fingerprintDom "github.com/jairoprogramador/vex-engine/internal/domain/fingerprint"
 	stateDom "github.com/jairoprogramador/vex-engine/internal/domain/state"
 	cacheInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/cache"
 	deploymentInfra "github.com/jairoprogramador/vex-engine/internal/infrastructure/deployment"
@@ -627,10 +628,13 @@ type RebuildReport struct {
 //
 // # Es trivial porque la entrada es un puntero y nada más
 //
-// Una entrada es `{cache_key, state_key, record_id}`, y los tres salen del almacén:
-// el `record_id` NOMBRA el archivo, la `state_key` es su RUTA y la `cache_key` es el
-// `step_fingerprint` que el registro guarda dentro —la huella del step ES la clave
-// `ck-v1` hoy—. Recorrer y reescribir es todo.
+// Una entrada es `{step_fingerprint, state_key, record_id}`, y los tres salen del
+// almacén: el `record_id` NOMBRA el archivo, la `state_key` es su RUTA y la huella es el
+// `step_fingerprint` que el registro guarda dentro — la huella del step ES la clave
+// del índice (`sf-v1` desde la spec 27). Recorrer y reescribir es todo, y lo es
+// mientras esas dos cosas sigan siendo la misma: si la huella que el registro
+// persiste dejara de ser el valor con el que se indexa, `rebuild` dejaría de ser
+// derivable y habría que recomponer el índice leyendo material.
 //
 // # Con una pieza que la ruta no puede dar: la url del proyecto
 //
@@ -706,7 +710,13 @@ func (c *RecordCommand) Rebuild(ctx context.Context, out io.Writer) (RebuildRepo
 			return nil
 		}
 
-		cacheKey, err := cacheDom.ParseCacheKey(dto.StepFingerprint)
+		// El índice se recompone con la huella que el registro PERSISTE, sin volver
+		// a leer material: ésa es la propiedad que hace `rebuild` derivable, y
+		// sobrevive a la spec 27 porque la clave del índice sigue siendo el valor
+		// del campo `step_fingerprint` — sólo que ahora es una `sf-v1` y no una
+		// `ck-v1`. Si algún día la huella persistida dejara de ser el valor con el
+		// que se indexa, esto dejaría de ser una línea.
+		cacheKey, err := fingerprintDom.Parse(dto.StepFingerprint)
 		if err != nil {
 			report.Errores = append(report.Errores, fmt.Sprintf("%s: %v", path, err))
 			return nil

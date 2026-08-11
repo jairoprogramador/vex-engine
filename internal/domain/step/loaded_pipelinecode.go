@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	"github.com/jairoprogramador/vex-engine/internal/domain/fingerprint"
 )
 
 // LoadedStep es TODO lo que el pipelinecode declara sobre un step, leído una
@@ -34,6 +35,19 @@ type LoadedStep struct {
 	// Declarations son las variables que el step declara para el ambiente en
 	// ejecución, sin resolver.
 	Declarations []VariableDeclaration
+
+	// Declaration es la huella `pipe-v1` de los tres campos de arriba MÁS el
+	// árbol crudo del directorio del step (spec 27 §5.1).
+	//
+	// Se calcula en el resolutor, con los tres archivos recién leídos y el
+	// directorio a mano, y viaja aquí por la misma razón que el resto: la cadena
+	// de step no lee el disco desde la spec 18, y ésta es la única pieza del
+	// material que vive fuera de los archivos de declaración.
+	//
+	// Que se calcule ANTES de abrir el step es lo que el cambio de material de la
+	// spec 27 §5.2 hace posible: con la huella en la declaración —y no en el mapa
+	// acumulado resuelto— ya no hace falta haber resuelto nada para conocerla.
+	Declaration fingerprint.Fingerprint
 }
 
 // LoadedPipelinecode es el material de los steps DE LA OPERACIÓN, cargado por la

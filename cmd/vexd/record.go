@@ -161,7 +161,7 @@ Distingue DOS diagnósticos que no son el mismo hecho: «el content_id no recomp
 es corrupción, y «no puedo recomputarlo con la regla que tengo» es un límite de este
 binario. Sólo el primero cambia el exit code.
 
-No recomputa las cache_key: el índice es desechable y no tiene invariantes que
+No recomputa las huellas del índice: es desechable y no tiene invariantes que
 preservar.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -223,8 +223,8 @@ func newRecordRebuildCommand(args *cli.RecordArgs, paths *enginePaths) *cobra.Co
 	return &cobra.Command{
 		Use:   "rebuild",
 		Short: "Reconstruye el índice de contenido desde state/",
-		Long: `Una entrada es {cache_key, state_key, record_id} y los tres salen del
-almacén: el record_id nombra el archivo, la state_key es su ruta y la cache_key es el
+		Long: `Una entrada es {step_fingerprint, state_key, record_id} y los tres salen del
+almacén: el record_id nombra el archivo, la state_key es su ruta y la clave es el
 step_fingerprint que el registro guarda dentro.
 
 La url del proyecto no está en la ruta —el directorio la abrevia con un hash— y se

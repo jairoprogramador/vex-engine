@@ -4,13 +4,22 @@
 // Son TRES reglas, cada una con su token de versión y su especificación
 // normativa, y las tres producen el mismo value object `Fingerprint`:
 //
-//	Compute              → v1:       árbol de archivos     SPEC-v1.md
-//	ComputeInstructions  → inst-v1:  comandos declarados   SPEC-INSTRUCTIONS-v1.md
-//	ComputeVariables     → vars-v1:  variables del paso    SPEC-VARIABLES-v1.md
+//	Compute                 → v1:       árbol de archivos          SPEC-v1.md
+//	ComputeStepDeclaration  → pipe-v1:  lo que un step declara     SPEC-PIPELINE-v1.md
+//	ComputeStepFingerprint  → sf-v1:    la identidad de un step    SPEC-STEP-v1.md
 //
-// Las tres componen la `cache_key` (spec 10). Los tokens son distintos a
-// propósito: comparten tipo y material, pero no historia, y una debe poder
-// saltar a v2 sin arrastrar a las otras.
+// Las tres se COMPONEN, y en ese orden: `sf-v1` sobre `pipe-v1`, y `pipe-v1`
+// sobre `v1` (el árbol del directorio del step). Siempre sobre la forma canónica
+// COMPLETA —con prefijo—, que es lo que hace que un salto de versión de
+// cualquiera invalide todo lo derivado sin una línea de código extra.
+//
+// Los tokens son distintos a propósito: comparten tipo y material, pero no
+// historia, y una debe poder saltar a v2 sin arrastrar a las otras.
+//
+// El recuento no ha crecido con la spec 27: `inst-v1` (comandos declarados) y
+// `vars-v1` (variables del paso) se RETIRARON con sus especificaciones, porque
+// su material lo absorbe `pipe-v1` — una sola respuesta a una sola pregunta
+// donde antes había dos que había que acordarse de componer.
 //
 // Las reglas canónicas viven aquí, sin I/O. El recorrido del sustrato —disco,
 // memoria, un clon— vive en infraestructura, y la traducción desde el modelo de

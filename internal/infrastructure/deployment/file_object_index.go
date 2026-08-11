@@ -293,6 +293,27 @@ func (o IndexedObject) Verify() ObjectVerdict {
 	return verdict
 }
 
+// tokensLegiblesDeDeclaracion son los tokens que este binario acepta en el campo
+// de la huella de declaración de un step del objeto.
+//
+// Son DOS, y la lista es la primera del motor en la que «lo que sé leer» deja de
+// coincidir con «lo que sé calcular» (spec 27, spec 22 §9):
+//
+//	pipe-v1   la regla de hoy (SPEC-PIPELINE-v1.md)
+//	inst-v1   la que `pipe-v1` absorbió, y que este binario ya NO calcula
+//
+// `inst-v1` se queda porque `verify` **no recomputa la regla: hashea el
+// material**. Las huellas entran en la forma canónica como DATO, así que para
+// verificar un objeto `inst-v1` no hace falta saber calcular `inst-v1`, hace
+// falta reconocer el token como legítimo. Quitarla costaría que todos los objetos
+// emitidos antes de la spec 27 pasaran a `not_comparable` —no a corrupción, que
+// es lo correcto, pero dejarían de verificarse PARA SIEMPRE, siendo `objects/`
+// write-once y permanente— a cambio de ahorrar una constante.
+var tokensLegiblesDeDeclaracion = []string{
+	fingerprint.DeclarationVersion,
+	"inst-v1",
+}
+
 // tokenEstado es lo que se puede decir de un prefijo de versión mirándolo.
 type tokenEstado int
 
@@ -314,7 +335,7 @@ const (
 // Son las tres capas de versión que el material transporta, y se comprueban las
 // tres porque son INDEPENDIENTES (`SPEC-CONTENT-v1.md` §2): la composición del
 // objeto, la huella del árbol —dos veces, proyecto y pipelinecode— y la huella de
-// instrucciones de cada step. Cualquiera puede saltar a v2 sin que las otras se
+// la declaración de cada step. Cualquiera puede saltar a v2 sin que las otras se
 // muevan, así que mirar sólo el prefijo del `content_id` dejaría pasar un objeto
 // compuesto con una huella que este binario no sabe reproducir.
 //
@@ -324,26 +345,27 @@ func (o IndexedObject) reglaAjena() (string, tokenEstado) {
 	// El orden es el de la composición: primero la identidad, luego el material del
 	// que sale. Da el diagnóstico más útil cuando falla más de una.
 	campos := []tokenEsperado{
-		{o.Object.ContentID, domDeployment.ContentIDVersion},
-		{o.Object.Source.Project, fingerprint.Version},
-		{o.Object.Source.Pipeline, fingerprint.Version},
+		{o.Object.ContentID, []string{domDeployment.ContentIDVersion}},
+		{o.Object.Source.Project, []string{fingerprint.Version}},
+		{o.Object.Source.Pipeline, []string{fingerprint.Version}},
 	}
 	for _, step := range o.Object.Steps {
-		campos = append(campos, tokenEsperado{step.Instructions, fingerprint.InstructionsVersion})
+		campos = append(campos, tokenEsperado{step.Declaration, tokensLegiblesDeDeclaracion})
 	}
 
 	for _, campo := range campos {
-		if regla, estado := clasificarToken(campo.valor, campo.esperada); estado != tokenPropio {
+		if regla, estado := clasificarToken(campo.valor, campo.esperadas); estado != tokenPropio {
 			return regla, estado
 		}
 	}
 	return "", tokenPropio
 }
 
-// tokenEsperado empareja un valor con la regla con la que este binario lo leería.
+// tokenEsperado empareja un valor con las reglas con las que este binario sabe
+// LEERLO — que no tienen por qué ser las que sabe calcular.
 type tokenEsperado struct {
-	valor    string
-	esperada string
+	valor     string
+	esperadas []string
 }
 
 // clasificarToken separa las tres formas de un `<versión>:<hash>`.
@@ -352,7 +374,7 @@ type tokenEsperado struct {
 // versión», y es deliberado: un motor más nuevo cambiaría la REGLA, no dejaría de
 // escribir un sha256 en hexadecimal. Sin esa comprobación, corromper la mitad
 // derecha de un identificador pasaría por una regla del futuro.
-func clasificarToken(valor, esperada string) (string, tokenEstado) {
+func clasificarToken(valor string, esperadas []string) (string, tokenEstado) {
 	version, hash, found := strings.Cut(valor, ":")
 	if !found || version == "" {
 		return valor, tokenMalformado
@@ -360,10 +382,12 @@ func clasificarToken(valor, esperada string) (string, tokenEstado) {
 	if !esHashDeSha256(hash) {
 		return version, tokenMalformado
 	}
-	if version != esperada {
-		return version, tokenDeOtraVersion
+	for _, esperada := range esperadas {
+		if version == esperada {
+			return version, tokenPropio
+		}
 	}
-	return version, tokenPropio
+	return version, tokenDeOtraVersion
 }
 
 func esHashDeSha256(hash string) bool {

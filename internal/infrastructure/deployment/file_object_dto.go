@@ -82,11 +82,21 @@ type FileFormatDTO struct {
 // precondición dura de todo el registro, porque un valor de runtime no se puede
 // saber por adelantado y la declaración de cómo se obtiene sí.
 type FileStepContentDTO struct {
-	StepID       string             `json:"step_id"`
-	Scope        string             `json:"scope"`
-	Rules        string             `json:"rules"`
-	Instructions string             `json:"instructions"`
-	Parameters   []FileParameterDTO `json:"parameters"`
+	StepID string `json:"step_id"`
+	Scope  string `json:"scope"`
+	Rules  string `json:"rules"`
+
+	// Declaration es la huella `pipe-v1` de lo que el step declara hacer
+	// (spec 27). El NOMBRE EN DISCO sigue siendo `instructions` y no se cambia:
+	// `objects/` es write-once y permanente, así que los objetos emitidos antes
+	// de la spec 27 —que llevan una `inst-v1` en esta misma clave— tienen que
+	// seguir leyéndose. Renombrar la clave los dejaría con el campo vacío, y un
+	// token ausente es CORRUPCIÓN para `record verify`, no un límite del lector
+	// (22 §9.14). El token de dentro distingue las dos épocas, que es para lo que
+	// existe.
+	Declaration string `json:"instructions"`
+
+	Parameters []FileParameterDTO `json:"parameters"`
 }
 
 type FileParameterDTO struct {
@@ -109,11 +119,11 @@ func ToFileObjectDTO(
 			})
 		}
 		steps = append(steps, FileStepContentDTO{
-			StepID:       stepContent.StepID(),
-			Scope:        stepContent.Config().Scope().String(),
-			Rules:        stepContent.Config().Rules().Canonical(),
-			Instructions: stepContent.Instructions().String(),
-			Parameters:   parameters,
+			StepID:      stepContent.StepID(),
+			Scope:       stepContent.Config().Scope().String(),
+			Rules:       stepContent.Config().Rules().Canonical(),
+			Declaration: stepContent.Declaration().String(),
+			Parameters:  parameters,
 		})
 	}
 

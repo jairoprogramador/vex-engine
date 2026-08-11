@@ -46,7 +46,7 @@ byte `U+000A` y `FS` el byte `U+001E`.
 | Capa | Token | Documento |
 |---|---|---|
 | huella del árbol (proyecto y pipelinecode) | `v1:` | `fingerprint/SPEC-v1.md` |
-| huella de las instrucciones de un step | `inst-v1:` | `fingerprint/SPEC-INSTRUCTIONS-v1.md` |
+| huella de la declaración de un step | `pipe-v1:` | `fingerprint/SPEC-PIPELINE-v1.md` |
 | composición del objeto | `cnt-v1:` | **este**, §5 |
 | derivación de la posición | `dep-v1:` | **este**, §6 |
 
@@ -59,7 +59,7 @@ object `fingerprint.Fingerprint`**: la disciplina se copia, el tipo no.
 **Se compone siempre sobre las formas canónicas COMPLETAS —con prefijo—, nunca
 sobre los hashes pelados.** De ahí sale la propiedad que hace barato el
 versionado: un salto a v2 de cualquier regla invalida todo lo derivado sin una
-línea de código extra. Aquí el argumento es más fuerte que en la `cache_key`,
+línea de código extra. Aquí el argumento es más fuerte que en la huella de un step,
 porque el resultado es permanente: si se compusiera sobre el hash pelado, el
 mismo árbol identificado con la regla v1 y con la v2 daría el **mismo**
 `content_id` — dos objetos distintos con la misma identidad, que es el único
@@ -117,7 +117,7 @@ ejecutar.
 | 1 | `step_id` | nombre del **directorio**, CON su prefijo de orden | sí |
 | 2 | `scope` | el `scope` del `config.yaml`, o `""` si no hay archivo | condicional |
 | 3 | `rules` | forma canónica de las reglas declaradas, o `""` | condicional |
-| 4 | `instructions` | huella `inst-v1` de los comandos declarados | sí |
+| 4 | `declaration` | huella `pipe-v1` de lo que el step declara | sí |
 | 5 | `parameters` | las declaraciones de variables, ordenadas por nombre | sí (puede ser 0) |
 
 `scope` y `rules` van vacíos **juntos** y sólo en un caso: el step no tiene
@@ -132,12 +132,16 @@ reglas», que son dos hechos con consecuencias distintas.
 despliegue omitido.
 
 **`parameters` lleva TODAS las declaraciones, no sólo las que declaran fuente.**
-Es la decisión que la spec 17 dejó abierta y se cierra por el lado conservador. El
-material de `vars-v1` sustituye el valor sólo en las que declaran `resolve`
-porque allí el mapa acumulado ya aporta los literales resueltos (14 §9.5); aquí no
-hay mapa acumulado —el objeto se compone antes de ejecutar—, así que un literal
-que no entrara no entraría por ninguna otra vía, y dos pipelinecode que sólo
-difieren en el valor de un literal declaran ejecutar cosas distintas.
+Es la decisión que la spec 17 dejó abierta y se cierra por el lado conservador. Un
+literal que no entrara no entraría por ninguna otra vía, y dos pipelinecode que
+sólo difieren en el valor de un literal declaran ejecutar cosas distintas.
+
+> **Desde la spec 27, `scope`, `rules` y `parameters` están DOS veces en el
+> material: como campos de esta regla y dentro de `pipe-v1`.** Es inofensivo para
+> el hash y se conserva a propósito: quitarlos sería un `cnt-v2` —otra generación
+> de identidades permanentes huérfanas— y son lo que `record show` imprime, así
+> que el objeto tiene que poder responder «¿qué declaraba este step?» sin
+> recomputar ninguna regla ni rehidratar nada.
 
 Un parámetro **declarado dos veces** es un error y no «gana el último»: la forma
 canónica ordena por nombre, así que cuál gana dependería del orden de lectura del
@@ -215,17 +219,16 @@ Q(format.declared)         ← "true" o "false", entrecomillado
 Una línea de cabecera y una línea por parámetro:
 
 ```
-Q(step_id) FS Q(scope) FS Q(rules) FS Q(instructions) FS <número de parámetros>
+Q(step_id) FS Q(scope) FS Q(rules) FS Q(declaration) FS <número de parámetros>
 Q(nombre del parámetro 1) FS Q(declaración canónica del parámetro 1)
 Q(nombre del parámetro 2) FS Q(declaración canónica del parámetro 2)
 …
 ```
 
-`instructions` va por su forma canónica completa (`"inst-v1:<hash>"`).
+`declaration` va por su forma canónica completa (`"pipe-v1:<hash>"`).
 
 La **declaración canónica** de un parámetro es `VariableDeclaration.Canonical()`
-(spec 14 §5.3), que se calcula una vez y se comparte con el material de la huella
-de variables y con `pipe-v1`:
+(spec 14 §5.3), que se calcula una vez y se comparte con `pipe-v1`:
 
 | Origen | Forma |
 |---|---|
@@ -298,19 +301,19 @@ source.pipeline     = "v1:" + "4" repetido 64 veces
 format              = schema_version 2, declarado
 
 step 1: step_id "01-test",   sin config.yaml,
-        instructions "inst-v1:" + "1" repetido 64 veces, sin parámetros
+        declaration "pipe-v1:" + "1" repetido 64 veces, sin parámetros
 step 2: step_id "02-supply", scope "project", rules [state_changed: [pipeline]],
-        instructions "inst-v1:" + "2" repetido 64 veces,
+        declaration "pipe-v1:" + "2" repetido 64 veces,
         parámetros: acr_name = literal "vexacr"
                     image    = resolve step-output, from "01-test", key "image"
 ```
 
 | # | Material | Identidad |
 |---|---|---|
-| 1 | el base | `cnt-v1:5864ee248315bd98beb77736d34e06d67774159e680cdcd16e890f342cd30a5f` |
-| 2 | el base con `destination = "prod"` | `cnt-v1:82a2a8b183e4a35d00f8497cd0e521b6bcd5a49b326701b48a151c368c44e0dc` |
-| 3 | el objeto 1 sin padre | `dep-v1:558d0c2d4548b3d22062804b671487f5bdc09c181e3cd91b4543d152d525e6fe` |
-| 4 | el objeto 1 colgando de 3 | `dep-v1:dabfd7ad662a1f2ca4a79f23ae0a4da5d7e24edf944ad2877af296a935d83d48` |
+| 1 | el base | `cnt-v1:c1d0dd8880053c2c7829dd84bd9a24351c7f476aa718c77850180b7aede249e1` |
+| 2 | el base con `destination = "prod"` | `cnt-v1:e11db527e332d2b191d95d1610d03463a95209382b31548e247406f7f9d7303d` |
+| 3 | el objeto 1 sin padre | `dep-v1:8cfd173977dceb8ac0708882cc7069eacd412f6cea266cc3e67dfd59b9892c00` |
+| 4 | el objeto 1 colgando de 3 | `dep-v1:15305711e5c548f5d875362e6fca527d9ca39396813e94d592db5b4393d8bc28` |
 
 La forma canónica completa del vector 1 está escrita línea a línea en
 `vectors_test.go`, con sus separadores explícitos: una regla que sólo se puede
@@ -359,3 +362,17 @@ En el caché eso cuesta una re-ejecución de más. Aquí duele más: `content_id
 | Versión | Cambio |
 |---|---|
 | `cnt-v1` / `dep-v1` | Primeras reglas (spec 17). No sustituyen a nada: hasta aquí no había ninguna identidad de despliegue, sólo entradas de caché sobrescribibles y líneas de log descartables |
+
+> **La spec 27 no cambia estas reglas y aun así cambia todos los `content_id`.**
+> El campo 4 del material de un step pasa de transportar una `inst-v1` a
+> transportar una `pipe-v1`, y como entra por su forma canónica COMPLETA, la
+> identidad se mueve sin que este documento cambie un byte de §5. Es exactamente
+> la propiedad que §2 compra, ejercida por primera vez — y su precio, anunciado
+> por la spec 18 §9.12 y ya contraído: los objetos emitidos antes son permanentes
+> e incomparables con los de después. Los vectores de §9 cambian de valor por lo
+> mismo: cambian sus ENTRADAS, no la regla.
+>
+> Un lector nuevo sigue pudiendo VERIFICAR un objeto viejo: `verify` no recomputa
+> las huellas, las hashea como dato, así que sólo necesita reconocer `inst-v1`
+> como token legítimo. La lista de tokens que un binario sabe leer dejó de ser la
+> de los que sabe calcular.

@@ -352,7 +352,7 @@ func imprimirObjeto(out io.Writer, object deploymentInfra.IndexedObject) {
 		// terminal son invisibles: sin las comillas, `state_changed` y sus
 		// dimensiones se leen pegados y parece otro valor.
 		fmt.Fprintf(out, "    reglas:       %s\n", canonicaONo(step.Rules))
-		fmt.Fprintf(out, "    instrucciones:%s\n", " "+step.Instructions)
+		fmt.Fprintf(out, "    declaración:%s\n", " "+step.Declaration)
 		for _, parameter := range step.Parameters {
 			fmt.Fprintf(out, "    parámetro %s = %s\n", parameter.Name, parameter.Declaration)
 		}
@@ -571,7 +571,7 @@ type VerifyReport struct {
 // muestreo: un defecto en un objeto que nadie mira es tan permanente como uno en el
 // que se mira.
 //
-// # Lo que NO recomputa: las `cache_key`
+// # Lo que NO recomputa: las huellas del índice
 //
 // El índice es desechable y no tiene invariantes que preservar. Una entrada que no
 // recompute simplemente no se acierta, y el step se ejecuta.

@@ -498,38 +498,30 @@ func (handlerQueNoAnota) Handle(_ *context.Context, request *domStep.StepRequest
 
 func (handlerQueNoAnota) SetNext(domStep.StepHandler) {}
 
-func huellaAnotada() domCache.CacheKey {
-	key, err := domCache.NewCacheKey(materialDePrueba())
-	if err != nil {
-		panic(err) // el material es literal: un error aquí es un bug del test
-	}
-	return key
-}
-
-func materialDePrueba() domCache.Material {
+// huellaAnotada es la `sf-v1` que el handler 03 anota antes de ejecutar. Se
+// compone con términos FIJOS y no con material real: lo que este archivo prueba
+// es el ejecutable, no la regla.
+func huellaAnotada() fingerprint.Fingerprint {
 	huella := func(version, digito string) fingerprint.Fingerprint {
 		f, err := fingerprint.Parse(version + ":" + strings.Repeat(digito, 32))
 		if err != nil {
-			panic(err)
+			panic(err) // el material es literal: un error aquí es un bug del test
 		}
 		return f
 	}
-	return domCache.Material{
-		Subject:      "https://vex.test/org/proyecto.git",
-		Pipeline:     "https://vex.test/org/pipeline.git",
-		Scope:        "prod",
-		Step:         "supply",
-		Instructions: huella(fingerprint.InstructionsVersion, "11"),
-		Variables:    huella(fingerprint.VariablesVersion, "22"),
-		Code:         huella(fingerprint.Version, "33"),
+	key, err := fingerprint.ComputeStepFingerprint(
+		huella(fingerprint.DeclarationVersion, "11"),
+		huella(fingerprint.Version, "33"),
+		false)
+	if err != nil {
+		panic(err)
 	}
+	return key
 }
 
-func claveDePrueba(t *testing.T) domCache.CacheKey {
+func claveDePrueba(t *testing.T) fingerprint.Fingerprint {
 	t.Helper()
-	key, err := domCache.NewCacheKey(materialDePrueba())
-	require.NoError(t, err)
-	return key
+	return huellaAnotada()
 }
 
 // idsFijos hace reproducible el ULID: la aleatoriedad es infraestructura, y con
@@ -597,11 +589,11 @@ type entriesEspia struct {
 
 var _ domCache.Entries = (*entriesEspia)(nil)
 
-func (e *entriesEspia) Get(*context.Context, domCache.CacheKey) (domCache.Entry, bool, error) {
+func (e *entriesEspia) Get(*context.Context, fingerprint.Fingerprint) (domCache.Entry, bool, error) {
 	return domCache.Entry{}, false, nil
 }
 
-func (e *entriesEspia) Put(_ *context.Context, key domCache.CacheKey, entry domCache.Entry) error {
+func (e *entriesEspia) Put(_ *context.Context, key fingerprint.Fingerprint, entry domCache.Entry) error {
 	if e.putErr != nil {
 		return e.putErr
 	}

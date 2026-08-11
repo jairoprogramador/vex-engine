@@ -9,6 +9,8 @@ package cache_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -27,7 +29,13 @@ import (
 
 var instante = time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 
-func claveDePrueba(t *testing.T, step string) domCache.CacheKey {
+// claveDePrueba es la huella de un step, que desde la spec 27 ES la clave del
+// índice: el mismo valor que el registro persiste en `step_fingerprint`.
+//
+// Se compone con términos FIJOS y no con material real: lo que este contrato
+// prueba es el almacén, no la regla — la regla la fijan los vectores de
+// `fingerprint/SPEC-STEP-v1.md`.
+func claveDePrueba(t *testing.T, step string) fingerprint.Fingerprint {
 	t.Helper()
 
 	huella := func(version, digito string) fingerprint.Fingerprint {
@@ -36,15 +44,13 @@ func claveDePrueba(t *testing.T, step string) domCache.CacheKey {
 		return f
 	}
 
-	key, err := domCache.NewCacheKey(domCache.Material{
-		Subject:      "https://vex.test/acme/demo-app",
-		Pipeline:     "https://vex.test/acme/pipelinecode",
-		Scope:        "sand",
-		Step:         step,
-		Instructions: huella(fingerprint.InstructionsVersion, "11"),
-		Variables:    huella(fingerprint.VariablesVersion, "22"),
-		Code:         huella(fingerprint.Version, "33"),
-	})
+	suma := sha256.Sum256([]byte(step))
+	declaracion, err := fingerprint.Parse(
+		fingerprint.DeclarationVersion + ":" + hex.EncodeToString(suma[:]))
+	require.NoError(t, err)
+
+	key, err := fingerprint.ComputeStepFingerprint(
+		declaracion, huella(fingerprint.Version, "33"), false)
 	require.NoError(t, err)
 	return key
 }
@@ -178,7 +184,7 @@ func TestFileEntriesRepository_Contrato(t *testing.T) {
 
 	t.Run("la clave vacía se rechaza en los dos sentidos", func(t *testing.T) {
 		repo := infraCache.NewFileEntriesRepository(t.TempDir())
-		var cero domCache.CacheKey
+		var cero fingerprint.Fingerprint
 
 		_, _, err := repo.Get(&ctx, cero)
 		assert.Error(t, err)
@@ -207,7 +213,7 @@ func TestFileEntriesRepository_ElArchivoSeExplicaSolo(t *testing.T) {
 	var dto infraCache.FileCacheEntryDTO
 	require.NoError(t, json.Unmarshal(datos, &dto))
 
-	assert.Equal(t, key.String(), dto.CacheKey, "el archivo dice de qué clave es")
+	assert.Equal(t, key.String(), dto.StepFingerprint, "el archivo dice de qué clave es")
 	assert.Equal(t, "environment:sand", dto.StateKey.Scope, "y a qué posición apunta")
 	assert.Equal(t, "02-supply", dto.StateKey.StepID)
 	assert.Equal(t, entrada.RecordID.String(), dto.RecordID)
@@ -258,7 +264,7 @@ func TestFileEntriesRepository_UnaEntradaDelEsquemaViejoSeIgnora(t *testing.T) {
 	archivos := archivosDe(t, base)
 	require.NoError(t, os.WriteFile(archivos[0], []byte(`{
   "schema_version": 1,
-  "cache_key": "`+key.String()+`",
+  "step_fingerprint": "`+key.String()+`",
   "expires_at": "2026-09-05T12:00:00Z",
   "produced_by": {"execution_id": "exec-1", "at": "2026-08-06T12:00:00Z"}
 }`), 0o644))

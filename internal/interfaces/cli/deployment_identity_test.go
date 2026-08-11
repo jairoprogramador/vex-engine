@@ -131,7 +131,7 @@ func TestRunCommand_ElObjetoLlevaLaDeclaracionDeCadaStep(t *testing.T) {
 	supply := objeto.Steps[1]
 	assert.Equal(t, "02-supply", supply.StepID)
 	assert.Equal(t, "environment", supply.Scope)
-	assert.Contains(t, supply.Instructions, "inst-v1:")
+	assert.Contains(t, supply.Declaration, "pipe-v1:")
 	require.Len(t, supply.Parameters, 1)
 	assert.Equal(t, "registry_prefix", supply.Parameters[0].Name)
 	assert.Contains(t, supply.Parameters[0].Declaration, "vexsand",

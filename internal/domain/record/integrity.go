@@ -154,7 +154,7 @@ func (f Fault) String() string { return f.Kind.String() + ": " + f.Detail }
 // §9.3). Exigir el orden convertiría un empuje fallido en una acusación de
 // corrupción.
 //
-// Y no comprueba las `cache_key`: el índice es desechable y no tiene invariantes
+// Y no comprueba las huellas del índice: es desechable y no tiene invariantes
 // que preservar — una entrada que no recompute simplemente no se acierta, y el
 // step se ejecuta.
 func CheckStrip(events []Event, result AttemptResult) []Fault {

@@ -67,7 +67,7 @@ func (vs ExecutionVariableMap) AddAllMap(variables ExecutionVariableMap) {
 // Equals compara `Variable` por igualdad de struct, así que desde la spec 12
 // dos mapas con los mismos pares (nombre, valor) llegados por caminos distintos
 // son DISTINTOS. No lo llama nadie —la comparación que decide re-ejecutar es la
-// de huellas, y ésa no mira el origen (`SPEC-VARIABLES-v1.md` §4)—, y queda
+// de huellas, y ésa no mira el origen (`SPEC-PIPELINE-v1.md` §4)—, y queda
 // dicho para que el primero que lo use sepa qué está comparando.
 func (vs ExecutionVariableMap) Equals(other ExecutionVariableMap) bool {
 	if len(vs) != len(other) {

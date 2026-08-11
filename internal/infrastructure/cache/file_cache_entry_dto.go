@@ -4,12 +4,13 @@ import (
 	"fmt"
 
 	domCache "github.com/jairoprogramador/vex-engine/internal/domain/cache"
+	domFingerprint "github.com/jairoprogramador/vex-engine/internal/domain/fingerprint"
 	domState "github.com/jairoprogramador/vex-engine/internal/domain/state"
 )
 
 // fileCacheEntrySchemaVersion versiona la FORMA del archivo, no la regla de la
-// clave. Son dos cosas distintas y conviene no fundirlas: `ck-v1` dice cómo se
-// compuso la clave —cambiarlo invalida el índice entero—, mientras que esto dice
+// clave. Son dos cosas distintas y conviene no fundirlas: `sf-v1` dice cómo se
+// compuso la huella —cambiarlo invalida el índice entero—, mientras que esto dice
 // cómo está serializada la entrada.
 //
 // Sube a 2 con la spec 11: la entrada dejó de ser «presencia + caducidad +
@@ -23,11 +24,17 @@ const fileCacheEntrySchemaVersion = 2
 //
 // Lleva la clave DENTRO además de en la ruta, aunque sea redundante: la ruta es
 // un hash, así que un archivo que no dice de qué clave es no responde nada.
+//
+// El campo se llama `step_fingerprint` y no `cache_key` desde la spec 27, que es
+// lo que ahora es: la huella del step, la misma cadena que el registro persiste.
+// Renombrarlo sale gratis porque el índice es DERIVABLE y DESECHABLE —el cambio
+// de regla ya lo movió entero a `<destino>/cache/sf-v1/`, dejando el árbol
+// `ck-v1/` huérfano para que lo recoja `record gc --cache`—.
 type FileCacheEntryDTO struct {
-	SchemaVersion int             `json:"schema_version"`
-	CacheKey      string          `json:"cache_key"`
-	StateKey      FileStateKeyDTO `json:"state_key"`
-	RecordID      string          `json:"record_id"`
+	SchemaVersion   int             `json:"schema_version"`
+	StepFingerprint string          `json:"step_fingerprint"`
+	StateKey        FileStateKeyDTO `json:"state_key"`
+	RecordID        string          `json:"record_id"`
 }
 
 // FileStateKeyDTO guarda los tres componentes de la clave de estado POR
@@ -39,10 +46,10 @@ type FileStateKeyDTO struct {
 	StepID  string `json:"step_id"`
 }
 
-func ToFileCacheEntryDTO(key domCache.CacheKey, entry domCache.Entry) FileCacheEntryDTO {
+func ToFileCacheEntryDTO(key domFingerprint.Fingerprint, entry domCache.Entry) FileCacheEntryDTO {
 	return FileCacheEntryDTO{
-		SchemaVersion: fileCacheEntrySchemaVersion,
-		CacheKey:      key.String(),
+		SchemaVersion:   fileCacheEntrySchemaVersion,
+		StepFingerprint: key.String(),
 		StateKey: FileStateKeyDTO{
 			Subject: entry.StateKey.Subject(),
 			Scope:   entry.StateKey.Scope().String(),

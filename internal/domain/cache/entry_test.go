@@ -42,18 +42,11 @@ func TestEntry_UnPunteroIncompletoEsUnError(t *testing.T) {
 	})
 }
 
-// La clave de contenido no depende del tiempo: dos ejecuciones del mismo
-// material dan la misma clave, y lo que cambia es a qué registro apunta.
-func TestEntry_ElMismoMaterialDaLaMismaClave(t *testing.T) {
-	material := materialBase(t)
-
-	primera, err := cache.NewCacheKey(material)
-	require.NoError(t, err)
-	segunda, err := cache.NewCacheKey(material)
-	require.NoError(t, err)
-
-	assert.True(t, primera.Equals(segunda))
-}
+// AQUÍ vivía `TestEntry_ElMismoMaterialDaLaMismaClave`, que comprobaba que
+// `cache.NewCacheKey` fuera determinista. La spec 27 se lleva el tipo entero: la
+// clave del índice es ahora la huella del step (`sf-v1`), y que la misma
+// declaración dé la misma huella lo fijan los vectores de
+// `fingerprint/SPEC-STEP-v1.md`.
 
 func claveDeEstado(t *testing.T) state.Key {
 	t.Helper()

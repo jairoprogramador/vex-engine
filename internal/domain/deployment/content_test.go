@@ -56,7 +56,7 @@ func stepTest(t *testing.T) deployment.StepContent {
 	contenido, err := deployment.NewStepContent(
 		"01-test",
 		step.NoStepConfig(),
-		huella(t, fingerprint.InstructionsVersion, "11"),
+		huella(t, fingerprint.DeclarationVersion, "11"),
 		nil)
 	require.NoError(t, err)
 	return contenido
@@ -82,7 +82,7 @@ func stepSupply(t *testing.T) deployment.StepContent {
 	contenido, err := deployment.NewStepContent(
 		"02-supply",
 		config,
-		huella(t, fingerprint.InstructionsVersion, "22"),
+		huella(t, fingerprint.DeclarationVersion, "22"),
 		[]step.VariableDeclaration{literal, producida})
 	require.NoError(t, err)
 	return contenido
@@ -217,7 +217,7 @@ func TestContentID_EntraLaDeclaracionNuncaElValor(t *testing.T) {
 		stepContent, err := deployment.NewStepContent(
 			"02-supply",
 			step.NoStepConfig(),
-			huella(t, fingerprint.InstructionsVersion, "22"),
+			huella(t, fingerprint.DeclarationVersion, "22"),
 			[]step.VariableDeclaration{declaracion})
 		require.NoError(t, err)
 
@@ -241,7 +241,7 @@ func TestContentID_UnLiteralDistintoEsOtroContenido(t *testing.T) {
 		stepContent, err := deployment.NewStepContent(
 			"02-supply",
 			step.NoStepConfig(),
-			huella(t, fingerprint.InstructionsVersion, "22"),
+			huella(t, fingerprint.DeclarationVersion, "22"),
 			[]step.VariableDeclaration{declaracion})
 		require.NoError(t, err)
 
@@ -265,7 +265,7 @@ func TestContentID_ElOrdenDeLosParametrosNoLoMueve(t *testing.T) {
 		stepContent, err := deployment.NewStepContent(
 			"01-test",
 			step.NoStepConfig(),
-			huella(t, fingerprint.InstructionsVersion, "11"),
+			huella(t, fingerprint.DeclarationVersion, "11"),
 			declaraciones)
 		require.NoError(t, err)
 
@@ -304,7 +304,7 @@ func TestContent_ElSubBloqueDeProyectoNoDependeDelDestino(t *testing.T) {
 func canonicalDeSteps(steps []deployment.StepContent) string {
 	nombres := make([]string, 0, len(steps))
 	for _, contenido := range steps {
-		nombres = append(nombres, contenido.StepID()+":"+contenido.Instructions().String())
+		nombres = append(nombres, contenido.StepID()+":"+contenido.Declaration().String())
 		for _, parametro := range contenido.Parameters() {
 			nombres = append(nombres, parametro.Name()+"="+parametro.Canonical())
 		}

@@ -23,7 +23,7 @@ import (
 //
 //	step_id        el nombre del DIRECTORIO, con su prefijo de orden
 //	scope+rules    el `config.yaml` del step (specs 13 y 15), ya validado
-//	instructions   la huella `inst-v1` de los comandos declarados (spec 10)
+//	declaration    la huella `pipe-v1` de lo que el step declara (spec 27)
 //	parameters     las declaraciones de variables (spec 14), NUNCA sus valores
 //
 // Ninguna de las cuatro se vuelve a parsear ni a normalizar aquí: las tres
@@ -31,11 +31,26 @@ import (
 // trae su `Canonical()` en uso desde la spec 14. Un segundo parseo del mismo
 // archivo con otro propósito sería una segunda fuente de verdad para el mismo
 // material, que es justo lo que un identificador por contenido no tolera.
+// # La huella que transporta pasó de `inst-v1` a `pipe-v1`, y eso cambió todos
+// los `content_id`
+//
+// Era la propiedad que la spec 17 compró y la spec 18 §9.12 dio por contraída:
+// como el material compone sobre la forma canónica COMPLETA de la huella,
+// sustituir la regla cambia todas las identidades **sin una línea de código**.
+// El precio, ya pagado, es que los `content_id` emitidos antes de la spec 27
+// quedan permanentes e incomparables con los de después.
+//
+// Lo que NO cambia es la forma canónica de `cnt-v1`: `scope`, `rules` y las
+// declaraciones siguen ahí como campos, aunque `pipe-v1` los lleve también
+// dentro. Quitarlos sería un `cnt-v2` —una decisión aparte, con su propio coste
+// de generación huérfana— y conservarlos es inofensivo para el hash. Además son
+// lo que `record show` imprime: el objeto tiene que poder responder «¿qué
+// declaraba este step?» sin recomputar ninguna regla.
 type StepContent struct {
-	stepID       string
-	config       step.StepConfig
-	instructions fingerprint.Fingerprint
-	parameters   []step.VariableDeclaration
+	stepID      string
+	config      step.StepConfig
+	declaration fingerprint.Fingerprint
+	parameters  []step.VariableDeclaration
 }
 
 // NewStepContent compone el material de un step.
@@ -60,7 +75,7 @@ type StepContent struct {
 func NewStepContent(
 	stepID string,
 	config step.StepConfig,
-	instructions fingerprint.Fingerprint,
+	declaration fingerprint.Fingerprint,
 	parameters []step.VariableDeclaration) (StepContent, error) {
 
 	if stepID == "" {
@@ -70,19 +85,22 @@ func NewStepContent(
 		return StepContent{}, fmt.Errorf("deployment: %q no puede usarse como step_id", stepID)
 	}
 
-	// La huella de las instrucciones es OBLIGATORIA y tiene que ser la de su
-	// regla. Un step sin comandos es `skipped{no_commands}` (spec 04 §5.3) y su
-	// huella de instrucciones es la del conjunto vacío, que existe: la ausencia
-	// aquí no sería «no tiene comandos», sería «no se pudo componer», y las dos
-	// cosas tienen consecuencias opuestas.
-	if instructions.IsZero() {
+	// La huella de la declaración es OBLIGATORIA y tiene que ser la de su regla.
+	// Un step sin comandos, sin `config.yaml` y sin variables declara la nada, y
+	// la huella de la nada existe: la ausencia aquí no sería «no declara nada»,
+	// sería «no se pudo componer», y las dos cosas tienen consecuencias opuestas.
+	if declaration.IsZero() {
 		return StepContent{}, fmt.Errorf(
-			"deployment: el step %q no tiene la huella de sus instrucciones", stepID)
+			"deployment: el step %q no tiene la huella de su declaración", stepID)
 	}
-	if instructions.Version() != fingerprint.InstructionsVersion {
+	// La guarda de versión es deliberada y es lo contrario de la de `sf-v1`: aquí
+	// el material entra en una identidad PERMANENTE, así que el día que `pipe-v1`
+	// salte de versión esto tiene que fallar en compilación y en test — un cambio
+	// de regla no puede colarse en un `content_id` por omisión (spec 17 §9).
+	if declaration.Version() != fingerprint.DeclarationVersion {
 		return StepContent{}, fmt.Errorf(
 			"deployment: el step %q trae una huella %q donde se espera una %q",
-			stepID, instructions.Version(), fingerprint.InstructionsVersion)
+			stepID, declaration.Version(), fingerprint.DeclarationVersion)
 	}
 
 	declared := make(map[string]bool, len(parameters))
@@ -106,10 +124,10 @@ func NewStepContent(
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name() < sorted[j].Name() })
 
 	return StepContent{
-		stepID:       stepID,
-		config:       config,
-		instructions: instructions,
-		parameters:   sorted,
+		stepID:      stepID,
+		config:      config,
+		declaration: declaration,
+		parameters:  sorted,
 	}, nil
 }
 
@@ -119,8 +137,9 @@ func (c StepContent) StepID() string { return c.stepID }
 // Config es lo que el step declara sobre sí mismo: su ámbito y sus reglas.
 func (c StepContent) Config() step.StepConfig { return c.config }
 
-// Instructions es la huella `inst-v1` de los comandos declarados.
-func (c StepContent) Instructions() fingerprint.Fingerprint { return c.instructions }
+// Declaration es la huella `pipe-v1` de lo que el step declara hacer: sus tres
+// archivos de declaración y el árbol de su directorio.
+func (c StepContent) Declaration() fingerprint.Fingerprint { return c.declaration }
 
 // Parameters son las declaraciones de variables, ORDENADAS POR NOMBRE.
 func (c StepContent) Parameters() []step.VariableDeclaration {
@@ -150,9 +169,9 @@ func (c StepContent) canonical() []string {
 			strconv.Quote(c.config.Scope().String()),
 			strconv.Quote(c.config.Rules().Canonical()),
 			// La forma canónica COMPLETA de la huella, con su prefijo: componer
-			// sobre el hash pelado haría iguales una `inst-v1` y una `inst-v2`
+			// sobre el hash pelado haría iguales una `pipe-v1` y una `pipe-v2`
 			// del mismo material.
-			strconv.Quote(c.instructions.String()),
+			strconv.Quote(c.declaration.String()),
 			strconv.Itoa(len(c.parameters)),
 		}, canonicalFieldSep),
 	}

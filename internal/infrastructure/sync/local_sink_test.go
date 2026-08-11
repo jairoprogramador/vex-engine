@@ -64,7 +64,7 @@ func contenidoDePrueba(t *testing.T) domDeployment.Content {
 	require.NoError(t, err)
 
 	stepContent, err := domDeployment.NewStepContent(
-		"01-test", domStep.NoStepConfig(), huella(fingerprint.InstructionsVersion, "11"), nil)
+		"01-test", domStep.NoStepConfig(), huella(fingerprint.DeclarationVersion, "11"), nil)
 	require.NoError(t, err)
 
 	content, err := domDeployment.NewContent(

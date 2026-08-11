@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 
 	domCache "github.com/jairoprogramador/vex-engine/internal/domain/cache"
+	domFingerprint "github.com/jairoprogramador/vex-engine/internal/domain/fingerprint"
 	"github.com/jairoprogramador/vex-engine/internal/infrastructure/persistence"
 )
 
@@ -54,7 +55,7 @@ func NewFileEntriesRepository(basePath string) domCache.Entries {
 	}
 }
 
-func (r *FileEntriesRepository) filePath(key domCache.CacheKey) string {
+func (r *FileEntriesRepository) filePath(key domFingerprint.Fingerprint) string {
 	hash := key.Hash()
 	return filepath.Join(r.basePath, key.Version(), hash[:shardLen], hash[shardLen:]+entryFileExt)
 }
@@ -63,7 +64,7 @@ func (r *FileEntriesRepository) filePath(key domCache.CacheKey) string {
 // una red de regresión, no una comodidad: si consultar escribiera, un proceso
 // muerto entre la consulta y el final del paso dejaría grabado «ya se hizo»
 // para un paso que nunca terminó (spec 09 §9.10).
-func (r *FileEntriesRepository) Get(_ *context.Context, key domCache.CacheKey) (domCache.Entry, bool, error) {
+func (r *FileEntriesRepository) Get(_ *context.Context, key domFingerprint.Fingerprint) (domCache.Entry, bool, error) {
 	if key.IsZero() {
 		return domCache.Entry{}, false, errors.New("file entries repository: clave vacía")
 	}
@@ -120,7 +121,7 @@ func (r *FileEntriesRepository) Get(_ *context.Context, key domCache.CacheKey) (
 // No decide nada del motor —el índice sigue sin participar en ninguna decisión—
 // pero sí decide lo que el ingestor de la spec 26 tiene que implementar, y por eso
 // se escribe aquí en vez de dejarse al azar del orden de llegada.
-func (r *FileEntriesRepository) Put(_ *context.Context, key domCache.CacheKey, entry domCache.Entry) error {
+func (r *FileEntriesRepository) Put(_ *context.Context, key domFingerprint.Fingerprint, entry domCache.Entry) error {
 	if key.IsZero() {
 		return errors.New("file entries repository: clave vacía")
 	}
