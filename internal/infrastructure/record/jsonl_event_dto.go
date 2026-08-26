@@ -85,11 +85,23 @@ func payloadOf(payload domRecord.Payload) (map[string]any, error) {
 		// acaba de derivar. `actor` y `runner` son CIRCUNSTANCIA y por eso están
 		// aquí y no en el objeto: quién lanzó el despliegue y sobre qué máquina
 		// corrió no cambian qué se pretendía hacer.
-		return map[string]any{
+		linea := map[string]any{
 			"deployment_id": carga.Deployment.String(),
 			"actor":         carga.Actor,
 			"runner":        carga.Runner,
-		}, nil
+		}
+		// `rollback_to` sólo aparece cuando lo hubo, con la misma disciplina que el
+		// resto de los opcionales: su ausencia es «esta ejecución no vuelve a
+		// ninguna» y no un hueco. Es la confirmación de que el motor ENTENDIÓ el
+		// ancla, y va aquí —y no en el objeto— porque meterlo en el objeto cambiaría
+		// el `content_id`, que es lo único que R y E tienen que compartir (spec 28).
+		if !carga.RollbackTo.IsZero() {
+			linea["rollback_to"] = map[string]any{
+				"deployment_id": carga.RollbackTo.Deployment().String(),
+				"attempt":       carga.RollbackTo.Attempt().Number(),
+			}
+		}
+		return linea, nil
 
 	case domRecord.StaleCloneUsed:
 		return map[string]any{

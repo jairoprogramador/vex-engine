@@ -145,6 +145,17 @@ func (uc *CreateExecutionUseCase) Execute(ctx context.Context, request dto.Reque
 		uc.clock,
 	)
 
+	// El destino del rollback viaja SIN interpretar (spec 28 §5.5): quien lo
+	// compone como value object es el handler 09, y quien lo rechaza por
+	// malformado es el borde. Aquí sólo se transporta, que es lo único que esta
+	// capa puede hacer con él sin importar `deployment` desde `command`.
+	if request.RollbackTo != nil {
+		execution.SetRollback(command.RollbackRequest{
+			DeploymentID: request.RollbackTo.DeploymentID,
+			Attempt:      request.RollbackTo.Attempt,
+		})
+	}
+
 	childCtx, cancelFn := context.WithCancel(ctx)
 	execution.SetCancelFn(cancelFn)
 	// El `defer` es la corrección de la fuga: el cancelFn se guardaba y no se

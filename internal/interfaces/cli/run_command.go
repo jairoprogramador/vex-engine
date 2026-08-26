@@ -13,6 +13,7 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/application/dto"
 	"github.com/jairoprogramador/vex-engine/internal/application/usecase"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	"github.com/jairoprogramador/vex-engine/internal/domain/deployment"
 	domNotify "github.com/jairoprogramador/vex-engine/internal/domain/notify"
 	"github.com/jairoprogramador/vex-engine/internal/domain/record"
 	"github.com/jairoprogramador/vex-engine/internal/domain/syncconfig"
@@ -175,6 +176,24 @@ func (c *RunCommand) Execute(ctx context.Context, stdin io.Reader, stdout io.Wri
 		return ExitInputError
 	}
 
+	// El destino del rollback se compone AQUÍ, en el borde, aunque quien lo use
+	// esté tres capas más adentro (spec 28 §5.5).
+	//
+	// No es una comprobación redundante: `rollback_to` es parte del contrato de
+	// entrada, así que un `deployment_id` mal formado o un `attempt: 0` son
+	// errores de INVOCACIÓN —exit code 2— y no fallos de pipeline a mitad. Y sin
+	// esto la alternativa es peor de lo que parece: un par que no compone
+	// produciría un ancla vacía, o sea un despliegue normal donde el usuario pidió
+	// volver atrás, que es justo el modo de fallo silencioso que §4 rechaza.
+	//
+	// El valor compuesto se descarta a propósito: quien lo vuelve a componer es el
+	// handler 09, con el MISMO constructor, así que no hay dos definiciones de
+	// «bien formado» que puedan separarse.
+	if err := validarRollback(requestInput.RollbackTo); err != nil {
+		fmt.Fprintf(stderr, "vexd run: %v\n", err)
+		return ExitInputError
+	}
+
 	// La clave del resumen se deriva ANTES de ejecutar nada, y su fallo es un
 	// error de invocación: sin ella no se puede emitir `parameter_resolved`, y un
 	// intento a medio registrar es peor que uno que no arranca.
@@ -277,6 +296,21 @@ func (c *RunCommand) Execute(ctx context.Context, stdin io.Reader, stdout io.Wri
 	}
 
 	return exitCode
+}
+
+// validarRollback comprueba que el destino de rollback tiene forma.
+//
+// Ausente es lo normal y no es un error: sin `rollback_to` la ejecución se
+// comporta exactamente como antes de la spec 28, con el mismo
+// `schema_version` (§7).
+func validarRollback(rollback *dto.RollbackInput) error {
+	if rollback == nil {
+		return nil
+	}
+	if _, err := deployment.ParseRollbackTarget(rollback.DeploymentID, rollback.Attempt); err != nil {
+		return err
+	}
+	return nil
 }
 
 // readInput resuelve la prioridad: --input <file> > env var > stdin.

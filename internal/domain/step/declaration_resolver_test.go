@@ -41,7 +41,7 @@ func TestStepOutputResolver_LeeDelMapaAcumulado(t *testing.T) {
 		require.NoError(t, err)
 		request := peticionDePrueba(t, producida)
 
-		valor, err := domStep.NewDeclarationResolvers(sinRegistros{}).
+		valor, err := domStep.NewDeclarationResolvers(domStep.NewLastRecordProvider(sinRegistros{})).
 			Resolve(request.Ctx(), request, declaracion)
 
 		require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestStepOutputResolver_LeeDelMapaAcumulado(t *testing.T) {
 	t.Run("la fuente no la produjo: el error la nombra", func(t *testing.T) {
 		request := peticionDePrueba(t)
 
-		_, err := domStep.NewDeclarationResolvers(sinRegistros{}).
+		_, err := domStep.NewDeclarationResolvers(domStep.NewLastRecordProvider(sinRegistros{})).
 			Resolve(request.Ctx(), request, declaracion)
 
 		require.Error(t, err)
@@ -70,7 +70,7 @@ func TestStateResolver_LeeElRegistroDelAmbitoDeclarado(t *testing.T) {
 	t.Run("la clave está en el registro", func(t *testing.T) {
 		request := peticionDePrueba(t)
 
-		valor, err := domStep.NewDeclarationResolvers(registrosCon(t, "lb-arn", "arn:aws:lb")).
+		valor, err := domStep.NewDeclarationResolvers(domStep.NewLastRecordProvider(registrosCon(t, "lb-arn", "arn:aws:lb"))).
 			Resolve(request.Ctx(), request, declaracion)
 
 		require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestStateResolver_LeeElRegistroDelAmbitoDeclarado(t *testing.T) {
 	t.Run("no hay registro todavía", func(t *testing.T) {
 		request := peticionDePrueba(t)
 
-		_, err := domStep.NewDeclarationResolvers(sinRegistros{}).
+		_, err := domStep.NewDeclarationResolvers(domStep.NewLastRecordProvider(sinRegistros{})).
 			Resolve(request.Ctx(), request, declaracion)
 
 		require.Error(t, err)
@@ -91,7 +91,7 @@ func TestStateResolver_LeeElRegistroDelAmbitoDeclarado(t *testing.T) {
 	t.Run("el registro existe y no lleva la clave", func(t *testing.T) {
 		request := peticionDePrueba(t)
 
-		_, err := domStep.NewDeclarationResolvers(registrosCon(t, "otra-cosa", "x")).
+		_, err := domStep.NewDeclarationResolvers(domStep.NewLastRecordProvider(registrosCon(t, "otra-cosa", "x"))).
 			Resolve(request.Ctx(), request, declaracion)
 
 		require.Error(t, err)

@@ -365,6 +365,12 @@ func imprimirResultado(out io.Writer, strip recordInfra.Strip, result domRecord.
 		vacioONo(result.Attempt.String()), strip.ExecutionID())
 	fmt.Fprintf(out, "  estado:      %s\n", result.Status)
 	fmt.Fprintf(out, "  destino válido de rollback: %t\n", result.IsValidTarget())
+	// «Esto fue una vuelta atrás» se lee del REGISTRO y no del `RequestInput` que
+	// lo pidió (spec 28 §5.5): es lo que hace la vuelta atrás auditable desde
+	// fuera de la máquina que la ejecutó.
+	if !result.RollbackTo.IsZero() {
+		fmt.Fprintf(out, "  vuelta atrás a: %s\n", result.RollbackTo)
+	}
 	fmt.Fprintf(out, "  actor:       %s\n", vacioONo(result.Actor))
 	fmt.Fprintf(out, "  runner:      %s\n", vacioONo(result.Runner))
 	fmt.Fprintf(out, "  empezó:      %s\n", instante(result.StartedAt))
@@ -532,6 +538,12 @@ func (c *RecordCommand) History(
 		fmt.Fprintf(out, " %s %s  intento %s  %-11s  hasta '%s'  %s\n",
 			marca, result.Deployment, vacioONo(result.Attempt.String()),
 			result.Status, vacioONo(result.LastStep), instante(result.StartedAt))
+		// Un rollback aparece en la historia como una ejecución más —lo es— y se
+		// distingue por decir a qué volvió. Sin esta línea, dos intentos con el
+		// mismo contenido y distinta posición serían indistinguibles en el listado.
+		if !result.RollbackTo.IsZero() {
+			fmt.Fprintf(out, "      ↩ vuelta atrás a %s\n", result.RollbackTo)
+		}
 	}
 	fmt.Fprintln(out, "\n(*) destino válido: terminó bien y todos sus steps cerraron correctos")
 	return nil

@@ -6,6 +6,7 @@ import (
 
 	cacheDom "github.com/jairoprogramador/vex-engine/internal/domain/cache"
 	deploymentDom "github.com/jairoprogramador/vex-engine/internal/domain/deployment"
+	pipelineDom "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
 	stateDom "github.com/jairoprogramador/vex-engine/internal/domain/state"
 	syncDom "github.com/jairoprogramador/vex-engine/internal/domain/sync"
 	"github.com/jairoprogramador/vex-engine/internal/domain/syncconfig"
@@ -26,6 +27,16 @@ type stateStores struct {
 	records  stateDom.Records
 	entries  cacheDom.Entries
 	lineages deploymentDom.LineageStore
+
+	// rollbacks resuelve el ancla de un rollback (spec 28) y es la QUINTA pieza
+	// de la familia. Sale del mismo `switch` que las demás por lo mismo que el
+	// `Sink`, y además por una razón propia: el ancla tiene dos mitades que llegan
+	// por caminos distintos —la referencia sale de los HECHOS y el valor del
+	// ALMACÉN— y sólo significan lo mismo si las dos son del mismo destino. Un
+	// resolutor colgado por fuera podría apuntar a otra raíz y resolvería
+	// `record_id` contra un almacén que no es el que los escribió (spec 21,
+	// recuadro).
+	rollbacks pipelineDom.RollbackResolver
 
 	// sink es la CUARTA pieza de la familia, y es de otra naturaleza que las tres
 	// de arriba: aquéllas se leen antes de decidir y por eso van directas al
@@ -131,10 +142,20 @@ func newStateStores(cfg syncconfig.Config, stagingPath string) (stateStores, err
 		}
 
 		return stateStores{
-			records:      stateInfra.NewFileRecordsRepository(statePath),
-			entries:      cacheInfra.NewFileEntriesRepository(cachePath),
-			lineages:     deploymentInfra.NewFileLineageStore(lineagePath),
-			sink:         syncInfra.NewLocalSink(stagingPath, base),
+			records:  stateInfra.NewFileRecordsRepository(statePath),
+			entries:  cacheInfra.NewFileEntriesRepository(cachePath),
+			lineages: deploymentInfra.NewFileLineageStore(lineagePath),
+			sink:     syncInfra.NewLocalSink(stagingPath, base),
+
+			// El resolutor del ancla lee `events/` y `objects/` del DESTINO y no del
+			// área de trabajo, aunque el área sea un superconjunto y sea lo que
+			// `vexd record` mira por defecto. La razón es de corrección y no de
+			// preferencia: el registro anclado se resuelve contra `state/`, que está
+			// aquí, y las dos mitades del ancla tienen que salir del mismo sitio. Es
+			// además lo que permite volver a una ejecución de OTRA máquina que
+			// compartía destino, que es la capacidad que la spec 21 hizo posible.
+			rollbacks: recordInfra.NewScanRollbackResolver(base),
+
 			digestSecret: secreto,
 		}, nil
 

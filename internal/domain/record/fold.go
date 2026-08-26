@@ -62,6 +62,7 @@ func Fold(events []Event) AttemptResult {
 			result.Deployment = payload.Deployment
 			result.Actor = payload.Actor
 			result.Runner = payload.Runner
+			result.RollbackTo = payload.RollbackTo
 			result.StartedAt = event.At()
 			result.Attempt = event.Attempt()
 

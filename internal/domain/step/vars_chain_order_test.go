@@ -68,7 +68,7 @@ func TestVarsChain_ElOrdenDeLosHandlersYaNoDecideQuienGana(t *testing.T) {
 			executionContext.AddAccumulatedVar(
 				varDePrueba(t, nombre, "inyectada-homonima", command.OriginInjected))
 
-			registros := registrosConVariables(t)
+			registros := domStep.NewLastRecordProvider(registrosConVariables(t))
 			cadena := orden.armar(
 				domStep.NewVarsStoreHandler(registros),
 				domStep.NewVarsHandler(

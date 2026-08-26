@@ -239,10 +239,15 @@ func payloadFrom(dto JSONLEventDTO) (domRecord.Payload, error) {
 		if err != nil {
 			return nil, fmt.Errorf("jsonl event: '%s': %w", dto.Type, err)
 		}
+		rollback, err := destinoDeRollback(p["rollback_to"])
+		if err != nil {
+			return nil, fmt.Errorf("jsonl event: '%s': %w", dto.Type, err)
+		}
 		return domRecord.AttemptStarted{
 			Deployment: id,
 			Actor:      texto(p, "actor"),
 			Runner:     texto(p, "runner"),
+			RollbackTo: rollback,
 		}, nil
 
 	case domRecord.TypeStaleCloneUsed:
@@ -332,6 +337,22 @@ func payloadFrom(dto JSONLEventDTO) (domRecord.Payload, error) {
 	default:
 		return nil, fmt.Errorf("%w: '%s'", ErrTipoDesconocido, dto.Type)
 	}
+}
+
+// destinoDeRollback reconstruye la ejecución pasada a la que este intento volvió.
+//
+// Su ausencia es lo normal y no un error: la inmensa mayoría de los intentos no
+// son rollbacks. Lo que SÍ es un error es un `rollback_to` presente y a medias
+// —sin identificador, o con `attempt: 0`—: afirmaría que hubo una vuelta atrás y
+// no dejaría llegar hasta ella, que es la misma regla que gobierna
+// `evidence_from`.
+func destinoDeRollback(valor any) (domDeployment.RollbackTarget, error) {
+	crudo, ok := valor.(map[string]any)
+	if !ok {
+		return domDeployment.RollbackTarget{}, nil
+	}
+	return domDeployment.ParseRollbackTarget(
+		texto(crudo, "deployment_id"), int(numero(crudo, "attempt")))
 }
 
 // evidencia reconstruye la referencia al registro que estuvo vigente.

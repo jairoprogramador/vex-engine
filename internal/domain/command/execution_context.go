@@ -191,6 +191,13 @@ func (ec *ExecutionContext) Runtime() ExecutionRuntime {
 	return ec.execution.Runtime()
 }
 
+// Rollback es la ejecución pasada a la que ésta vuelve, o el valor cero cuando
+// no vuelve a ninguna (spec 28 §5.5). Lo lee el handler 09, que es quien resuelve
+// el ancla antes del primer step.
+func (ec *ExecutionContext) Rollback() RollbackRequest {
+	return ec.execution.Rollback()
+}
+
 func (ec *ExecutionContext) AccumulatedVars() *ExecutionVariableMap {
 	return ec.accumulatedVars
 }

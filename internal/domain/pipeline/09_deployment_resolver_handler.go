@@ -66,6 +66,19 @@ type DeploymentResolverHandler struct {
 	objects  deployment.ObjectStore
 	lineages deployment.LineageStore
 	emitter  *record.Emitter
+
+	// El rollback de la spec 28 entra AQUÍ y no en la cadena de step, y las tres
+	// piezas que necesita ya estaban en este handler: la lista de steps de la
+	// operación —para cotejarla con la del destino—, el `content_id` que se acaba
+	// de componer —para decir si sigue siendo la misma intención— y el hecho de
+	// apertura, que es donde el ancla se confirma.
+	//
+	// `rollbacks` resuelve el ancla; `current` es donde se instala la política que
+	// la cadena de step usará. Las dos son del destino configurado, y la segunda
+	// es la misma indirección que `loaded`: se cablea antes de leer el
+	// `RequestInput`, así que la elección de política ocurre aquí.
+	rollbacks RollbackResolver
+	current   *domStep.CurrentRecords
 }
 
 var _ PipelineHandler = (*DeploymentResolverHandler)(nil)
@@ -80,7 +93,9 @@ func NewDeploymentResolverHandler(
 	loaded *domStep.LoadedPipelinecode,
 	objects deployment.ObjectStore,
 	lineages deployment.LineageStore,
-	emitter *record.Emitter) PipelineHandler {
+	emitter *record.Emitter,
+	rollbacks RollbackResolver,
+	current *domStep.CurrentRecords) PipelineHandler {
 
 	return &DeploymentResolverHandler{
 		PipelineBaseHandler: PipelineBaseHandler{Next: nil},
@@ -94,6 +109,8 @@ func NewDeploymentResolverHandler(
 		objects:             objects,
 		lineages:            lineages,
 		emitter:             emitter,
+		rollbacks:           rollbacks,
+		current:             current,
 	}
 }
 
@@ -101,6 +118,20 @@ func (h *DeploymentResolverHandler) Handle(ctx *context.Context, request *Pipeli
 	request.Emit("resolviendo la identidad del despliegue")
 
 	content, err := h.compose(ctx, request)
+	if err != nil {
+		return err
+	}
+
+	// EL ANCLA SE RESUELVE AQUÍ, y va antes de escribir el objeto y de avanzar el
+	// linaje a propósito (spec 28 §5.5): un destino inválido se rechaza **antes
+	// del primer step**, y rechazar después de avanzar la cabeza dejaría una
+	// posición ocupada por una ejecución que nunca corrió.
+	//
+	// Necesita el contenido ya compuesto porque lo que valida es la lista de steps
+	// de la operación de HOY contra la que declaraba el destino, así que no puede
+	// ir antes; y necesita ir antes del objeto, así que su sitio es exactamente
+	// éste.
+	anchor, err := h.resolveRollback(ctx, request, content)
 	if err != nil {
 		return err
 	}
@@ -144,9 +175,16 @@ func (h *DeploymentResolverHandler) Handle(ctx *context.Context, request *Pipeli
 	// del proceso diría «vex» en todo despliegue remoto, que es peor que no decir
 	// nada. Lo llena quien añada el campo al `RequestInput`, que es un cambio de
 	// contrato y no de este repo (specs 23 y 26).
+	//
+	// `rollback_to` sí es del contrato de entrada y viaja LLENO cuando lo hubo
+	// (spec 28 §5.5): es la confirmación de que el motor entendió el ancla, y va
+	// en el hecho —que se empuja— y no en el objeto, porque meterlo en el objeto
+	// cambiaría el `content_id` y que R y E compartan `content_id` es la mitad del
+	// diseño.
 	if err := h.emitter.Emit(ctx, record.AttemptStarted{
 		Deployment: deploymentID,
 		Runner:     request.Runner(),
+		RollbackTo: anchor.Target(),
 	}); err != nil {
 		return fmt.Errorf("registrar el inicio del intento: %w", err)
 	}
@@ -167,6 +205,82 @@ func (h *DeploymentResolverHandler) Handle(ctx *context.Context, request *Pipeli
 		return h.Next.Handle(ctx, request)
 	}
 	return nil
+}
+
+// resolveRollback resuelve, valida e INSTALA el ancla de un rollback (spec 28).
+//
+// Devuelve el ancla cero cuando no se pidió ninguno, que es el caso normal: sin
+// `rollback_to` la ejecución se comporta exactamente como antes de la spec.
+//
+// # Lo que aborta y lo que sólo avisa, que es la decisión que la spec dejó abierta
+//
+//	ABORTA   el destino no existe, no fue exitoso, está incompleto, no se puede
+//	         enlazar su objeto, o declara OTRA lista de steps —o los mismos con
+//	         otro ámbito— que la operación de hoy. Todos comparten forma: el ancla
+//	         no apuntaría a nada, y un rollback que no ancla y no lo dice es el
+//	         modo de fallo que la spec existe para evitar.
+//	AVISA    el `content_id` de hoy no coincide con el del destino. Ocurre cuando
+//	         el pipelinecode cambió en el remoto y el clon se refrescó (spec 18,
+//	         recuadro): R deja de ser estrictamente la misma intención que E. NO
+//	         aborta porque §7 exige lo contrario — un step cuyo `commands.yaml`
+//	         cambió entre E y R **se ejecuta**, aunque su registro anclado exista.
+//	         Un rollback no relaja ninguna comprobación, y tampoco es un permiso
+//	         para negarse a ejecutar lo que cambió.
+//
+// # La política se instala DESPUÉS de validar, y una sola vez
+//
+// A partir de aquí las tres lecturas del registro de la cadena de step —la carga
+// del mapa acumulado, el resolutor de `resolve: state` y el bucle de decisión—
+// leen el registro ANCLADO en vez del último. El ancla es inmutable, así que lo
+// que R escribe no cambia de qué registro parten los steps que le quedan (§7).
+func (h *DeploymentResolverHandler) resolveRollback(
+	ctx *context.Context,
+	request *PipelineRequestHandler,
+	content deployment.Content) (deployment.RollbackAnchor, error) {
+
+	pedido := request.Rollback()
+	if pedido.IsZero() {
+		return deployment.RollbackAnchor{}, nil
+	}
+
+	// Se vuelve a componer con el MISMO constructor que el borde ya usó, así que
+	// aquí no puede fallar: lo que se gana es el tipo, no una segunda definición
+	// de «bien formado».
+	target, err := deployment.ParseRollbackTarget(pedido.DeploymentID, pedido.Attempt)
+	if err != nil {
+		return deployment.RollbackAnchor{}, fmt.Errorf("componer el destino del rollback: %w", err)
+	}
+
+	request.Emit(fmt.Sprintf("volviendo a %s", target))
+
+	anchor, err := h.rollbacks.Resolve(ctx, target)
+	if err != nil {
+		return deployment.RollbackAnchor{}, fmt.Errorf("resolver el rollback: %w", err)
+	}
+	if err := anchor.Validate(content); err != nil {
+		return deployment.RollbackAnchor{}, fmt.Errorf("resolver el rollback: %w", err)
+	}
+
+	if !anchor.Matches(content) {
+		request.Emit(fmt.Sprintf(
+			"  - advertencia: el contenido de hoy (%s) no es el de %s (%s): el pipelinecode o el"+
+				" proyecto cambiaron, así que esto se parece a un rollback y no lo es del todo."+
+				" El estado sí se ancla; lo que cambió se ejecuta",
+			content.ID(), target, anchor.ContentID()))
+	}
+
+	anclados := 0
+	for _, step := range anchor.Steps() {
+		if step.Remembers() {
+			anclados++
+		}
+	}
+	request.Emit(fmt.Sprintf(
+		"  - Ancla: %d de %d steps vuelven a su registro de entonces",
+		anclados, len(anchor.Steps())))
+
+	h.current.UseAnchor(anchor)
+	return anchor, nil
 }
 
 // compose lee el material de la operación y arma la intención congelada.

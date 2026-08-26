@@ -145,6 +145,13 @@ func (r *PipelineRequestHandler) Runner() string {
 	return runtime.Image + ":" + runtime.Tag
 }
 
+// Rollback es la ejecución pasada a la que ésta vuelve, tal como el
+// `RequestInput` la nombró y sin interpretar (spec 28 §5.5). El valor cero es el
+// caso normal.
+func (r *PipelineRequestHandler) Rollback() command.RollbackRequest {
+	return r.executionContext.Rollback()
+}
+
 // SetDeployment anota la identidad resuelta por el handler 09.
 func (r *PipelineRequestHandler) SetDeployment(
 	content deployment.Content, deploymentID deployment.DeploymentID, attempt deployment.Attempt) {

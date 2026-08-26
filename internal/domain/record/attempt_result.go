@@ -79,6 +79,14 @@ type AttemptResult struct {
 	Actor  string
 	Runner string
 
+	// RollbackTo es la ejecución pasada a la que este intento volvió, o el valor
+	// cero si no volvió a ninguna (spec 28 §5.5).
+	//
+	// Sale de `attempt_started` y no de ninguna otra parte: es lo que hace que
+	// «esto fue una vuelta atrás» se pueda leer del registro empujado, sin
+	// depender de conservar el `RequestInput` que lo pidió.
+	RollbackTo deployment.RollbackTarget
+
 	StartedAt  time.Time
 	FinishedAt time.Time
 

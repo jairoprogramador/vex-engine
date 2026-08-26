@@ -41,10 +41,29 @@ var (
 // pretendía hacer. Meterlos en la identidad haría que dos ejecuciones idénticas
 // de dos personas distintas fueran objetos distintos, y toda comparación se
 // caería.
+//
+// # Y desde la spec 28 lleva `rollback_to`, que es la confirmación del ancla
+//
+// «Esto fue una vuelta atrás» tiene que ser auditable **desde fuera de la
+// máquina**, y para eso el dato tiene que acabar en una de las dos cosas que se
+// empujan al destino: el objeto o un hecho de la tira (21, recuadro). El objeto
+// queda descartado por construcción —meterlo ahí cambiaría el `content_id`, y
+// que R y E compartan `content_id` es la mitad del diseño (28 §5.1)—, así que es
+// este hecho: el que abre el intento, emitido por el mismo handler que resolvió
+// el ancla.
+//
+// Es además lo que contesta la objeción de la spec 16 a no subir
+// `schema_version`: un cliente puede comprobar que el motor ENTENDIÓ el ancla en
+// vez de tener que confiar en que un campo opcional no se descartó en silencio.
+//
+// El valor cero es el caso normal y significa «esta ejecución no vuelve a
+// ninguna».
 type AttemptStarted struct {
 	Deployment deployment.DeploymentID
 	Actor      string
 	Runner     string
+
+	RollbackTo deployment.RollbackTarget
 }
 
 func (p AttemptStarted) Type() EventType { return TypeAttemptStarted }

@@ -6,7 +6,6 @@ import (
 
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
 	domFingerprint "github.com/jairoprogramador/vex-engine/internal/domain/fingerprint"
-	"github.com/jairoprogramador/vex-engine/internal/domain/state"
 )
 
 // Motivos por los que un step se ejecuta.
@@ -98,13 +97,19 @@ func reasonOf(kind RuleKind) command.StepReason {
 // antes de ejecutar nada.
 type StepRunnerHandler struct {
 	StepBaseHandler
-	loaded  *LoadedPipelinecode
-	records state.Records
+	loaded *LoadedPipelinecode
+
+	// records es el PROVEEDOR del registro vigente y no el almacén (spec 28
+	// §5.2'): el bucle de decisión no cambia, se le inyecta de dónde sale el
+	// registro con el que compara. Las dos políticas —«el último» y «el
+	// anclado»— son sustituibles sin que este handler lo note, y ésa es la
+	// comprobación de que un rollback no relaja nada.
+	records RecordProvider
 }
 
 var _ StepHandler = (*StepRunnerHandler)(nil)
 
-func NewStepRunnerHandler(loaded *LoadedPipelinecode, records state.Records) StepHandler {
+func NewStepRunnerHandler(loaded *LoadedPipelinecode, records RecordProvider) StepHandler {
 	return &StepRunnerHandler{
 		StepBaseHandler: StepBaseHandler{Next: nil},
 		loaded:          loaded,
@@ -334,10 +339,10 @@ func (h *StepRunnerHandler) decide(
 		return domFingerprint.Fingerprint{}, true, command.ReasonNoRules, EvidenceFact{}, nil
 	}
 
-	last, found, err := h.records.Last(ctx, key)
+	last, found, err := h.records.Current(ctx, key)
 	if err != nil {
 		return domFingerprint.Fingerprint{}, false, command.ReasonNone, EvidenceFact{}, fmt.Errorf(
-			"leer el último registro de %s: %w", request.StepNameExe(), err)
+			"leer el registro vigente de %s: %w", request.StepNameExe(), err)
 	}
 
 	// La huella se compone SÓLO si alguien la va a mirar. Un step que declara

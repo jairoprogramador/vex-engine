@@ -30,18 +30,24 @@ import (
 // —por la igualdad de `ExecutionVariableMap.Add`—, y lo específico debe llegar
 // después de lo común.
 //
-// Lee el ÚLTIMO registro de cada clave, que es el estado vigente. Los anteriores
-// siguen ahí y no los mira nadie todavía: son la historia de la que cuelgan el
-// `evidence_from` de la spec 17 y el rollback de la 28, que sí eligen un
-// registro concreto en vez del último.
+// Lee el registro VIGENTE de cada clave, y desde la spec 28 «vigente» es una
+// política y no una constante: en una ejecución normal es el último, y en un
+// rollback es el que estuvo vigente en la ejecución anclada (`RecordProvider`).
+//
+// Que ESTA lectura pase también por el proveedor es lo que la 28 §5.3 no
+// nombraba y la 25 dejó al descubierto: si el ancla alcanzara sólo al bucle de
+// decisión, un rollback **decidiría** con el registro anclado y **resolvería**
+// con los valores de hoy — la partición de §1 reaparecida dentro de una sola
+// ejecución. Lo que este handler llena es el mapa acumulado, o sea con qué
+// valores se despliega.
 type VarsStoreHandler struct {
 	StepBaseHandler
-	records state.Records
+	records RecordProvider
 }
 
 var _ StepHandler = (*VarsStoreHandler)(nil)
 
-func NewVarsStoreHandler(records state.Records) StepHandler {
+func NewVarsStoreHandler(records RecordProvider) StepHandler {
 	return &VarsStoreHandler{
 		StepBaseHandler: StepBaseHandler{Next: nil},
 		records:         records,
@@ -59,7 +65,7 @@ func (h *VarsStoreHandler) Handle(ctx *context.Context, request *StepRequestHand
 	}
 
 	for _, key := range []state.Key{projectKey, environmentKey} {
-		record, found, err := h.records.Last(ctx, key)
+		record, found, err := h.records.Current(ctx, key)
 		if err != nil {
 			return fmt.Errorf("cargar el estado del ámbito %s: %w", key.Scope(), err)
 		}

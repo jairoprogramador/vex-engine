@@ -25,6 +25,12 @@ type Execution struct {
 	runtime     ExecutionRuntime
 	clock       shared.Clock
 
+	// rollback es la ejecución pasada a la que esta vuelve, si vuelve a alguna
+	// (spec 28). Es ENTRADA de la ejecución, como el step o el ambiente, y por eso
+	// vive en el agregado y no en el estado de una cadena: el handler 09 la lee
+	// para resolver el ancla, y el hecho de apertura la publica.
+	rollback RollbackRequest
+
 	// projectVersion y projectHeadHash son hechos DE LA EJECUCIÓN: qué versión
 	// se calculó y sobre qué commit. Vivían en PipelineRequestHandler —el
 	// estado de una cadena— y eso los hacía morir con ella (spec 07 §5.3).
@@ -59,6 +65,22 @@ func NewExecution(executionId ExecutionID, project ExecutionProject, pipeline Ex
 		clock:       clock,
 		startedAt:   clock.Now(),
 	}
+}
+
+// SetRollback anota la ejecución pasada a la que ésta vuelve.
+//
+// Es un setter y no un parámetro más del constructor —que ya lleva siete— por lo
+// mismo que `SetProjectStatus`: el valor cero es el caso normal y significa lo
+// correcto, «esto no es un rollback». Un campo opcional que hay que pasar
+// siempre convierte a todos los llamadores en testigos de una decisión que no
+// tomaron.
+func (e *Execution) SetRollback(rollback RollbackRequest) {
+	e.rollback = rollback
+}
+
+// Rollback es la ejecución pasada a la que ésta vuelve, o el valor cero.
+func (e *Execution) Rollback() RollbackRequest {
+	return e.rollback
 }
 
 func (e *Execution) ProjectStatus() string {

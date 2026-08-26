@@ -6,6 +6,7 @@ import (
 
 	"github.com/jairoprogramador/vex-engine/internal/application/usecase"
 	"github.com/jairoprogramador/vex-engine/internal/domain/command"
+	deploymentDom "github.com/jairoprogramador/vex-engine/internal/domain/deployment"
 	pipDom "github.com/jairoprogramador/vex-engine/internal/domain/pipeline"
 	"github.com/jairoprogramador/vex-engine/internal/domain/record"
 	stepDom "github.com/jairoprogramador/vex-engine/internal/domain/step"
@@ -157,6 +158,24 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	entries := stores.entries
 	recordIDs := stateInfra.NewULIDRecordIDFactory()
 
+	// El proveedor del registro VIGENTE (spec 28 §5.2'). Los tres handlers que
+	// preguntan «¿qué registro está vigente para esta clave?» dependen de él y no
+	// del almacén, y la política se elige una vez —antes del primer step— en el
+	// handler 09: «el último» en una ejecución normal, «el anclado» en un
+	// rollback.
+	//
+	// La escritura NO pasa por aquí: `StepExecutable` sigue hablando con
+	// `records`, porque un rollback es una ejecución nueva que escribe registros
+	// nuevos (§5.4).
+	currentRecords := stepDom.NewCurrentRecords(records)
+
+	// El ancla satisface el puerto mínimo que la cadena de step declara. La
+	// comprobación vive aquí porque éste es el único sitio que ve los dos lados:
+	// `step` no puede nombrar `deployment.RollbackAnchor` sin cerrar el ciclo
+	// —`deployment` compone su objeto con `step.StepConfig`—, igual que pasa con
+	// `step.FactSink` y `record.Facts`.
+	var _ stepDom.AnchorLookup = deploymentDom.RollbackAnchor{}
+
 	// --- Infrastructure: command (shell, filesystem) ---
 	fileSystem := cmdInfra.NewFileSystemManager()
 	shellRunner := cmdInfra.NewShellCommandRunner()
@@ -254,6 +273,8 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 			objectStore,
 			lineageStore,
 			emitter,
+			stores.rollbacks,
+			currentRecords,
 		),
 		pipDom.NewPipelineRunnerHandler(synchronizer),
 	)
@@ -298,10 +319,17 @@ func BuildRunCommand(cfg EngineConfig, args RunArgs) (*RunCommand, error) {
 	// ámbito declarado; el de `step-output` no necesita nada, porque lee del mapa
 	// acumulado — que es lo que el mapa acumulado pasa a ser con esta spec: una
 	// caché de resolución, no el modelo.
+	//
+	// Los TRES reciben `currentRecords` y no `records`, y eso es la spec 28
+	// §5.3 cableada: las tres lecturas del registro tienen que alcanzarse por el
+	// ancla. Si sólo la alcanzara la del handler 03, un rollback DECIDIRÍA con el
+	// registro anclado y RESOLVERÍA con los valores de hoy — la partición que la
+	// spec existe para cerrar, reaparecida dentro de una sola ejecución.
 	stepHead := chainStepHandlers(
-		stepDom.NewVarsStoreHandler(records),
-		stepDom.NewVarsHandler(loadedPipelinecode, stepDom.NewDeclarationResolvers(records), facts),
-		stepDom.NewStepRunnerHandler(loadedPipelinecode, records),
+		stepDom.NewVarsStoreHandler(currentRecords),
+		stepDom.NewVarsHandler(
+			loadedPipelinecode, stepDom.NewDeclarationResolvers(currentRecords), facts),
+		stepDom.NewStepRunnerHandler(loadedPipelinecode, currentRecords),
 	)
 	executableStep := stepDom.NewStepExecutable(stepHead, records, recordIDs, entries, facts)
 

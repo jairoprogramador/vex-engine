@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -291,6 +293,18 @@ func withEnvironment(environment string) requestOption {
 
 func withSchemaVersion(version int) requestOption {
 	return func(r *dto.RequestInput) { r.SchemaVersion = version }
+}
+
+// withRollbackTo nombra la ejecución pasada a la que se vuelve (spec 28 §5.5).
+//
+// Es un campo OPCIONAL y por eso el Object Mother no lo pone por defecto: el
+// `RequestInput` de todos los demás casos es el de un cliente que no conoce la
+// spec, y que se comporte exactamente igual que antes es una de sus
+// afirmaciones (§7).
+func withRollbackTo(deploymentID string, attempt int) requestOption {
+	return func(r *dto.RequestInput) {
+		r.RollbackTo = &dto.RollbackInput{DeploymentID: deploymentID, Attempt: attempt}
+	}
 }
 
 // withProjectTeam permite el campo vacío, que es el disparador cotidiano de la
@@ -918,6 +932,7 @@ func (h *harness) carga(dto jsonlEvento) record.Payload {
 			Deployment: id,
 			Actor:      texto(p, "actor"),
 			Runner:     texto(p, "runner"),
+			RollbackTo: h.destinoDeRollback(p["rollback_to"]),
 		}
 
 	case record.TypeStaleCloneUsed:
@@ -990,6 +1005,21 @@ func (h *harness) carga(dto jsonlEvento) record.Payload {
 		h.t.Fatalf("hecho de tipo desconocido en el archivo: %s", dto.Type)
 		return nil
 	}
+}
+
+// destinoDeRollback reconstruye la ejecución pasada a la que este intento volvió
+// (spec 28 §5.5). Su ausencia es lo normal: casi ningún intento es un rollback.
+func (h *harness) destinoDeRollback(valor any) deployment.RollbackTarget {
+	h.t.Helper()
+
+	crudo, ok := valor.(map[string]any)
+	if !ok {
+		return deployment.RollbackTarget{}
+	}
+	target, err := deployment.ParseRollbackTarget(
+		texto(crudo, "deployment_id"), int(numero(crudo, "attempt")))
+	require.NoError(h.t, err)
+	return target
 }
 
 func (h *harness) evidencia(valor any) record.EvidenceRef {
@@ -1087,6 +1117,62 @@ func (h *harness) cabezaDelLinaje(environment string) string {
 	var dto infraDeployment.FileLineageDTO
 	require.NoError(h.t, json.Unmarshal(data, &dto))
 	return dto.Head
+}
+
+// ── Las líneas para humanos ─────────────────────────────────────────────────
+
+// capturarLineas devuelve unos args con un endpoint de logs en proceso y la
+// función que lee lo que llegó por él.
+//
+// Es la única vía para observar lo que el motor EMITE: el observador de stdout
+// escribe en `os.Stdout` del proceso y no en el writer que recibe `Execute`, así
+// que con `Quiet` —que es como corre el harness— las líneas no se ven. El
+// endpoint sí, y además es el mismo camino por el que el portal las recibe.
+//
+// El cierre del observador es síncrono (`Close` espera al vaciado), y `Execute`
+// lo llama antes de reportar el estado terminal, así que al volver de `run` está
+// todo lo que se emitió.
+func (h *harness) capturarLineas() (cli.RunArgs, func() string) {
+	h.t.Helper()
+
+	var mu sync.Mutex
+	var recibido strings.Builder
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cuerpo, err := io.ReadAll(r.Body)
+		if err == nil {
+			mu.Lock()
+			recibido.Write(cuerpo)
+			mu.Unlock()
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	h.t.Cleanup(server.Close)
+
+	args := h.args()
+	args.LogEndpoint = server.URL
+	args.ExecutionID = "00000000-0000-0000-0000-0000000000ff"
+
+	return args, func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return recibido.String()
+	}
+}
+
+// elDespliegueDeLaUltimaCorrida es el `deployment_id` que la última ejecución
+// derivó, leído de su propio `attempt_started`.
+//
+// Se lee del HECHO y no de la cabeza del linaje aunque las dos coincidan hoy: es
+// lo que un usuario tiene delante cuando elige un destino de rollback (`record
+// history` lista despliegues, no cabezas), así que anclar el test a esa vía es
+// anclarlo a la que se va a usar.
+func (h *harness) elDespliegueDeLaUltimaCorrida() string {
+	h.t.Helper()
+
+	abiertos := deTipo(h.ultimaTira(), record.TypeAttemptStarted.String())
+	require.Len(h.t, abiertos, 1, "una tira abre su intento una vez")
+	return texto(abiertos[0].Payload, "deployment_id")
 }
 
 // ── El empuje hacia el destino (spec 21) ────────────────────────────────────

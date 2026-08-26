@@ -15,4 +15,9 @@ type RequestInput struct {
 	Project       ProjectInput   `json:"project"`
 	Pipeline      PipelineInput  `json:"pipeline"`
 	Execution     ExecutionInput `json:"execution"`
+
+	// RollbackTo nombra la ejecución pasada a la que se vuelve (spec 28 §5.5).
+	// Ausente ⇒ ejecución normal, que es el caso de todo cliente anterior a la
+	// spec: por eso el campo NO sube `schema_version`. Ver `RollbackInput`.
+	RollbackTo *RollbackInput `json:"rollback_to,omitempty"`
 }

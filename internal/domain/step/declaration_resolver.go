@@ -27,7 +27,7 @@ type DeclarationResolvers map[VariableSource]DeclarationResolver
 // NewDeclarationResolvers arma el vocabulario vigente. Añadir un origen es
 // añadir un resolutor aquí y una constante en `VariableSource`; el resto del
 // motor no cambia.
-func NewDeclarationResolvers(records state.Records) DeclarationResolvers {
+func NewDeclarationResolvers(records RecordProvider) DeclarationResolvers {
 	resolvers := make(DeclarationResolvers, 2)
 	for _, resolver := range []DeclarationResolver{
 		StepOutputResolver{},
@@ -92,8 +92,14 @@ func (StepOutputResolver) Resolve(
 	return variable.Value(), nil
 }
 
-// StateResolver lee el ÚLTIMO registro de la clave de posición de ESTE step bajo
-// el ámbito declarado (spec 11).
+// StateResolver lee el registro VIGENTE de la clave de posición de ESTE step
+// bajo el ámbito declarado (spec 11).
+//
+// «Vigente» es el último en una ejecución normal y el ANCLADO en un rollback
+// (spec 28 §5.3): es una de las tres lecturas que el ancla tiene que alcanzar, y
+// la más directa de las tres — lo que resuelve es con qué valor se va a
+// desplegar, que es literalmente lo que un rollback existe para devolver a donde
+// estaba.
 //
 // Es la mitad lectora de la asimetría de la spec 13 §5.4 —se leen los dos
 // ámbitos, se escribe en uno— dicha en voz alta: un step de ambiente que declara
@@ -105,7 +111,7 @@ func (StepOutputResolver) Resolve(
 // re-ejecutar (spec 11 §5.6): esa duda no se resuelve ejecutando sin arriesgar un
 // recurso duplicado.
 type StateResolver struct {
-	records state.Records
+	records RecordProvider
 }
 
 var _ DeclarationResolver = StateResolver{}
@@ -126,7 +132,7 @@ func (r StateResolver) Resolve(
 		return "", err
 	}
 
-	record, found, err := r.records.Last(ctx, key)
+	record, found, err := r.records.Current(ctx, key)
 	if err != nil {
 		return "", fmt.Errorf("leer %s: %w", declaration.SourceDescription(), err)
 	}

@@ -73,7 +73,7 @@ func decidir(
 		registros.ultimo, registros.hay = *ultimo, true
 	}
 
-	handler := domStep.NewStepRunnerHandler(materialCargado(t, config), registros)
+	handler := domStep.NewStepRunnerHandler(materialCargado(t, config), domStep.NewLastRecordProvider(registros))
 
 	request := domStep.NewStepRequestHandler(contexto, contexto.StepName())
 	require.NoError(t, handler.Handle(request.Ctx(), request))
@@ -248,7 +248,7 @@ func TestStepRunnerHandler_SinMaterialSeEjecutaYSeDice(t *testing.T) {
 		domStep.NewEnvironmentScope(), reglas(t, domStep.NewDefaultStateChangedRule()))
 	require.NoError(t, err)
 
-	handler := domStep.NewStepRunnerHandler(materialCargado(t, config), &registrosConUltimo{})
+	handler := domStep.NewStepRunnerHandler(materialCargado(t, config), domStep.NewLastRecordProvider(&registrosConUltimo{}))
 	request := domStep.NewStepRequestHandler(contexto, contexto.StepName())
 
 	require.NoError(t, handler.Handle(request.Ctx(), request))

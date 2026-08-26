@@ -133,6 +133,44 @@ func TestToJSONLEventDTO_ElExitCodeDeUnComandoVaSiempre(t *testing.T) {
 	assert.NotContains(t, dto.Payload, "error_class")
 }
 
+// `rollback_to` es la CONFIRMACIÓN de que el motor entendió el ancla (spec 28
+// §5.5), y va aquí —en el hecho que se empuja— y no en el objeto: meterlo en el
+// objeto cambiaría el `content_id`, y que R y E lo compartan es la mitad del
+// diseño.
+//
+// Se omite cuando no lo hubo, con la misma disciplina que el resto de los
+// opcionales: su ausencia es «esta ejecución no vuelve a ninguna».
+func TestToJSONLEventDTO_ElRollbackViajaEnLaAperturaDelIntento(t *testing.T) {
+	t.Run("una ejecución normal no afirma que vuelve a nada", func(t *testing.T) {
+		dto, err := infraRecord.ToJSONLEventDTO(evento(t, domRecord.AttemptStarted{
+			Deployment: despliegue(t), Runner: "vex-runtime:1"}))
+		require.NoError(t, err)
+
+		assert.NotContains(t, dto.Payload, "rollback_to")
+	})
+
+	t.Run("un rollback lo lleva, y vuelve entero", func(t *testing.T) {
+		target, err := deployment.NewRollbackTarget(despliegue(t), deployment.FirstAttempt())
+		require.NoError(t, err)
+
+		dto, err := infraRecord.ToJSONLEventDTO(evento(t, domRecord.AttemptStarted{
+			Deployment: despliegue(t), Runner: "vex-runtime:1", RollbackTo: target}))
+		require.NoError(t, err)
+
+		crudo, ok := dto.Payload["rollback_to"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, despliegue(t).String(), crudo["deployment_id"])
+		assert.Equal(t, 1, crudo["attempt"])
+
+		// Y la ida y vuelta: lo que el lector recompone es lo mismo que se escribió.
+		hecho, err := infraRecord.FromJSONLEventDTO(dto)
+		require.NoError(t, err)
+		carga, ok := hecho.Payload().(domRecord.AttemptStarted)
+		require.True(t, ok)
+		assert.True(t, carga.RollbackTo.Equals(target))
+	})
+}
+
 // ── Fixture ─────────────────────────────────────────────────────────────────
 
 // digestDePrueba es un resumen ya calculado, con el prefijo de convención que
