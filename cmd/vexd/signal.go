@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
+	"github.com/jairoprogramador/vex-engine/old-internal/interfaces/cli"
 )
 
 // cancelGracePeriod es el plazo que se le da al trabajo en curso, tras la

@@ -1,0 +1,34 @@
+name: Motor nuevo
+
+# El motor nuevo (internal/, cmd/motor) y su regla de dependencias (docs/rediseno/RD-01).
+# El código antiguo vive en old-internal/ y cmd/vexd hasta RD-12, y esta comprobación no lo mira.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  reglas:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Compilar
+        run: go build ./internal/... ./cmd/motor/
+
+      - name: Analizar
+        run: go vet ./internal/... ./cmd/motor/
+
+      - name: Probar
+        run: go test ./internal/...
+
+      - name: Regla de dependencias
+        run: |
+          go list -f '{{.ImportPath}}{{range .Imports}} {{.}}{{end}}' ./... \
+            | awk -v mod="$(go list -m)" -f docs/modelo/reglas-dependencias.awk

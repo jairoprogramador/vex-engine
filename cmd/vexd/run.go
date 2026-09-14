@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
+	"github.com/jairoprogramador/vex-engine/old-internal/interfaces/cli"
 )
 
 // newRunCommand define `vexd run`: ejecuta una pipeline a partir de un

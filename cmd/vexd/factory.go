@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
+	"github.com/jairoprogramador/vex-engine/old-internal/interfaces/cli"
 )
 
 // enginePaths son las dos rutas del entorno real que el binario resuelve y le

@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
+	"github.com/jairoprogramador/vex-engine/old-internal/interfaces/cli"
 )
 
 func TestBuildRunCommand_NoBorraElHomeDelUsuario(t *testing.T) {

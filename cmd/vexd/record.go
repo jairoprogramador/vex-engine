@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jairoprogramador/vex-engine/internal/interfaces/cli"
+	"github.com/jairoprogramador/vex-engine/old-internal/interfaces/cli"
 )
 
 // `vexd record` — la superficie de consulta y mantenimiento del registro
