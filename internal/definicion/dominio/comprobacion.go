@@ -129,43 +129,43 @@ type validadorAmbientes struct {
 	valores      []string
 }
 
-func (v *validadorAmbientes) validar(ambientes []AmbienteDeclarado) {
+func (va *validadorAmbientes) validar(ambientes []AmbienteDeclarado) {
 	for i, a := range ambientes {
-		v.validarUnAmbiente(i, a)
+		va.validarUnAmbiente(i, a)
 	}
 }
 
-func (v *validadorAmbientes) validarUnAmbiente(idx int, a AmbienteDeclarado) {
+func (va *validadorAmbientes) validarUnAmbiente(idx int, a AmbienteDeclarado) {
 	donde := fmt.Sprintf("el ambiente %d", idx+1)
-	if !v.esAmbienteValido(a, donde) {
+	if !va.esAmbienteValido(a, donde) {
 		return
 	}
-	v.nombres = append(v.nombres, a.Nombre)
-	v.valores = append(v.valores, a.Valor)
-	v.comprobacion.ambientesComprobados = append(v.comprobacion.ambientesComprobados, AmbienteComprobado(a))
+	va.nombres = append(va.nombres, a.Nombre)
+	va.valores = append(va.valores, a.Valor)
+	va.comprobacion.ambientesComprobados = append(va.comprobacion.ambientesComprobados, AmbienteComprobado(a))
 }
 
-func (v *validadorAmbientes) esAmbienteValido(a AmbienteDeclarado, donde string) bool {
+func (va *validadorAmbientes) esAmbienteValido(a AmbienteDeclarado, donde string) bool {
 	valido := true
 
 	if a.Nombre == "" {
-		v.comprobacion.falla(Formato, v.fichero, "", "", "%s no dice name", donde)
+		va.comprobacion.falla(Formato, va.fichero, "", "", "%s no dice name", donde)
 		valido = false
 	}
 
 	if !patronNombre.MatchString(a.Valor) {
-		v.comprobacion.falla(Formato, v.fichero, "", "", "%s tiene value %q, que no sirve como directorio de variables/: "+
+		va.comprobacion.falla(Formato, va.fichero, "", "", "%s tiene value %q, que no sirve como directorio de variables/: "+
 			"letras, dígitos, - y _", donde, a.Valor)
 		valido = false
 	}
 
-	if contieneSinMayusculas(v.nombres, a.Nombre) {
-		v.comprobacion.falla(Ambientes, v.fichero, "", "", "el name %q está dos veces", a.Nombre)
+	if contieneSinMayusculas(va.nombres, a.Nombre) {
+		va.comprobacion.falla(Ambientes, va.fichero, "", "", "el name %q está dos veces", a.Nombre)
 		valido = false
 	}
 
-	if contieneSinMayusculas(v.valores, a.Valor) {
-		v.comprobacion.falla(Ambientes, v.fichero, "", "", "el value %q está dos veces", a.Valor)
+	if contieneSinMayusculas(va.valores, a.Valor) {
+		va.comprobacion.falla(Ambientes, va.fichero, "", "", "el value %q está dos veces", a.Valor)
 		valido = false
 	}
 
@@ -195,82 +195,82 @@ type validadorPasos struct {
 	consumidas   map[string]bool
 }
 
-func (v *validadorPasos) validar(pasos []PasoDeclarado) {
+func (vp *validadorPasos) validar(pasos []PasoDeclarado) {
 	for _, escrito := range pasos {
-		v.validarUnPaso(escrito)
+		vp.validarUnPaso(escrito)
 	}
 }
 
-func (v *validadorPasos) validarUnPaso(escrito PasoDeclarado) {
+func (vp *validadorPasos) validarUnPaso(escrito PasoDeclarado) {
 	directorio := DirSteps + escrito.Directorio
 	matches := patronDirectorioDePaso.FindStringSubmatch(escrito.Directorio)
 	if matches == nil {
-		v.comprobacion.falla(Pasos, directorio, "", "", "el directorio de un paso se llama NN-<paso>, con NN de dos dígitos")
+		vp.comprobacion.falla(Pasos, directorio, "", "", "el directorio de un paso se llama NN-<paso>, con NN de dos dígitos")
 		return
 	}
 
 	orden, _ := strconv.Atoi(matches[1])
 	nombre := matches[2]
 
-	if !v.esPasoValido(directorio, nombre, orden, matches[1]) {
+	if !vp.esPasoValido(directorio, nombre, orden, matches[1]) {
 		return
 	}
 
-	v.procesarPaso(escrito, nombre, orden)
+	vp.procesarPaso(escrito, nombre, orden)
 }
 
-func (v *validadorPasos) esPasoValido(directorio, nombre string, orden int, ordenStr string) bool {
+func (vp *validadorPasos) esPasoValido(directorio, nombre string, orden int, ordenStr string) bool {
 	if !patronNombre.MatchString(nombre) {
-		v.comprobacion.falla(Pasos, directorio, "", "", "%q no sirve como nombre de un paso: letras, dígitos, - y _", nombre)
+		vp.comprobacion.falla(Pasos, directorio, "", "", "%q no sirve como nombre de un paso: letras, dígitos, - y _", nombre)
 		return false
 	}
 
-	if otro, repetido := v.porOrden[orden]; repetido {
-		v.comprobacion.falla(Pasos, directorio, nombre, "", "el orden %s ya es de steps/%s", ordenStr, otro)
+	if otro, repetido := vp.porOrden[orden]; repetido {
+		vp.comprobacion.falla(Pasos, directorio, nombre, "", "el orden %s ya es de steps/%s", ordenStr, otro)
 		return false
 	}
 
-	if contieneSinMayusculas(v.nombres, nombre) {
-		v.comprobacion.falla(Pasos, directorio, nombre, "", "otro paso ya se llama %q", nombre)
+	if contieneSinMayusculas(vp.nombres, nombre) {
+		vp.comprobacion.falla(Pasos, directorio, nombre, "", "otro paso ya se llama %q", nombre)
 		return false
 	}
 
 	return true
 }
 
-func (v *validadorPasos) procesarPaso(escrito PasoDeclarado, nombre string, orden int) {
-	v.porOrden[orden] = escrito.Directorio
-	v.nombres = append(v.nombres, nombre)
-	v.consumidas[nombre] = true
+func (vp *validadorPasos) procesarPaso(escrito PasoDeclarado, nombre string, orden int) {
+	vp.porOrden[orden] = escrito.Directorio
+	vp.nombres = append(vp.nombres, nombre)
+	vp.consumidas[nombre] = true
 
 	paso := PasoComprobado{Nombre: nombre, Orden: orden}
-	configuracion, tiene := v.comprobacion.pipelineDeclarado.Configuracion.Datos.Pasos[nombre]
+	configuracion, tiene := vp.comprobacion.pipelineDeclarado.Configuracion.Datos.Pasos[nombre]
 	if tiene {
-		v.comprobacion.configuracion(&paso, &configuracion)
+		vp.comprobacion.configuracion(&paso, &configuracion)
 	} else {
-		v.comprobacion.configuracion(&paso, nil)
+		vp.comprobacion.configuracion(&paso, nil)
 	}
-	v.comprobacion.material(&paso, escrito.Material)
-	v.comprobacion.comandos(&paso, escrito.Comandos)
-	v.comprobacion.pasosComprobados = append(v.comprobacion.pasosComprobados, paso)
+	vp.comprobacion.material(&paso, escrito.Material)
+	vp.comprobacion.comandos(&paso, escrito.Comandos)
+	vp.comprobacion.pasosComprobados = append(vp.comprobacion.pasosComprobados, paso)
 }
 
-func (v *validadorPasos) ordenar() {
-	sort.Slice(v.comprobacion.pasosComprobados, func(i, j int) bool {
-		return v.comprobacion.pasosComprobados[i].Orden < v.comprobacion.pasosComprobados[j].Orden
+func (vp *validadorPasos) ordenar() {
+	sort.Slice(vp.comprobacion.pasosComprobados, func(i, j int) bool {
+		return vp.comprobacion.pasosComprobados[i].Orden < vp.comprobacion.pasosComprobados[j].Orden
 	})
 }
 
-func (v *validadorPasos) validarPasosNoUsados(pasosCfg map[string]ConfiguracionDePasoDeclarada) {
+func (vp *validadorPasos) validarPasosNoUsados(pasosCfg map[string]ConfiguracionDePasoDeclarada) {
 	var sinPaso []string
 	for nombre := range pasosCfg {
-		if !v.consumidas[nombre] {
+		if !vp.consumidas[nombre] {
 			sinPaso = append(sinPaso, nombre)
 		}
 	}
 	sort.Strings(sinPaso)
 	for _, nombre := range sinPaso {
-		v.comprobacion.falla(Pasos, FileConfig, "", "", "declara la configuración de %q, que no es un paso: no hay "+
+		vp.comprobacion.falla(Pasos, FileConfig, "", "", "declara la configuración de %q, que no es un paso: no hay "+
 			"ningún steps/NN-%s/", nombre, nombre)
 	}
 }
