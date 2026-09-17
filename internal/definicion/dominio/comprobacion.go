@@ -53,35 +53,9 @@ type comprobacion struct {
 	pasosComprobados     []PasoComprobado
 	variablesDePipeline  []variableDePipelineEnComprobacion
 	variablesDeComandos  map[string]variableDeComandoEnComprobacion
+	consumidas           map[string]bool
 }
 
-// variableDePipelineEnComprobacion es una variable variableDePipelineEnComprobacion y dónde se escribió, para poder señalar el fichero en un fallo.
-type variableDePipelineEnComprobacion struct {
-	VariableDePipelineComprobada
-	fichero string
-}
-
-// posicion es dónde ocurre algo dentro del pipeline: el paso y el comando, los dos en su orden. Es lo que
-// permite decir qué va antes de qué.
-type posicion struct{ paso, comando int }
-
-func (p posicion) antesDe(q posicion) bool {
-	return p.paso < q.paso || (p.paso == q.paso && p.comando < q.comando)
-}
-
-// variableDeComandoEnComprobacion es una variable de salida y dónde se produce.
-type variableDeComandoEnComprobacion struct {
-	nombre     string
-	donde      posicion
-	paso       string
-	compartida bool
-}
-
-// laVe dice si desde un ámbito se ve esta variable de salida: lo compartido se ve desde todos, y lo del ámbito
-// de un ambiente, solo desde ese ambiente, que es donde se produjo.
-func (s variableDeComandoEnComprobacion) laVe(ambito Ambito) bool {
-	return s.compartida || !ambito.EsCompartido()
-}
 
 func (c *comprobacion) falla(inv Invariante, fichero, paso, ambiente, formato string, args ...any) {
 	c.fallos = append(c.fallos, Fallo{
@@ -101,20 +75,19 @@ func (c *comprobacion) ilegible(fichero string) bool {
 // version rechaza cualquier formato que no sea VersionDelFormato, y entonces no comprueba nada más: todo lo
 // demás fallaría por la misma causa.
 func (c *comprobacion) version() bool {
-	const fichero = "config.yaml"
 	switch {
 	case !c.pipelineDeclarado.Configuracion.Existe:
-		c.falla(Formato, fichero, "", "", "no está, y el pipeline declara ahí su schema_version")
-	case c.ilegible(fichero):
+		c.falla(Formato, FileConfig, "", "", "no está, y el pipeline declara ahí su schema_version")
+	case c.ilegible(FileConfig):
 		for _, i := range c.pipelineDeclarado.Ilegibles {
-			if i.Fichero == fichero {
-				c.falla(Formato, fichero, "", "", "%s", i.Motivo)
+			if i.Fichero == FileConfig {
+				c.falla(Formato, FileConfig, "", "", "%s", i.Motivo)
 			}
 		}
 	case c.pipelineDeclarado.Configuracion.Datos.Version == nil:
-		c.falla(Formato, fichero, "", "", "no dice schema_version, y la única que se lee es la %s", VersionDelFormato)
+		c.falla(Formato, FileConfig, "", "", "no dice schema_version, y la única que se lee es la %s", VersionDelFormato)
 	case *c.pipelineDeclarado.Configuracion.Datos.Version != VersionDelFormato:
-		c.falla(Formato, fichero, "", "", "schema_version %q no se lee: la única que se lee es la %s",
+		c.falla(Formato, FileConfig, "", "", "schema_version %q no se lee: la única que se lee es la %s",
 			*c.pipelineDeclarado.Configuracion.Datos.Version, VersionDelFormato)
 	default:
 		return true
@@ -123,18 +96,17 @@ func (c *comprobacion) version() bool {
 }
 
 func (c *comprobacion) ambientes() {
-	const fichero = "environments.yaml"
 	if !c.pipelineDeclarado.Ambientes.Existe {
-		c.falla(Ambientes, fichero, "", "", "no está, y el pipeline declara ahí sus ambientes en orden")
+		c.falla(Ambientes, FileEnvironments, "", "", "no está, y el pipeline declara ahí sus ambientes en orden")
 		return
 	}
-	if len(c.pipelineDeclarado.Ambientes.Datos) == 0 && !c.ilegible(fichero) {
-		c.falla(Ambientes, fichero, "", "", "no declara ningún ambiente")
+	if len(c.pipelineDeclarado.Ambientes.Datos) == 0 && !c.ilegible(FileEnvironments) {
+		c.falla(Ambientes, FileEnvironments, "", "", "no declara ningún ambiente")
 		return
 	}
 	validador := &validadorAmbientes{
 		comprobacion: c,
-		fichero:      fichero,
+		fichero:      FileEnvironments,
 		nombres:      []string{},
 		valores:      []string{},
 	}
@@ -193,7 +165,7 @@ func (v *validadorAmbientes) esAmbienteValido(a AmbienteDeclarado, donde string)
 
 func (c *comprobacion) pasos() {
 	if len(c.pipelineDeclarado.Pasos) == 0 {
-		c.falla(Pasos, "steps/", "", "", "el pipeline no tiene pasos")
+		c.falla(Pasos, DirSteps, "", "", "el pipeline no tiene pasos")
 		return
 	}
 	validador := &validadorPasos{
@@ -221,7 +193,7 @@ func (v *validadorPasos) validar(pasos []PasoDeclarado) {
 }
 
 func (v *validadorPasos) validarUnPaso(escrito PasoDeclarado) {
-	directorio := "steps/" + escrito.Directorio
+	directorio := DirSteps + escrito.Directorio
 	m := patronDirectorioDePaso.FindStringSubmatch(escrito.Directorio)
 	if m == nil {
 		v.comprobacion.falla(Pasos, directorio, "", "", "el directorio de un paso se llama NN-<paso>, con NN de dos dígitos")
@@ -289,7 +261,7 @@ func (v *validadorPasos) validarPasosNoUsados(pasosCfg map[string]ConfiguracionD
 	}
 	sort.Strings(sinPaso)
 	for _, nombre := range sinPaso {
-		v.comprobacion.falla(Pasos, "config.yaml", "", "", "declara la configuración de %q, que no es un paso: no hay "+
+		v.comprobacion.falla(Pasos, FileConfig, "", "", "declara la configuración de %q, que no es un paso: no hay "+
 			"ningún steps/NN-%s/", nombre, nombre)
 	}
 }
@@ -308,7 +280,6 @@ var reglasDelFormato = map[string]Regla{
 // ejecuta — no un tercer concepto: es el mismo Ambito que tendría una variable variableDePipelineEnComprobacion en ese ambiente,
 // solo que asignado por defecto y no por escrito.
 func (c *comprobacion) configuracion(paso *PasoComprobado, escrita *ConfiguracionDePasoDeclarada) {
-	const fichero = "config.yaml"
 	paso.Reglas = []Regla{ReglaCodigo, ReglaInstrucciones, ReglaVariables}
 	if escrita == nil {
 		return
@@ -319,9 +290,9 @@ func (c *comprobacion) configuracion(paso *PasoComprobado, escrita *Configuracio
 			regla, ok := reglasDelFormato[token]
 			switch {
 			case !ok:
-				c.falla(Formato, fichero, paso.Nombre, "", "la regla %q no existe: code, instructions o variables", token)
+				c.falla(Formato, FileConfig, paso.Nombre, "", "la regla %q no existe: code, instructions o variables", token)
 			case slices.Contains(paso.Reglas, regla):
-				c.falla(Formato, fichero, paso.Nombre, "", "la regla %q está dos veces", token)
+				c.falla(Formato, FileConfig, paso.Nombre, "", "la regla %q está dos veces", token)
 			default:
 				paso.Reglas = append(paso.Reglas, regla)
 			}
@@ -330,7 +301,7 @@ func (c *comprobacion) configuracion(paso *PasoComprobado, escrita *Configuracio
 	if escrita.EdadMaxima != "" {
 		edad, err := time.ParseDuration(escrita.EdadMaxima)
 		if err != nil || edad <= 0 {
-			c.falla(Formato, fichero, paso.Nombre, "", "max_age %q no es una duración positiva, como 720h",
+			c.falla(Formato, FileConfig, paso.Nombre, "", "max_age %q no es una duración positiva, como 720h",
 				escrita.EdadMaxima)
 		}
 		paso.EdadMaxima = edad
@@ -340,7 +311,7 @@ func (c *comprobacion) configuracion(paso *PasoComprobado, escrita *Configuracio
 	case "shared":
 		paso.Ambito = Compartido.puntero()
 	default:
-		c.falla(Formato, fichero, paso.Nombre, "", "el paso tiene scope %q, que no existe: es environment o shared",
+		c.falla(Formato, FileConfig, paso.Nombre, "", "el paso tiene scope %q, que no existe: es environment o shared",
 			escrita.Ambito)
 	}
 }
@@ -655,7 +626,7 @@ func (c *comprobacion) variablesDeclaradas() {
 		}
 		if !ambito.EsCompartido() && !slices.ContainsFunc(c.ambientesComprobados,
 			func(a AmbienteComprobado) bool { return a.Valor == escritas.Ambito }) {
-			c.falla(Variables, fichero, "", "", "variables/%s/ no es de ningún ámbito: un directorio de variables/ "+
+			c.falla(Variables, fichero, "", "", DirVariables+"%s/ no es de ningún ámbito: un directorio de "+DirVariables+
 				"es el value de un ambiente, y las variables compartidas van en la raíz", escritas.Ambito)
 			continue
 		}
@@ -682,15 +653,6 @@ func (c *comprobacion) variablesDeclaradas() {
 
 // choque dice si un nombre ya declarado choca con este ámbito. Dos ambientes distintos no chocan, porque no se
 // ven a la vez; el ámbito compartido choca con todos, porque se ve desde todos.
-func choque(previas []variableDePipelineEnComprobacion, ambito Ambito) (variableDePipelineEnComprobacion, bool) {
-	for _, p := range previas {
-		if p.Ambito.Ve(ambito) || ambito.Ve(p.Ambito) {
-			return p, true
-		}
-	}
-	return variableDePipelineEnComprobacion{}, false
-}
-
 // nombreDeclarable dice si un nombre se puede declarar: es un nombre de variable y no es una variable estándar.
 func (c *comprobacion) nombreDeclarable(fichero string, ambito Ambito, nombre string) bool {
 	switch {
@@ -869,17 +831,6 @@ func (c *comprobacion) seVe(p *problemas, paso PasoComprobado, fichero, nombre s
 }
 
 // tarde dice que algo se usa antes de producirse.
-func tarde(nombre string, necesaria variableDeComandoEnComprobacion, punto posicion) string {
-	cuando := fmt.Sprintf("la produce el comando %d de %q, que va después", necesaria.donde.comando+1, necesaria.paso)
-	if necesaria.donde == punto {
-		cuando = "la produce este mismo comando"
-	}
-	if necesaria.nombre == nombre {
-		return fmt.Sprintf("usa ${var.%s}, y %s", nombre, cuando)
-	}
-	return fmt.Sprintf("usa ${var.%s}, que necesita la salida %q, y %s", nombre, necesaria.nombre, cuando)
-}
-
 // necesita son las variables de salida que hay que haber producido para resolver un nombre: la que nombra, si
 // es una variable de salida, y las que usan, una tras otra, los valores declarados por los que pasa. Un nombre
 // declarado que además se produce cuenta como declarado, porque tiene valor desde el principio: que gane la

@@ -58,20 +58,19 @@ func (s variableDeComandoEnComprobacion) laVe(ambito Ambito) bool {
 type ValidadorVersion struct{}
 
 func (v *ValidadorVersion) Validar(c *comprobacion) error {
-	const fichero = "config.yaml"
 	switch {
 	case !c.pipelineDeclarado.Configuracion.Existe:
-		c.falla(Formato, fichero, "", "", "no está, y el pipeline declara ahí su schema_version")
-	case c.ilegible(fichero):
+		c.falla(Formato, FileConfig, "", "", "no está, y el pipeline declara ahí su schema_version")
+	case c.ilegible(FileConfig):
 		for _, i := range c.pipelineDeclarado.Ilegibles {
-			if i.Fichero == fichero {
-				c.falla(Formato, fichero, "", "", "%s", i.Motivo)
+			if i.Fichero == FileConfig {
+				c.falla(Formato, FileConfig, "", "", "%s", i.Motivo)
 			}
 		}
 	case c.pipelineDeclarado.Configuracion.Datos.Version == nil:
-		c.falla(Formato, fichero, "", "", "no dice schema_version, y la única que se lee es la %s", VersionDelFormato)
+		c.falla(Formato, FileConfig, "", "", "no dice schema_version, y la única que se lee es la %s", VersionDelFormato)
 	case *c.pipelineDeclarado.Configuracion.Datos.Version != VersionDelFormato:
-		c.falla(Formato, fichero, "", "", "schema_version %q no se lee: la única que se lee es la %s",
+		c.falla(Formato, FileConfig, "", "", "schema_version %q no se lee: la única que se lee es la %s",
 			*c.pipelineDeclarado.Configuracion.Datos.Version, VersionDelFormato)
 	default:
 		return nil
@@ -99,19 +98,18 @@ func (v *ValidadorArchivosIlegibles) Validar(c *comprobacion) error {
 type ValidadorAmbientes struct{}
 
 func (v *ValidadorAmbientes) Validar(c *comprobacion) error {
-	const fichero = "environments.yaml"
 	if !c.pipelineDeclarado.Ambientes.Existe {
-		c.falla(Ambientes, fichero, "", "", "no está, y el pipeline declara ahí sus ambientes en orden")
+		c.falla(Ambientes, FileEnvironments, "", "", "no está, y el pipeline declara ahí sus ambientes en orden")
 		return c.resultado()
 	}
-	if len(c.pipelineDeclarado.Ambientes.Datos) == 0 && !c.ilegible(fichero) {
-		c.falla(Ambientes, fichero, "", "", "no declara ningún ambiente")
+	if len(c.pipelineDeclarado.Ambientes.Datos) == 0 && !c.ilegible(FileEnvironments) {
+		c.falla(Ambientes, FileEnvironments, "", "", "no declara ningún ambiente")
 		return c.resultado()
 	}
 
 	validador := &validadorAmbientesImpl{
 		comprobacion: c,
-		fichero:      fichero,
+		fichero:      FileEnvironments,
 		nombres:      []string{},
 		valores:      []string{},
 	}
@@ -177,7 +175,7 @@ type ValidadorPasos struct{}
 
 func (v *ValidadorPasos) Validar(c *comprobacion) error {
 	if len(c.pipelineDeclarado.Pasos) == 0 {
-		c.falla(Pasos, "steps/", "", "", "el pipeline no tiene pasos")
+		c.falla(Pasos, DirSteps, "", "", "el pipeline no tiene pasos")
 		return c.resultado()
 	}
 	validador := &validadorPasosImpl{
@@ -211,7 +209,7 @@ func (v *validadorPasosImpl) validar() error {
 }
 
 func (v *validadorPasosImpl) validarUnPaso(escrito PasoDeclarado) {
-	directorio := "steps/" + escrito.Directorio
+	directorio := DirSteps + escrito.Directorio
 	m := patronDirectorioDePaso.FindStringSubmatch(escrito.Directorio)
 	if m == nil {
 		v.comprobacion.falla(Pasos, directorio, "", "", "el directorio de un paso se llama NN-<paso>, con NN de dos dígitos")
@@ -280,7 +278,7 @@ func (v *validadorPasosImpl) validarPasosNoUsados() error {
 	}
 	sort.Strings(sinPaso)
 	for _, nombre := range sinPaso {
-		v.comprobacion.falla(Pasos, "config.yaml", "", "", "declara la configuración de %q, que no es un paso: no hay "+
+		v.comprobacion.falla(Pasos, FileConfig, "", "", "declara la configuración de %q, que no es un paso: no hay "+
 			"ningún steps/NN-%s/", nombre, nombre)
 	}
 	if len(v.comprobacion.fallos) > 0 {
@@ -336,7 +334,7 @@ func (v *ValidadorVariablesDeclaradas) Validar(c *comprobacion) error {
 		}
 		if !ambito.EsCompartido() && !slices.ContainsFunc(c.ambientesComprobados,
 			func(a AmbienteComprobado) bool { return a.Valor == escritas.Ambito }) {
-			c.falla(Variables, fichero, "", "", "variables/%s/ no es de ningún ámbito: un directorio de variables/ "+
+			c.falla(Variables, fichero, "", "", DirVariables+"%s/ no es de ningún ámbito: un directorio de "+DirVariables+
 				"es el value de un ambiente, y las variables compartidas van en la raíz", escritas.Ambito)
 			continue
 		}
