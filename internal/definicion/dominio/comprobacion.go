@@ -13,6 +13,15 @@ import (
 
 const VersionDelFormato = "1"
 
+// Comprobar valida un pipeline declarado y devuelve su forma comprobada, o un error con todos los fallos encontrados.
+// El orden de validación es crítico: cada validador asume que los anteriores no fallaron.
+// 1. version() → verifica schema_version (si falla, todo falla)
+// 2. Archivos ilegibles y desconocidos → reporta I/O y errores de estructura
+// 3. ambientes() → valida declaración y orden de ambientes
+// 4. pasos() → valida nombres, órdenes y referencias en config.yaml
+// 5. salidas() → indexa variables de salida de comandos, detecta duplicados
+// 6. variablesDeclaradas() → valida variables/; no puede ejecutarse antes de ambientes
+// 7. usos() → valida que las variables usadas existan y sean visibles; no puede ejecutarse antes de salidas
 func Comprobar(pipelineDeclarado PipelineDeclarado) (*PipelineComprobado, error) {
 	comprobacion := &comprobacion{pipelineDeclarado: pipelineDeclarado}
 	if !comprobacion.version() {
