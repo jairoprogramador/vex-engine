@@ -426,22 +426,22 @@ func (val *ValidadorUsos) ambitos(c *comprobacion) []Ambito {
 }
 
 func (val *ValidadorUsos) valoresDeclarados(c *comprobacion) {
-	for _, d := range c.variablesDePipeline {
-		nombres, malformados := usos(d.Valor)
-		ambiente := d.Ambito.deUnAmbiente()
+	for _, variable := range c.variablesDePipeline {
+		nombres, malformados := usos(variable.Valor)
+		ambiente := variable.Ambito.deUnAmbiente()
 		for _, nombre := range malformados {
-			c.falla(Formato, d.fichero, "", ambiente, "${var.%s} no es un nombre de variable", nombre)
+			c.falla(Formato, variable.fichero, "", ambiente, "${var.%s} no es un nombre de variable", nombre)
 		}
 		for _, nombre := range nombres {
 			switch salida, produce := c.variablesDeComandos[nombre]; {
-			case esEstandar(nombre) || val.declaradaEsVisible(c, nombre, d.Ambito):
-			case produce && salida.laVe(d.Ambito):
+			case esEstandar(nombre) || val.declaradaEsVisible(c, nombre, variable.Ambito):
+			case produce && salida.laVe(variable.Ambito):
 			case produce:
-				c.falla(Variables, d.fichero, "", ambiente, "%q usa ${var.%s}, que es una variable de salida del "+
-					"ámbito de un ambiente, y desde el ámbito compartido no se ve", d.Nombre, nombre)
+				c.falla(Variables, variable.fichero, "", ambiente, "%q usa ${var.%s}, que es una variable de salida del "+
+					"ámbito de un ambiente, y desde el ámbito compartido no se ve", variable.Nombre, nombre)
 			default:
-				c.falla(Variables, d.fichero, "", ambiente, "%q usa ${var.%s}, que no es una variable estándar, ni "+
-					"está declarada en un ámbito que se vea desde aquí, ni la produce ningún comando", d.Nombre, nombre)
+				c.falla(Variables, variable.fichero, "", ambiente, "%q usa ${var.%s}, que no es una variable estándar, ni "+
+					"está declarada en un ámbito que se vea desde aquí, ni la produce ningún comando", variable.Nombre, nombre)
 			}
 		}
 	}
@@ -543,9 +543,9 @@ func (val *ValidadorUsos) necesita(c *comprobacion, nombre string, ambito Ambito
 }
 
 func (val *ValidadorUsos) declaradaVisible(c *comprobacion, nombre string, ambito Ambito) (variableDePipelineEnComprobacion, bool) {
-	for _, d := range c.variablesDePipeline {
-		if d.Nombre == nombre && ambito.Ve(d.Ambito) {
-			return d, true
+	for _, variable := range c.variablesDePipeline {
+		if variable.Nombre == nombre && ambito.Ve(variable.Ambito) {
+			return variable, true
 		}
 	}
 	return variableDePipelineEnComprobacion{}, false
