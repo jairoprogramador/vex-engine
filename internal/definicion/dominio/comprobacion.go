@@ -472,29 +472,29 @@ type procesadorOutputs struct {
 	nombresVisto []string
 }
 
-func (p *procesadorOutputs) procesar(escritas []VariableDeComandoDeclarada) {
+func (po *procesadorOutputs) procesar(escritas []VariableDeComandoDeclarada) {
 	for _, salida := range escritas {
-		p.procesarUnOutput(salida)
+		po.procesarUnOutput(salida)
 	}
 }
 
-func (p *procesadorOutputs) procesarUnOutput(salida VariableDeComandoDeclarada) {
-	if !p.esValido(salida) {
+func (po *procesadorOutputs) procesarUnOutput(salida VariableDeComandoDeclarada) {
+	if !po.esValido(salida) {
 		return
 	}
 
 	if salida.Nombre == "" {
-		p.procesarAsersion(salida)
+		po.procesarAsersion(salida)
 		return
 	}
 
-	p.procesarVariable(salida)
+	po.procesarVariable(salida)
 }
 
-func (p *procesadorOutputs) esValido(salida VariableDeComandoDeclarada) bool {
+func (po *procesadorOutputs) esValido(salida VariableDeComandoDeclarada) bool {
 	if salida.Expresion == "" && salida.Nombre == "" {
-		p.comprobacion.falla(Formato, p.fichero, p.paso.Nombre, "", "%s tiene un outputs sin name ni probe: con name es una "+
-			"variable de salida, y sin name es una aserción sobre la salida del comando", p.donde)
+		po.comprobacion.falla(Formato, po.fichero, po.paso.Nombre, "", "%s tiene un outputs sin name ni probe: con name es una "+
+			"variable de salida, y sin name es una aserción sobre la salida del comando", po.donde)
 		return false
 	}
 
@@ -504,66 +504,66 @@ func (p *procesadorOutputs) esValido(salida VariableDeComandoDeclarada) bool {
 			if salida.Nombre != "" {
 				invariante, que = VariablesDeSalida, fmt.Sprintf("de %q", salida.Nombre)
 			}
-			p.comprobacion.falla(invariante, p.fichero, p.paso.Nombre, "", "%s: la expresión regular %s no es correcta: %v",
-				p.donde, que, err)
+			po.comprobacion.falla(invariante, po.fichero, po.paso.Nombre, "", "%s: la expresión regular %s no es correcta: %v",
+				po.donde, que, err)
 		}
 	}
 
 	return true
 }
 
-func (p *procesadorOutputs) procesarAsersion(salida VariableDeComandoDeclarada) {
+func (po *procesadorOutputs) procesarAsersion(salida VariableDeComandoDeclarada) {
 	if salida.Ambito != "" {
-		p.comprobacion.falla(Formato, p.fichero, p.paso.Nombre, "", "%s tiene una aserción con scope %q, y una aserción no "+
-			"produce ninguna variable: el ámbito es de lo que se produce", p.donde, salida.Ambito)
+		po.comprobacion.falla(Formato, po.fichero, po.paso.Nombre, "", "%s tiene una aserción con scope %q, y una aserción no "+
+			"produce ninguna variable: el ámbito es de lo que se produce", po.donde, salida.Ambito)
 	}
-	p.comando.Aserciones = append(p.comando.Aserciones, AsercionComprobada{Descripcion: salida.Descripcion, Expresion: salida.Expresion})
+	po.comando.Aserciones = append(po.comando.Aserciones, AsercionComprobada{Descripcion: salida.Descripcion, Expresion: salida.Expresion})
 }
 
-func (p *procesadorOutputs) procesarVariable(declarada VariableDeComandoDeclarada) {
-	if !p.validarNombreVariable(declarada.Nombre) {
+func (po *procesadorOutputs) procesarVariable(declarada VariableDeComandoDeclarada) {
+	if !po.validarNombreVariable(declarada.Nombre) {
 		return
 	}
 
-	p.nombresVisto = append(p.nombresVisto, declarada.Nombre)
+	po.nombresVisto = append(po.nombresVisto, declarada.Nombre)
 	salida := VariableDeComandoComprobada{Nombre: declarada.Nombre, Descripcion: declarada.Descripcion, Expresion: declarada.Expresion}
-	p.asignarAmbito(&salida, declarada.Ambito)
-	p.validarProbe(declarada.Nombre, declarada.Expresion)
-	p.comando.VariablesDeSalida = append(p.comando.VariablesDeSalida, salida)
+	po.asignarAmbito(&salida, declarada.Ambito)
+	po.validarProbe(declarada.Nombre, declarada.Expresion)
+	po.comando.VariablesDeSalida = append(po.comando.VariablesDeSalida, salida)
 }
 
-func (p *procesadorOutputs) validarNombreVariable(nombre string) bool {
+func (po *procesadorOutputs) validarNombreVariable(nombre string) bool {
 	switch {
 	case !patronVariable.MatchString(nombre):
-		p.comprobacion.falla(Formato, p.fichero, p.paso.Nombre, "", "%s tiene un outputs con name %q, que no es un nombre de "+
-			"variable", p.donde, nombre)
+		po.comprobacion.falla(Formato, po.fichero, po.paso.Nombre, "", "%s tiene un outputs con name %q, que no es un nombre de "+
+			"variable", po.donde, nombre)
 		return false
 	case esEstandar(nombre):
-		p.comprobacion.falla(Variables, p.fichero, p.paso.Nombre, "", "%s produce %q, que es una variable estándar", p.donde, nombre)
+		po.comprobacion.falla(Variables, po.fichero, po.paso.Nombre, "", "%s produce %q, que es una variable estándar", po.donde, nombre)
 		return false
-	case slices.Contains(p.nombresVisto, nombre):
-		p.comprobacion.falla(VariablesDeSalida, p.fichero, p.paso.Nombre, "", "%s produce %q dos veces", p.donde, nombre)
+	case slices.Contains(po.nombresVisto, nombre):
+		po.comprobacion.falla(VariablesDeSalida, po.fichero, po.paso.Nombre, "", "%s produce %q dos veces", po.donde, nombre)
 		return false
 	}
 	return true
 }
 
-func (p *procesadorOutputs) asignarAmbito(salida *VariableDeComandoComprobada, ambito string) {
+func (po *procesadorOutputs) asignarAmbito(salida *VariableDeComandoComprobada, ambito string) {
 	switch ambito {
 	case "":
-		salida.Ambito = clonarAmbito(p.paso.Ambito)
+		salida.Ambito = clonarAmbito(po.paso.Ambito)
 	case "environment":
 	case "shared":
 		salida.Ambito = Compartido.puntero()
 	default:
-		p.comprobacion.falla(Formato, p.fichero, p.paso.Nombre, "", "%s produce %q con scope %q, que no existe: es environment "+
-			"o shared", p.donde, salida.Nombre, ambito)
+		po.comprobacion.falla(Formato, po.fichero, po.paso.Nombre, "", "%s produce %q con scope %q, que no existe: es environment "+
+			"o shared", po.donde, salida.Nombre, ambito)
 	}
 }
 
-func (p *procesadorOutputs) validarProbe(nombre, expresion string) {
+func (po *procesadorOutputs) validarProbe(nombre, expresion string) {
 	if expresion == "" {
-		p.comprobacion.falla(VariablesDeSalida, p.fichero, p.paso.Nombre, "", "la variable de salida %q no dice probe: es la "+
+		po.comprobacion.falla(VariablesDeSalida, po.fichero, po.paso.Nombre, "", "la variable de salida %q no dice probe: es la "+
 			"expresión regular con la que se saca su valor", nombre)
 	}
 }
@@ -899,22 +899,22 @@ type problema struct {
 	detalle       string
 }
 
-func (p *problemas) anotar(inv Invariante, fichero, paso, ambiente, detalle string) {
+func (probs *problemas) anotar(inv Invariante, fichero, paso, ambiente, detalle string) {
 	clave := problema{invariante: inv, fichero: fichero, paso: paso, detalle: detalle}
-	if p.ambientes == nil {
-		p.ambientes = map[problema][]string{}
+	if probs.ambientes == nil {
+		probs.ambientes = map[problema][]string{}
 	}
-	if _, visto := p.ambientes[clave]; !visto {
-		p.orden = append(p.orden, clave)
+	if _, visto := probs.ambientes[clave]; !visto {
+		probs.orden = append(probs.orden, clave)
 	}
-	if !slices.Contains(p.ambientes[clave], ambiente) {
-		p.ambientes[clave] = append(p.ambientes[clave], ambiente)
+	if !slices.Contains(probs.ambientes[clave], ambiente) {
+		probs.ambientes[clave] = append(probs.ambientes[clave], ambiente)
 	}
 }
 
-func (p *problemas) reportar(comp *comprobacion, cuantosAmbientes int) {
-	for _, clave := range p.orden {
-		ambientes := p.ambientes[clave]
+func (probs *problemas) reportar(comp *comprobacion, cuantosAmbientes int) {
+	for _, clave := range probs.orden {
+		ambientes := probs.ambientes[clave]
 		if len(ambientes) == cuantosAmbientes || slices.Contains(ambientes, "") {
 			comp.falla(clave.invariante, clave.fichero, clave.paso, "", "%s", clave.detalle)
 			continue
