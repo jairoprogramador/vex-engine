@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// VersionDelFormato es la única schema_version que Comprobar acepta en config.yaml.
 const VersionDelFormato = "1"
 
 // Comprobar valida un pipeline declarado y devuelve su forma comprobada, o un error con todos los fallos encontrados.

@@ -26,23 +26,6 @@ var validadoresDelPipeline = []Validador{
 	&ValidadorUsos{},
 }
 
-// ResultadoValidacion centraliza el estado de la comprobación.
-type ResultadoValidacion struct {
-	Fallos               []Fallo
-	AmbientesComprobados []AmbienteComprobado
-	PasosComprobados     []PasoComprobado
-	VariablesDePipeline  []variableDePipelineEnComprobacion
-	VariablesDeComandos  map[string]variableDeComandoEnComprobacion
-}
-
-func (res *ResultadoValidacion) TieneErrores() bool {
-	return len(res.Fallos) > 0
-}
-
-func (res *ResultadoValidacion) AlError() error {
-	return &FallosDeComprobacion{Fallos: res.Fallos}
-}
-
 // variableDePipelineEnComprobacion es una variable y dónde se escribió.
 type variableDePipelineEnComprobacion struct {
 	VariableDePipelineComprobada
