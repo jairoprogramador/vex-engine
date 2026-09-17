@@ -203,16 +203,16 @@ func (v *validadorPasos) validar(pasos []PasoDeclarado) {
 
 func (v *validadorPasos) validarUnPaso(escrito PasoDeclarado) {
 	directorio := DirSteps + escrito.Directorio
-	m := patronDirectorioDePaso.FindStringSubmatch(escrito.Directorio)
-	if m == nil {
+	matches := patronDirectorioDePaso.FindStringSubmatch(escrito.Directorio)
+	if matches == nil {
 		v.comprobacion.falla(Pasos, directorio, "", "", "el directorio de un paso se llama NN-<paso>, con NN de dos dígitos")
 		return
 	}
 
-	orden, _ := strconv.Atoi(m[1])
-	nombre := m[2]
+	orden, _ := strconv.Atoi(matches[1])
+	nombre := matches[2]
 
-	if !v.esPasoValido(directorio, nombre, orden, m[1]) {
+	if !v.esPasoValido(directorio, nombre, orden, matches[1]) {
 		return
 	}
 
