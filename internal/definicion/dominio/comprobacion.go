@@ -473,36 +473,36 @@ type procesadorOutputs struct {
 }
 
 func (p *procesadorOutputs) procesar(escritas []VariableDeComandoDeclarada) {
-	for _, s := range escritas {
-		p.procesarUnOutput(s)
+	for _, salida := range escritas {
+		p.procesarUnOutput(salida)
 	}
 }
 
-func (p *procesadorOutputs) procesarUnOutput(s VariableDeComandoDeclarada) {
-	if !p.esValido(s) {
+func (p *procesadorOutputs) procesarUnOutput(salida VariableDeComandoDeclarada) {
+	if !p.esValido(salida) {
 		return
 	}
 
-	if s.Nombre == "" {
-		p.procesarAsersion(s)
+	if salida.Nombre == "" {
+		p.procesarAsersion(salida)
 		return
 	}
 
-	p.procesarVariable(s)
+	p.procesarVariable(salida)
 }
 
-func (p *procesadorOutputs) esValido(s VariableDeComandoDeclarada) bool {
-	if s.Expresion == "" && s.Nombre == "" {
+func (p *procesadorOutputs) esValido(salida VariableDeComandoDeclarada) bool {
+	if salida.Expresion == "" && salida.Nombre == "" {
 		p.comprobacion.falla(Formato, p.fichero, p.paso.Nombre, "", "%s tiene un outputs sin name ni probe: con name es una "+
 			"variable de salida, y sin name es una aserción sobre la salida del comando", p.donde)
 		return false
 	}
 
-	if s.Expresion != "" {
-		if _, err := regexp.Compile(s.Expresion); err != nil {
+	if salida.Expresion != "" {
+		if _, err := regexp.Compile(salida.Expresion); err != nil {
 			invariante, que := Aserciones, "de una aserción"
-			if s.Nombre != "" {
-				invariante, que = VariablesDeSalida, fmt.Sprintf("de %q", s.Nombre)
+			if salida.Nombre != "" {
+				invariante, que = VariablesDeSalida, fmt.Sprintf("de %q", salida.Nombre)
 			}
 			p.comprobacion.falla(invariante, p.fichero, p.paso.Nombre, "", "%s: la expresión regular %s no es correcta: %v",
 				p.donde, que, err)
@@ -512,23 +512,23 @@ func (p *procesadorOutputs) esValido(s VariableDeComandoDeclarada) bool {
 	return true
 }
 
-func (p *procesadorOutputs) procesarAsersion(s VariableDeComandoDeclarada) {
-	if s.Ambito != "" {
+func (p *procesadorOutputs) procesarAsersion(salida VariableDeComandoDeclarada) {
+	if salida.Ambito != "" {
 		p.comprobacion.falla(Formato, p.fichero, p.paso.Nombre, "", "%s tiene una aserción con scope %q, y una aserción no "+
-			"produce ninguna variable: el ámbito es de lo que se produce", p.donde, s.Ambito)
+			"produce ninguna variable: el ámbito es de lo que se produce", p.donde, salida.Ambito)
 	}
-	p.comando.Aserciones = append(p.comando.Aserciones, AsercionComprobada{Descripcion: s.Descripcion, Expresion: s.Expresion})
+	p.comando.Aserciones = append(p.comando.Aserciones, AsercionComprobada{Descripcion: salida.Descripcion, Expresion: salida.Expresion})
 }
 
-func (p *procesadorOutputs) procesarVariable(s VariableDeComandoDeclarada) {
-	if !p.validarNombreVariable(s.Nombre) {
+func (p *procesadorOutputs) procesarVariable(declarada VariableDeComandoDeclarada) {
+	if !p.validarNombreVariable(declarada.Nombre) {
 		return
 	}
 
-	p.nombresVisto = append(p.nombresVisto, s.Nombre)
-	salida := VariableDeComandoComprobada{Nombre: s.Nombre, Descripcion: s.Descripcion, Expresion: s.Expresion}
-	p.asignarAmbito(&salida, s.Ambito)
-	p.validarProbe(s.Nombre, s.Expresion)
+	p.nombresVisto = append(p.nombresVisto, declarada.Nombre)
+	salida := VariableDeComandoComprobada{Nombre: declarada.Nombre, Descripcion: declarada.Descripcion, Expresion: declarada.Expresion}
+	p.asignarAmbito(&salida, declarada.Ambito)
+	p.validarProbe(declarada.Nombre, declarada.Expresion)
 	p.comando.VariablesDeSalida = append(p.comando.VariablesDeSalida, salida)
 }
 
@@ -706,9 +706,9 @@ func (comp *comprobacion) usos() {
 
 // declaradaVisible busca un nombre entre las variables variablesDePipeline que se ven desde un ámbito.
 func (comp *comprobacion) declaradaVisible(nombre string, ambito Ambito) (variableDePipelineEnComprobacion, bool) {
-	for _, d := range comp.variablesDePipeline {
-		if d.Nombre == nombre && ambito.Ve(d.Ambito) {
-			return d, true
+	for _, variable := range comp.variablesDePipeline {
+		if variable.Nombre == nombre && ambito.Ve(variable.Ambito) {
+			return variable, true
 		}
 	}
 	return variableDePipelineEnComprobacion{}, false
@@ -732,22 +732,22 @@ func (comp *comprobacion) ambitos() []Ambito {
 // valoresDeclarados comprueba lo que usa cada valor declarado, sin mirar el orden: cuándo se resuelve una
 // variable variableDePipelineEnComprobacion depende de dónde se use, y eso se mira en usosEnLosPasos.
 func (comp *comprobacion) valoresDeclarados() {
-	for _, d := range comp.variablesDePipeline {
-		nombres, malformados := usos(d.Valor)
-		ambiente := d.Ambito.deUnAmbiente()
+	for _, variable := range comp.variablesDePipeline {
+		nombres, malformados := usos(variable.Valor)
+		ambiente := variable.Ambito.deUnAmbiente()
 		for _, nombre := range malformados {
-			comp.falla(Formato, d.fichero, "", ambiente, "${var.%s} no es un nombre de variable", nombre)
+			comp.falla(Formato, variable.fichero, "", ambiente, "${var.%s} no es un nombre de variable", nombre)
 		}
 		for _, nombre := range nombres {
 			switch salida, produce := comp.variablesDeComandos[nombre]; {
-			case esEstandar(nombre) || comp.declaradaEsVisible(nombre, d.Ambito):
-			case produce && salida.laVe(d.Ambito):
+			case esEstandar(nombre) || comp.declaradaEsVisible(nombre, variable.Ambito):
+			case produce && salida.laVe(variable.Ambito):
 			case produce:
-				comp.falla(Variables, d.fichero, "", ambiente, "%q usa ${var.%s}, que es una variable de salida del "+
-					"ámbito de un ambiente, y desde el ámbito compartido no se ve", d.Nombre, nombre)
+				comp.falla(Variables, variable.fichero, "", ambiente, "%q usa ${var.%s}, que es una variable de salida del "+
+					"ámbito de un ambiente, y desde el ámbito compartido no se ve", variable.Nombre, nombre)
 			default:
-				comp.falla(Variables, d.fichero, "", ambiente, "%q usa ${var.%s}, que no es una variable estándar, ni "+
-					"está declarada en un ámbito que se vea desde aquí, ni la produce ningún comando", d.Nombre, nombre)
+				comp.falla(Variables, variable.fichero, "", ambiente, "%q usa ${var.%s}, que no es una variable estándar, ni "+
+					"está declarada en un ámbito que se vea desde aquí, ni la produce ningún comando", variable.Nombre, nombre)
 			}
 		}
 	}
