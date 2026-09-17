@@ -15,14 +15,14 @@ const Compartido Ambito = ""
 
 // Rutas y ficheros del pipeline
 const (
-	DirVariables      = "variables/"
-	DirSteps          = "steps/"
-	DirCommands       = "commands/"
-	FileConfig        = "config.yaml"
-	FileEnvironments  = "environments.yaml"
-	FileCommands      = "commands.yaml"
-	FileVExPipeline   = "vexpipeline.yaml"
-	PatternStepsDir   = "NN-<step>"
+	DirVariables     = "variables/"
+	DirSteps         = "steps/"
+	DirCommands      = "commands/"
+	FileConfig       = "config.yaml"
+	FileEnvironments = "environments.yaml"
+	FileCommands     = "commands.yaml"
+	FileVExPipeline  = "vexpipeline.yaml"
+	PatternStepsDir  = "NN-<step>"
 )
 
 const (

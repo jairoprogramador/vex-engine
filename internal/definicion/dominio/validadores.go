@@ -5,11 +5,25 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // Validador define el contrato para validar un aspecto del pipeline.
 type Validador interface {
 	Validar(c *comprobacion) error
+}
+
+// validadoresDelPipeline son los validadores que Comprobar ejecuta después de ValidadorVersion, en este orden:
+// cada uno asume que los anteriores corrieron, aunque hayan fallado (ninguno de ellos corta la comprobación,
+// salvo ValidadorVersion). Son estructs vacíos y sin estado propio, así que compartir esta lista entre llamadas
+// concurrentes a Comprobar es seguro.
+var validadoresDelPipeline = []Validador{
+	&ValidadorArchivosIlegibles{},
+	&ValidadorAmbientes{},
+	&ValidadorPasos{},
+	&ValidadorSalidas{},
+	&ValidadorVariablesDeclaradas{},
+	&ValidadorUsos{},
 }
 
 // ResultadoValidacion centraliza el estado de la comprobación.
@@ -248,7 +262,6 @@ func (val *validadorPasosImpl) procesarPaso(escrito PasoDeclarado, nombre string
 
 	paso := PasoComprobado{Nombre: nombre, Orden: orden}
 	configuracion, tiene := val.comprobacion.pipelineDeclarado.Configuracion.Datos.Pasos[nombre]
-	val.comprobacion.consumidas[nombre] = true
 	if tiene {
 		val.comprobacion.configuracion(&paso, &configuracion)
 	} else {
@@ -393,13 +406,7 @@ type ValidadorUsos struct{}
 
 func (val *ValidadorUsos) Validar(c *comprobacion) error {
 	val.circulos(c)
-	if len(c.fallos) > 0 {
-		return c.resultado()
-	}
 	val.valoresDeclarados(c)
-	if len(c.fallos) > 0 {
-		return c.resultado()
-	}
 	val.usosEnLosPasos(c)
 	if len(c.fallos) > 0 {
 		return c.resultado()
@@ -570,6 +577,49 @@ func choque(previas []variableDePipelineEnComprobacion, ambito Ambito) (variable
 		}
 	}
 	return variableDePipelineEnComprobacion{}, false
+}
+
+// problemas junta los fallos que se repiten en varios ambientes: si uno ocurre en todos, es un solo fallo sin
+// ambiente.
+type problemas struct {
+	orden     []problema
+	ambientes map[problema][]string
+}
+
+type problema struct {
+	invariante    Invariante
+	fichero, paso string
+	detalle       string
+}
+
+func (probs *problemas) anotar(inv Invariante, fichero, paso, ambiente, detalle string) {
+	clave := problema{invariante: inv, fichero: fichero, paso: paso, detalle: detalle}
+	if probs.ambientes == nil {
+		probs.ambientes = map[problema][]string{}
+	}
+	if _, visto := probs.ambientes[clave]; !visto {
+		probs.orden = append(probs.orden, clave)
+	}
+	if !slices.Contains(probs.ambientes[clave], ambiente) {
+		probs.ambientes[clave] = append(probs.ambientes[clave], ambiente)
+	}
+}
+
+func (probs *problemas) reportar(comp *comprobacion, cuantosAmbientes int) {
+	for _, clave := range probs.orden {
+		ambientes := probs.ambientes[clave]
+		if len(ambientes) == cuantosAmbientes || slices.Contains(ambientes, "") {
+			comp.falla(clave.invariante, clave.fichero, clave.paso, "", "%s", clave.detalle)
+			continue
+		}
+		for _, ambiente := range ambientes {
+			comp.falla(clave.invariante, clave.fichero, clave.paso, ambiente, "%s", clave.detalle)
+		}
+	}
+}
+
+func contieneSinMayusculas(lista []string, s string) bool {
+	return slices.ContainsFunc(lista, func(x string) bool { return strings.EqualFold(x, s) })
 }
 
 func tarde(nombre string, necesaria variableDeComandoEnComprobacion, punto posicion) string {
