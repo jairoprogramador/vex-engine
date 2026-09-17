@@ -71,20 +71,20 @@ var (
 
 func usos(texto string) (nombres, malformados []string) {
 	for _, m := range patronUso.FindAllStringSubmatch(texto, -1) {
-		lista := &nombres
+		targetList := &nombres
 		if !patronVariable.MatchString(m[1]) {
-			lista = &malformados
+			targetList = &malformados
 		}
-		if !slices.Contains(*lista, m[1]) {
-			*lista = append(*lista, m[1])
+		if !slices.Contains(*targetList, m[1]) {
+			*targetList = append(*targetList, m[1])
 		}
 	}
 	return nombres, malformados
 }
 
 func rutaLocal(ruta string) (string, bool) {
-	limpia := path.Clean(ruta)
-	return limpia, fs.ValidPath(limpia)
+	cleanPath := path.Clean(ruta)
+	return cleanPath, fs.ValidPath(cleanPath)
 }
 
 func (a Ambito) EsCompartido() bool { return a == Compartido }
