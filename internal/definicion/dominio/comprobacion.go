@@ -66,60 +66,60 @@ type comprobacion struct {
 }
 
 
-func (c *comprobacion) falla(inv Invariante, fichero, paso, ambiente, formato string, args ...any) {
-	c.fallos = append(c.fallos, Fallo{
+func (comp *comprobacion) falla(inv Invariante, fichero, paso, ambiente, formato string, args ...any) {
+	comp.fallos = append(comp.fallos, Fallo{
 		Invariante: inv, Fichero: fichero, Paso: paso, Ambiente: ambiente, Detalle: fmt.Sprintf(formato, args...),
 	})
 }
 
-func (c *comprobacion) resultado() error {
-	return &FallosDeComprobacion{Fallos: c.fallos}
+func (comp *comprobacion) resultado() error {
+	return &FallosDeComprobacion{Fallos: comp.fallos}
 }
 
 // ilegible dice si un fichero ya falló al leerse, para no sumarle fallos que solo son consecuencia de eso.
-func (c *comprobacion) ilegible(fichero string) bool {
-	return slices.ContainsFunc(c.pipelineDeclarado.Ilegibles, func(i FicheroIlegibleDeclarado) bool { return i.Fichero == fichero })
+func (comp *comprobacion) ilegible(fichero string) bool {
+	return slices.ContainsFunc(comp.pipelineDeclarado.Ilegibles, func(i FicheroIlegibleDeclarado) bool { return i.Fichero == fichero })
 }
 
 // version rechaza cualquier formato que no sea VersionDelFormato, y entonces no comprueba nada más: todo lo
 // demás fallaría por la misma causa.
-func (c *comprobacion) version() bool {
+func (comp *comprobacion) version() bool {
 	switch {
-	case !c.pipelineDeclarado.Configuracion.Existe:
-		c.falla(Formato, FileConfig, "", "", "no está, y el pipeline declara ahí su schema_version")
-	case c.ilegible(FileConfig):
-		for _, i := range c.pipelineDeclarado.Ilegibles {
+	case !comp.pipelineDeclarado.Configuracion.Existe:
+		comp.falla(Formato, FileConfig, "", "", "no está, y el pipeline declara ahí su schema_version")
+	case comp.ilegible(FileConfig):
+		for _, i := range comp.pipelineDeclarado.Ilegibles {
 			if i.Fichero == FileConfig {
-				c.falla(Formato, FileConfig, "", "", "%s", i.Motivo)
+				comp.falla(Formato, FileConfig, "", "", "%s", i.Motivo)
 			}
 		}
-	case c.pipelineDeclarado.Configuracion.Datos.Version == nil:
-		c.falla(Formato, FileConfig, "", "", "no dice schema_version, y la única que se lee es la %s", VersionDelFormato)
-	case *c.pipelineDeclarado.Configuracion.Datos.Version != VersionDelFormato:
-		c.falla(Formato, FileConfig, "", "", "schema_version %q no se lee: la única que se lee es la %s",
-			*c.pipelineDeclarado.Configuracion.Datos.Version, VersionDelFormato)
+	case comp.pipelineDeclarado.Configuracion.Datos.Version == nil:
+		comp.falla(Formato, FileConfig, "", "", "no dice schema_version, y la única que se lee es la %s", VersionDelFormato)
+	case *comp.pipelineDeclarado.Configuracion.Datos.Version != VersionDelFormato:
+		comp.falla(Formato, FileConfig, "", "", "schema_version %q no se lee: la única que se lee es la %s",
+			*comp.pipelineDeclarado.Configuracion.Datos.Version, VersionDelFormato)
 	default:
 		return true
 	}
 	return false
 }
 
-func (c *comprobacion) ambientes() {
-	if !c.pipelineDeclarado.Ambientes.Existe {
-		c.falla(Ambientes, FileEnvironments, "", "", "no está, y el pipeline declara ahí sus ambientes en orden")
+func (comp *comprobacion) ambientes() {
+	if !comp.pipelineDeclarado.Ambientes.Existe {
+		comp.falla(Ambientes, FileEnvironments, "", "", "no está, y el pipeline declara ahí sus ambientes en orden")
 		return
 	}
-	if len(c.pipelineDeclarado.Ambientes.Datos) == 0 && !c.ilegible(FileEnvironments) {
-		c.falla(Ambientes, FileEnvironments, "", "", "no declara ningún ambiente")
+	if len(comp.pipelineDeclarado.Ambientes.Datos) == 0 && !comp.ilegible(FileEnvironments) {
+		comp.falla(Ambientes, FileEnvironments, "", "", "no declara ningún ambiente")
 		return
 	}
 	validador := &validadorAmbientes{
-		comprobacion: c,
+		comprobacion: comp,
 		fichero:      FileEnvironments,
 		nombres:      []string{},
 		valores:      []string{},
 	}
-	validador.validar(c.pipelineDeclarado.Ambientes.Datos)
+	validador.validar(comp.pipelineDeclarado.Ambientes.Datos)
 }
 
 type validadorAmbientes struct {
@@ -172,20 +172,20 @@ func (v *validadorAmbientes) esAmbienteValido(a AmbienteDeclarado, donde string)
 	return valido
 }
 
-func (c *comprobacion) pasos() {
-	if len(c.pipelineDeclarado.Pasos) == 0 {
-		c.falla(Pasos, DirSteps, "", "", "el pipeline no tiene pasos")
+func (comp *comprobacion) pasos() {
+	if len(comp.pipelineDeclarado.Pasos) == 0 {
+		comp.falla(Pasos, DirSteps, "", "", "el pipeline no tiene pasos")
 		return
 	}
 	validador := &validadorPasos{
-		comprobacion: c,
+		comprobacion: comp,
 		porOrden:     make(map[int]string),
 		nombres:      []string{},
 		consumidas:   make(map[string]bool),
 	}
-	validador.validar(c.pipelineDeclarado.Pasos)
+	validador.validar(comp.pipelineDeclarado.Pasos)
 	validador.ordenar()
-	validador.validarPasosNoUsados(c.pipelineDeclarado.Configuracion.Datos.Pasos)
+	validador.validarPasosNoUsados(comp.pipelineDeclarado.Configuracion.Datos.Pasos)
 }
 
 type validadorPasos struct {
@@ -288,7 +288,7 @@ var reglasDelFormato = map[string]Regla{
 // defecto lo que produce sin scope propio. Sin scope, su ámbito es el que representa al ambiente en que se
 // ejecuta — no un tercer concepto: es el mismo Ambito que tendría una variable variableDePipelineEnComprobacion en ese ambiente,
 // solo que asignado por defecto y no por escrito.
-func (c *comprobacion) configuracion(paso *PasoComprobado, escrita *ConfiguracionDePasoDeclarada) {
+func (comp *comprobacion) configuracion(paso *PasoComprobado, escrita *ConfiguracionDePasoDeclarada) {
 	paso.Reglas = []Regla{ReglaCodigo, ReglaInstrucciones, ReglaVariables}
 	if escrita == nil {
 		return
@@ -299,9 +299,9 @@ func (c *comprobacion) configuracion(paso *PasoComprobado, escrita *Configuracio
 			regla, ok := reglasDelFormato[token]
 			switch {
 			case !ok:
-				c.falla(Formato, FileConfig, paso.Nombre, "", "la regla %q no existe: code, instructions o variables", token)
+				comp.falla(Formato, FileConfig, paso.Nombre, "", "la regla %q no existe: code, instructions o variables", token)
 			case slices.Contains(paso.Reglas, regla):
-				c.falla(Formato, FileConfig, paso.Nombre, "", "la regla %q está dos veces", token)
+				comp.falla(Formato, FileConfig, paso.Nombre, "", "la regla %q está dos veces", token)
 			default:
 				paso.Reglas = append(paso.Reglas, regla)
 			}
@@ -310,7 +310,7 @@ func (c *comprobacion) configuracion(paso *PasoComprobado, escrita *Configuracio
 	if escrita.EdadMaxima != "" {
 		edad, err := time.ParseDuration(escrita.EdadMaxima)
 		if err != nil || edad <= 0 {
-			c.falla(Formato, FileConfig, paso.Nombre, "", "max_age %q no es una duración positiva, como 720h",
+			comp.falla(Formato, FileConfig, paso.Nombre, "", "max_age %q no es una duración positiva, como 720h",
 				escrita.EdadMaxima)
 		}
 		paso.EdadMaxima = edad
@@ -320,18 +320,18 @@ func (c *comprobacion) configuracion(paso *PasoComprobado, escrita *Configuracio
 	case "shared":
 		paso.Ambito = Compartido.puntero()
 	default:
-		c.falla(Formato, FileConfig, paso.Nombre, "", "el paso tiene scope %q, que no existe: es environment o shared",
+		comp.falla(Formato, FileConfig, paso.Nombre, "", "el paso tiene scope %q, que no existe: es environment o shared",
 			escrita.Ambito)
 	}
 }
 
 // material toma el directorio del paso. Un enlace no puede salir de él: lo que está fuera no es material del
 // paso, y su hash no lo vería.
-func (c *comprobacion) material(paso *PasoComprobado, escritos []FicheroDeclarado) {
+func (comp *comprobacion) material(paso *PasoComprobado, escritos []FicheroDeclarado) {
 	for _, f := range escritos {
 		if f.Enlace != "" {
 			if _, ok := rutaLocal(path.Join(path.Dir(f.Ruta), f.Enlace)); !ok || path.IsAbs(f.Enlace) {
-				c.falla(Formato, paso.Directorio()+"/"+f.Ruta, paso.Nombre, "",
+				comp.falla(Formato, paso.Directorio()+"/"+f.Ruta, paso.Nombre, "",
 					"el enlace apunta a %q, fuera del directorio del paso", f.Enlace)
 				continue
 			}
@@ -342,18 +342,18 @@ func (c *comprobacion) material(paso *PasoComprobado, escritos []FicheroDeclarad
 	}
 }
 
-func (c *comprobacion) comandos(paso *PasoComprobado, escritos Declarado[[]ComandoDeclarado]) {
+func (comp *comprobacion) comandos(paso *PasoComprobado, escritos Declarado[[]ComandoDeclarado]) {
 	fichero := paso.Directorio() + "/commands.yaml"
 	if !escritos.Existe {
-		c.falla(Pasos, fichero, paso.Nombre, "", "no está, y el paso declara ahí sus comandos")
+		comp.falla(Pasos, fichero, paso.Nombre, "", "no está, y el paso declara ahí sus comandos")
 		return
 	}
-	if len(escritos.Datos) == 0 && !c.ilegible(fichero) {
-		c.falla(Pasos, fichero, paso.Nombre, "", "no declara ningún comando")
+	if len(escritos.Datos) == 0 && !comp.ilegible(fichero) {
+		comp.falla(Pasos, fichero, paso.Nombre, "", "no declara ningún comando")
 		return
 	}
 	procesador := &procesadorComandos{
-		comprobacion: c,
+		comprobacion: comp,
 		paso:         paso,
 		fichero:      fichero,
 	}
@@ -451,9 +451,9 @@ func (pc *procesadorComandos) buscarMaterial(ruta string) int {
 // dos no declara nada (RD-04 §9). Sin scope propio, una variable de salida hereda el ámbito del paso que la
 // produce (RD-04 §9.19): el compartido si el paso es de scope shared, o si no el del ambiente en que se
 // ejecuta.
-func (c *comprobacion) outputs(paso *PasoComprobado, comando *ComandoComprobado, fichero, donde string, escritas []VariableDeComandoDeclarada) {
+func (comp *comprobacion) outputs(paso *PasoComprobado, comando *ComandoComprobado, fichero, donde string, escritas []VariableDeComandoDeclarada) {
 	procesador := &procesadorOutputs{
-		comprobacion: c,
+		comprobacion: comp,
 		paso:         paso,
 		comando:      comando,
 		fichero:      fichero,
@@ -571,38 +571,38 @@ func (p *procesadorOutputs) validarProbe(nombre, expresion string) {
 // salidas indexa dónde se produce cada variable de salida. Una variable de salida pertenece a un ámbito y no a
 // un paso, así que dos comandos del mismo ámbito no pueden producir el mismo nombre: quien lo usara no sabría
 // cuál de los dos ve.
-func (c *comprobacion) salidas() {
-	c.variablesDeComandos = map[string]variableDeComandoEnComprobacion{}
-	for i, paso := range c.pasosComprobados {
-		c.salidasDelPaso(i, paso)
+func (comp *comprobacion) salidas() {
+	comp.variablesDeComandos = map[string]variableDeComandoEnComprobacion{}
+	for i, paso := range comp.pasosComprobados {
+		comp.salidasDelPaso(i, paso)
 	}
 }
 
-func (c *comprobacion) salidasDelPaso(idxPaso int, paso PasoComprobado) {
+func (comp *comprobacion) salidasDelPaso(idxPaso int, paso PasoComprobado) {
 	for j, comando := range paso.Comandos {
-		c.salidasDelComando(idxPaso, j, paso, comando)
+		comp.salidasDelComando(idxPaso, j, paso, comando)
 	}
 }
 
-func (c *comprobacion) salidasDelComando(idxPaso, idxCmd int, paso PasoComprobado, comando ComandoComprobado) {
+func (comp *comprobacion) salidasDelComando(idxPaso, idxCmd int, paso PasoComprobado, comando ComandoComprobado) {
 	for _, s := range comando.VariablesDeSalida {
-		c.registrarSalida(idxPaso, idxCmd, paso, s)
+		comp.registrarSalida(idxPaso, idxCmd, paso, s)
 	}
 }
 
-func (c *comprobacion) registrarSalida(idxPaso, idxCmd int, paso PasoComprobado, s VariableDeComandoComprobada) {
-	anterior, existia := c.variablesDeComandos[s.Nombre]
+func (comp *comprobacion) registrarSalida(idxPaso, idxCmd int, paso PasoComprobado, s VariableDeComandoComprobada) {
+	anterior, existia := comp.variablesDeComandos[s.Nombre]
 	if !existia {
-		c.variablesDeComandos[s.Nombre] = variableDeComandoEnComprobacion{
+		comp.variablesDeComandos[s.Nombre] = variableDeComandoEnComprobacion{
 			nombre: s.Nombre, donde: posicion{paso: idxPaso, comando: idxCmd}, paso: paso.Nombre, compartida: s.Ambito != nil,
 		}
 		return
 	}
 
-	c.validarDuplicadoDeSalida(idxCmd, paso, s, anterior)
+	comp.validarDuplicadoDeSalida(idxCmd, paso, s, anterior)
 }
 
-func (c *comprobacion) validarDuplicadoDeSalida(idxCmd int, paso PasoComprobado, s VariableDeComandoComprobada, anterior variableDeComandoEnComprobacion) {
+func (comp *comprobacion) validarDuplicadoDeSalida(idxCmd int, paso PasoComprobado, s VariableDeComandoComprobada, anterior variableDeComandoEnComprobacion) {
 	fichero := paso.Directorio() + "/commands.yaml"
 
 	if anterior.paso == paso.Nombre && anterior.donde.comando == idxCmd {
@@ -610,13 +610,13 @@ func (c *comprobacion) validarDuplicadoDeSalida(idxCmd int, paso PasoComprobado,
 	}
 
 	if anterior.compartida != (s.Ambito != nil) {
-		c.falla(VariablesDeSalida, fichero, paso.Nombre, "", "el comando %d produce %q, que el comando %d "+
+		comp.falla(VariablesDeSalida, fichero, paso.Nombre, "", "el comando %d produce %q, que el comando %d "+
 			"de %q produce en el otro ámbito: un nombre pertenece a un solo ámbito", idxCmd+1, s.Nombre,
 			anterior.donde.comando+1, anterior.paso)
 		return
 	}
 
-	c.falla(VariablesDeSalida, fichero, paso.Nombre, "", "el comando %d produce %q, que ya produce el "+
+	comp.falla(VariablesDeSalida, fichero, paso.Nombre, "", "el comando %d produce %q, que ya produce el "+
 		"comando %d de %q: en un ámbito, una variable de salida se produce en un solo sitio", idxCmd+1,
 		s.Nombre, anterior.donde.comando+1, anterior.paso)
 }
@@ -624,38 +624,38 @@ func (c *comprobacion) validarDuplicadoDeSalida(idxCmd int, paso PasoComprobado,
 // variablesDeclaradas pone cada fichero de variables/ en su ámbito: variables/<ambiente>/ declara las del
 // ámbito de ese ambiente, y la raíz de variables/, las del ámbito compartido (IT-12 DEC-12.7). El nombre del
 // fichero solo organiza: las variables son del ámbito, y las ve todo paso que se ejecuta en él.
-func (c *comprobacion) variablesDeclaradas() {
+func (comp *comprobacion) variablesDeclaradas() {
 	// donde recuerda en qué ámbitos ya está declarado cada nombre, para ver los que chocan.
 	donde := map[string][]variableDePipelineEnComprobacion{}
-	for _, escritas := range c.pipelineDeclarado.Variables {
+	for _, escritas := range comp.pipelineDeclarado.Variables {
 		fichero := escritas.Fichero
 		ambito := Compartido
 		if escritas.Ambito != "" {
 			ambito = Ambito(escritas.Ambito)
 		}
-		if !ambito.EsCompartido() && !slices.ContainsFunc(c.ambientesComprobados,
+		if !ambito.EsCompartido() && !slices.ContainsFunc(comp.ambientesComprobados,
 			func(a AmbienteComprobado) bool { return a.Valor == escritas.Ambito }) {
-			c.falla(Variables, fichero, "", "", DirVariables+"%s/ no es de ningún ámbito: un directorio de "+DirVariables+
+			comp.falla(Variables, fichero, "", "", DirVariables+"%s/ no es de ningún ámbito: un directorio de "+DirVariables+
 				"es el value de un ambiente, y las variables compartidas van en la raíz", escritas.Ambito)
 			continue
 		}
 		for _, v := range escritas.Variables {
-			if !c.nombreDeclarable(fichero, ambito, v.Nombre) {
+			if !comp.nombreDeclarable(fichero, ambito, v.Nombre) {
 				continue
 			}
 			if otra, choca := choque(donde[v.Nombre], ambito); choca {
 				if otra.Ambito == ambito {
-					c.falla(Variables, fichero, "", ambito.deUnAmbiente(), "la variable %q ya está declarada en %s",
+					comp.falla(Variables, fichero, "", ambito.deUnAmbiente(), "la variable %q ya está declarada en %s",
 						v.Nombre, otra.fichero)
 				} else {
-					c.falla(Variables, fichero, "", "", "la variable %q ya está declarada en %s, que es del ámbito %s, "+
+					comp.falla(Variables, fichero, "", "", "la variable %q ya está declarada en %s, que es del ámbito %s, "+
 						"y un paso ve los dos: un nombre pertenece a un solo ámbito", v.Nombre, otra.fichero, otra.Ambito)
 				}
 				continue
 			}
-			nueva := variableDePipelineEnComprobacion{VariableDePipelineComprobada: c.variable(fichero, ambito, v), fichero: fichero}
+			nueva := variableDePipelineEnComprobacion{VariableDePipelineComprobada: comp.variable(fichero, ambito, v), fichero: fichero}
 			donde[v.Nombre] = append(donde[v.Nombre], nueva)
-			c.variablesDePipeline = append(c.variablesDePipeline, nueva)
+			comp.variablesDePipeline = append(comp.variablesDePipeline, nueva)
 		}
 	}
 }
@@ -663,14 +663,14 @@ func (c *comprobacion) variablesDeclaradas() {
 // choque dice si un nombre ya declarado choca con este ámbito. Dos ambientes distintos no chocan, porque no se
 // ven a la vez; el ámbito compartido choca con todos, porque se ve desde todos.
 // nombreDeclarable dice si un nombre se puede declarar: es un nombre de variable y no es una variable estándar.
-func (c *comprobacion) nombreDeclarable(fichero string, ambito Ambito, nombre string) bool {
+func (comp *comprobacion) nombreDeclarable(fichero string, ambito Ambito, nombre string) bool {
 	switch {
 	case nombre == "":
-		c.falla(Formato, fichero, "", ambito.deUnAmbiente(), "una variable no dice name")
+		comp.falla(Formato, fichero, "", ambito.deUnAmbiente(), "una variable no dice name")
 	case !patronVariable.MatchString(nombre):
-		c.falla(Formato, fichero, "", ambito.deUnAmbiente(), "%q no es un nombre de variable", nombre)
+		comp.falla(Formato, fichero, "", ambito.deUnAmbiente(), "%q no es un nombre de variable", nombre)
 	case esEstandar(nombre):
-		c.falla(Variables, fichero, "", ambito.deUnAmbiente(), "%q es una variable estándar: el motor la da siempre, "+
+		comp.falla(Variables, fichero, "", ambito.deUnAmbiente(), "%q es una variable estándar: el motor la da siempre, "+
 			"y no se declara", nombre)
 	default:
 		return true
@@ -680,10 +680,10 @@ func (c *comprobacion) nombreDeclarable(fichero string, ambito Ambito, nombre st
 
 // variable lee el valor escrito. Si no está, la variable queda variableDePipelineEnComprobacion sin valor: lo que la usa no suma un
 // «no variableDePipelineEnComprobacion» que no es verdad, y con el fallo no hay pipeline.
-func (c *comprobacion) variable(fichero string, ambito Ambito, v VariableDePipelineDeclarada) VariableDePipelineComprobada {
+func (comp *comprobacion) variable(fichero string, ambito Ambito, v VariableDePipelineDeclarada) VariableDePipelineComprobada {
 	declarada := VariableDePipelineComprobada{Nombre: v.Nombre, Descripcion: v.Descripcion, Ambito: ambito}
 	if v.Valor == nil {
-		c.falla(Formato, fichero, "", ambito.deUnAmbiente(), "la variable %q no dice value", v.Nombre)
+		comp.falla(Formato, fichero, "", ambito.deUnAmbiente(), "la variable %q no dice value", v.Nombre)
 		return declarada
 	}
 	declarada.Valor = *v.Valor
@@ -698,15 +698,15 @@ func (c *comprobacion) variable(fichero string, ambito Ambito, v VariableDePipel
 // el compartido; y las variables de salida producidas antes, tanto por los comandos anteriores del mismo paso
 // como por los pasos anteriores. Lo compartido no ve lo del ambiente: un valor compartido que dependiera de un
 // ambiente dejaría de ser el mismo en todos.
-func (c *comprobacion) usos() {
-	c.circulos()
-	c.valoresDeclarados()
-	c.usosEnLosPasos()
+func (comp *comprobacion) usos() {
+	comp.circulos()
+	comp.valoresDeclarados()
+	comp.usosEnLosPasos()
 }
 
 // declaradaVisible busca un nombre entre las variables variablesDePipeline que se ven desde un ámbito.
-func (c *comprobacion) declaradaVisible(nombre string, ambito Ambito) (variableDePipelineEnComprobacion, bool) {
-	for _, d := range c.variablesDePipeline {
+func (comp *comprobacion) declaradaVisible(nombre string, ambito Ambito) (variableDePipelineEnComprobacion, bool) {
+	for _, d := range comp.variablesDePipeline {
 		if d.Nombre == nombre && ambito.Ve(d.Ambito) {
 			return d, true
 		}
@@ -715,15 +715,15 @@ func (c *comprobacion) declaradaVisible(nombre string, ambito Ambito) (variableD
 }
 
 // declaradaEsVisible es declaradaVisible cuando solo hace falta saber si está.
-func (c *comprobacion) declaradaEsVisible(nombre string, ambito Ambito) bool {
-	_, hay := c.declaradaVisible(nombre, ambito)
+func (comp *comprobacion) declaradaEsVisible(nombre string, ambito Ambito) bool {
+	_, hay := comp.declaradaVisible(nombre, ambito)
 	return hay
 }
 
 // ambitos son aquellos en los que se declara algo: el compartido y el de cada ambiente.
-func (c *comprobacion) ambitos() []Ambito {
+func (comp *comprobacion) ambitos() []Ambito {
 	ambitos := []Ambito{Compartido}
-	for _, a := range c.ambientesComprobados {
+	for _, a := range comp.ambientesComprobados {
 		ambitos = append(ambitos, Ambito(a.Valor))
 	}
 	return ambitos
@@ -731,22 +731,22 @@ func (c *comprobacion) ambitos() []Ambito {
 
 // valoresDeclarados comprueba lo que usa cada valor declarado, sin mirar el orden: cuándo se resuelve una
 // variable variableDePipelineEnComprobacion depende de dónde se use, y eso se mira en usosEnLosPasos.
-func (c *comprobacion) valoresDeclarados() {
-	for _, d := range c.variablesDePipeline {
+func (comp *comprobacion) valoresDeclarados() {
+	for _, d := range comp.variablesDePipeline {
 		nombres, malformados := usos(d.Valor)
 		ambiente := d.Ambito.deUnAmbiente()
 		for _, nombre := range malformados {
-			c.falla(Formato, d.fichero, "", ambiente, "${var.%s} no es un nombre de variable", nombre)
+			comp.falla(Formato, d.fichero, "", ambiente, "${var.%s} no es un nombre de variable", nombre)
 		}
 		for _, nombre := range nombres {
-			switch salida, produce := c.variablesDeComandos[nombre]; {
-			case esEstandar(nombre) || c.declaradaEsVisible(nombre, d.Ambito):
+			switch salida, produce := comp.variablesDeComandos[nombre]; {
+			case esEstandar(nombre) || comp.declaradaEsVisible(nombre, d.Ambito):
 			case produce && salida.laVe(d.Ambito):
 			case produce:
-				c.falla(Variables, d.fichero, "", ambiente, "%q usa ${var.%s}, que es una variable de salida del "+
+				comp.falla(Variables, d.fichero, "", ambiente, "%q usa ${var.%s}, que es una variable de salida del "+
 					"ámbito de un ambiente, y desde el ámbito compartido no se ve", d.Nombre, nombre)
 			default:
-				c.falla(Variables, d.fichero, "", ambiente, "%q usa ${var.%s}, que no es una variable estándar, ni "+
+				comp.falla(Variables, d.fichero, "", ambiente, "%q usa ${var.%s}, que no es una variable estándar, ni "+
 					"está declarada en un ámbito que se vea desde aquí, ni la produce ningún comando", d.Nombre, nombre)
 			}
 		}
@@ -758,58 +758,58 @@ func (c *comprobacion) valoresDeclarados() {
 // sin scope propio es el de ese ambiente (RD-04 §9.19), y lo que se ve cambia con él; un fallo que ocurre en
 // todos es uno solo, sin ambiente. El de un paso con scope: shared es siempre el compartido, así que su
 // resultado no varía entre ambientes y se reporta igual, sin ambiente.
-func (c *comprobacion) usosEnLosPasos() {
+func (comp *comprobacion) usosEnLosPasos() {
 	p := &problemas{}
-	for _, a := range c.ambientesComprobados {
-		c.usosEnUnAmbiente(p, Ambito(a.Valor))
+	for _, a := range comp.ambientesComprobados {
+		comp.usosEnUnAmbiente(p, Ambito(a.Valor))
 	}
-	p.reportar(c, len(c.ambientesComprobados))
+	p.reportar(comp, len(comp.ambientesComprobados))
 }
 
-func (c *comprobacion) usosEnUnAmbiente(p *problemas, ambiente Ambito) {
-	for i, paso := range c.pasosComprobados {
-		ambito := c.ambientoDePaso(ambiente, paso)
-		c.usosEnUnPaso(p, i, paso, ambito)
+func (comp *comprobacion) usosEnUnAmbiente(p *problemas, ambiente Ambito) {
+	for i, paso := range comp.pasosComprobados {
+		ambito := comp.ambientoDePaso(ambiente, paso)
+		comp.usosEnUnPaso(p, i, paso, ambito)
 	}
 }
 
-func (c *comprobacion) ambientoDePaso(ambiente Ambito, paso PasoComprobado) Ambito {
+func (comp *comprobacion) ambientoDePaso(ambiente Ambito, paso PasoComprobado) Ambito {
 	if paso.Ambito != nil {
 		return *paso.Ambito
 	}
 	return ambiente
 }
 
-func (c *comprobacion) usosEnUnPaso(p *problemas, idxPaso int, paso PasoComprobado, ambito Ambito) {
+func (comp *comprobacion) usosEnUnPaso(p *problemas, idxPaso int, paso PasoComprobado, ambito Ambito) {
 	for j, comando := range paso.Comandos {
 		punto := posicion{paso: idxPaso, comando: j}
-		c.revisar(p, paso, paso.Directorio()+"/commands.yaml", comando.Linea, ambito, punto)
-		c.revisarPlantillas(p, paso, idxPaso, j, comando, ambito)
+		comp.revisar(p, paso, paso.Directorio()+"/commands.yaml", comando.Linea, ambito, punto)
+		comp.revisarPlantillas(p, paso, idxPaso, j, comando, ambito)
 	}
 }
 
-func (c *comprobacion) revisarPlantillas(p *problemas, paso PasoComprobado, idxPaso, idxCmd int, comando ComandoComprobado, ambito Ambito) {
+func (comp *comprobacion) revisarPlantillas(p *problemas, paso PasoComprobado, idxPaso, idxCmd int, comando ComandoComprobado, ambito Ambito) {
 	for _, ruta := range comando.Plantillas {
 		k := slices.IndexFunc(paso.Material, func(f FicheroComprobado) bool { return f.Ruta == ruta })
 		if k >= 0 {
 			punto := posicion{paso: idxPaso, comando: idxCmd}
-			c.revisar(p, paso, paso.Directorio()+"/"+ruta, paso.Material[k].Contenido, ambito, punto)
+			comp.revisar(p, paso, paso.Directorio()+"/"+ruta, paso.Material[k].Contenido, ambito, punto)
 		}
 	}
 }
 
 // revisar mira un texto que se interpola en un punto del pipeline: cada nombre que usa tiene que verse desde
 // ese ámbito, y lo que hace falta para resolverlo tiene que estar producido antes.
-func (c *comprobacion) revisar(p *problemas, paso PasoComprobado, fichero, texto string, ambito Ambito, punto posicion) {
+func (comp *comprobacion) revisar(p *problemas, paso PasoComprobado, fichero, texto string, ambito Ambito, punto posicion) {
 	nombres, malformados := usos(texto)
 	for _, nombre := range malformados {
 		p.anotar(Formato, fichero, paso.Nombre, "", fmt.Sprintf("${var.%s} no es un nombre de variable", nombre))
 	}
 	for _, nombre := range nombres {
-		if !c.seVe(p, paso, fichero, nombre, ambito) {
+		if !comp.seVe(p, paso, fichero, nombre, ambito) {
 			continue
 		}
-		for _, necesaria := range c.necesita(nombre, ambito, map[string]bool{}) {
+		for _, necesaria := range comp.necesita(nombre, ambito, map[string]bool{}) {
 			if necesaria.donde.antesDe(punto) {
 				continue
 			}
@@ -821,11 +821,11 @@ func (c *comprobacion) revisar(p *problemas, paso PasoComprobado, fichero, texto
 // seVe dice si un nombre usado dentro de un paso se ve desde su ámbito, y si no, lo anota: el orden lo mira
 // revisar, no esto. Una variable de salida solo se ve si su ámbito la deja ver desde aquí (variableDeComandoEnComprobacion.laVe):
 // un paso de scope: shared ve las suyas, no las de un ambiente.
-func (c *comprobacion) seVe(p *problemas, paso PasoComprobado, fichero, nombre string, ambito Ambito) bool {
-	if esEstandar(nombre) || c.declaradaEsVisible(nombre, ambito) {
+func (comp *comprobacion) seVe(p *problemas, paso PasoComprobado, fichero, nombre string, ambito Ambito) bool {
+	if esEstandar(nombre) || comp.declaradaEsVisible(nombre, ambito) {
 		return true
 	}
-	switch salida, produce := c.variablesDeComandos[nombre]; {
+	switch salida, produce := comp.variablesDeComandos[nombre]; {
 	case produce && salida.laVe(ambito):
 		return true
 	case produce:
@@ -844,7 +844,7 @@ func (c *comprobacion) seVe(p *problemas, paso PasoComprobado, fichero, nombre s
 // es una variable de salida, y las que usan, una tras otra, los valores declarados por los que pasa. Un nombre
 // declarado que además se produce cuenta como declarado, porque tiene valor desde el principio: que gane la
 // producida cuando exista es precedencia, y eso es de Resolución.
-func (c *comprobacion) necesita(nombre string, ambito Ambito, visto map[string]bool) []variableDeComandoEnComprobacion {
+func (comp *comprobacion) necesita(nombre string, ambito Ambito, visto map[string]bool) []variableDeComandoEnComprobacion {
 	if visto[nombre] {
 		return nil
 	}
@@ -852,9 +852,9 @@ func (c *comprobacion) necesita(nombre string, ambito Ambito, visto map[string]b
 	if esEstandar(nombre) {
 		return nil
 	}
-	d, declarada := c.declaradaVisible(nombre, ambito)
+	d, declarada := comp.declaradaVisible(nombre, ambito)
 	if !declarada {
-		if salida, produce := c.variablesDeComandos[nombre]; produce {
+		if salida, produce := comp.variablesDeComandos[nombre]; produce {
 			return []variableDeComandoEnComprobacion{salida}
 		}
 		return nil
@@ -862,22 +862,22 @@ func (c *comprobacion) necesita(nombre string, ambito Ambito, visto map[string]b
 	var necesarias []variableDeComandoEnComprobacion
 	nombres, _ := usos(d.Valor)
 	for _, usado := range nombres {
-		necesarias = append(necesarias, c.necesita(usado, ambito, visto)...)
+		necesarias = append(necesarias, comp.necesita(usado, ambito, visto)...)
 	}
 	return necesarias
 }
 
 // circulos rechaza valores declarados que se usan entre ellos en círculo: ninguno se podría resolver. Se mira
 // por ámbito, porque lo que se ve desde uno no se ve desde otro.
-func (c *comprobacion) circulos() {
-	for _, ambito := range c.ambitos() {
-		c.circulosEnUnAmbito(ambito)
+func (comp *comprobacion) circulos() {
+	for _, ambito := range comp.ambitos() {
+		comp.circulosEnUnAmbito(ambito)
 	}
 }
 
-func (c *comprobacion) circulosEnUnAmbito(ambito Ambito) {
+func (comp *comprobacion) circulosEnUnAmbito(ambito Ambito) {
 	detector := &detectadorCirculos{
-		comprobacion: c,
+		comprobacion: comp,
 		ambito:       ambito,
 		literales:    make(map[string]variableDePipelineEnComprobacion),
 		estado:       make(map[string]int),
@@ -1005,15 +1005,15 @@ func (p *problemas) anotar(inv Invariante, fichero, paso, ambiente, detalle stri
 	}
 }
 
-func (p *problemas) reportar(c *comprobacion, cuantosAmbientes int) {
+func (p *problemas) reportar(comp *comprobacion, cuantosAmbientes int) {
 	for _, clave := range p.orden {
 		ambientes := p.ambientes[clave]
 		if len(ambientes) == cuantosAmbientes || slices.Contains(ambientes, "") {
-			c.falla(clave.invariante, clave.fichero, clave.paso, "", "%s", clave.detalle)
+			comp.falla(clave.invariante, clave.fichero, clave.paso, "", "%s", clave.detalle)
 			continue
 		}
 		for _, ambiente := range ambientes {
-			c.falla(clave.invariante, clave.fichero, clave.paso, ambiente, "%s", clave.detalle)
+			comp.falla(clave.invariante, clave.fichero, clave.paso, ambiente, "%s", clave.detalle)
 		}
 	}
 }
