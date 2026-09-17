@@ -759,17 +759,17 @@ func (comp *comprobacion) valoresDeclarados() {
 // todos es uno solo, sin ambiente. El de un paso con scope: shared es siempre el compartido, así que su
 // resultado no varía entre ambientes y se reporta igual, sin ambiente.
 func (comp *comprobacion) usosEnLosPasos() {
-	p := &problemas{}
+	probs := &problemas{}
 	for _, a := range comp.ambientesComprobados {
-		comp.usosEnUnAmbiente(p, Ambito(a.Valor))
+		comp.usosEnUnAmbiente(probs, Ambito(a.Valor))
 	}
-	p.reportar(comp, len(comp.ambientesComprobados))
+	probs.reportar(comp, len(comp.ambientesComprobados))
 }
 
-func (comp *comprobacion) usosEnUnAmbiente(p *problemas, ambiente Ambito) {
+func (comp *comprobacion) usosEnUnAmbiente(probs *problemas, ambiente Ambito) {
 	for i, paso := range comp.pasosComprobados {
 		ambito := comp.ambientoDePaso(ambiente, paso)
-		comp.usosEnUnPaso(p, i, paso, ambito)
+		comp.usosEnUnPaso(probs, i, paso, ambito)
 	}
 }
 
@@ -780,40 +780,40 @@ func (comp *comprobacion) ambientoDePaso(ambiente Ambito, paso PasoComprobado) A
 	return ambiente
 }
 
-func (comp *comprobacion) usosEnUnPaso(p *problemas, idxPaso int, paso PasoComprobado, ambito Ambito) {
+func (comp *comprobacion) usosEnUnPaso(probs *problemas, idxPaso int, paso PasoComprobado, ambito Ambito) {
 	for j, comando := range paso.Comandos {
 		punto := posicion{paso: idxPaso, comando: j}
-		comp.revisar(p, paso, paso.Directorio()+"/commands.yaml", comando.Linea, ambito, punto)
-		comp.revisarPlantillas(p, paso, idxPaso, j, comando, ambito)
+		comp.revisar(probs, paso, paso.Directorio()+"/commands.yaml", comando.Linea, ambito, punto)
+		comp.revisarPlantillas(probs, paso, idxPaso, j, comando, ambito)
 	}
 }
 
-func (comp *comprobacion) revisarPlantillas(p *problemas, paso PasoComprobado, idxPaso, idxCmd int, comando ComandoComprobado, ambito Ambito) {
+func (comp *comprobacion) revisarPlantillas(probs *problemas, paso PasoComprobado, idxPaso, idxCmd int, comando ComandoComprobado, ambito Ambito) {
 	for _, ruta := range comando.Plantillas {
 		k := slices.IndexFunc(paso.Material, func(f FicheroComprobado) bool { return f.Ruta == ruta })
 		if k >= 0 {
 			punto := posicion{paso: idxPaso, comando: idxCmd}
-			comp.revisar(p, paso, paso.Directorio()+"/"+ruta, paso.Material[k].Contenido, ambito, punto)
+			comp.revisar(probs, paso, paso.Directorio()+"/"+ruta, paso.Material[k].Contenido, ambito, punto)
 		}
 	}
 }
 
 // revisar mira un texto que se interpola en un punto del pipeline: cada nombre que usa tiene que verse desde
 // ese ámbito, y lo que hace falta para resolverlo tiene que estar producido antes.
-func (comp *comprobacion) revisar(p *problemas, paso PasoComprobado, fichero, texto string, ambito Ambito, punto posicion) {
+func (comp *comprobacion) revisar(probs *problemas, paso PasoComprobado, fichero, texto string, ambito Ambito, punto posicion) {
 	nombres, malformados := usos(texto)
 	for _, nombre := range malformados {
-		p.anotar(Formato, fichero, paso.Nombre, "", fmt.Sprintf("${var.%s} no es un nombre de variable", nombre))
+		probs.anotar(Formato, fichero, paso.Nombre, "", fmt.Sprintf("${var.%s} no es un nombre de variable", nombre))
 	}
 	for _, nombre := range nombres {
-		if !comp.seVe(p, paso, fichero, nombre, ambito) {
+		if !comp.seVe(probs, paso, fichero, nombre, ambito) {
 			continue
 		}
 		for _, necesaria := range comp.necesita(nombre, ambito, map[string]bool{}) {
 			if necesaria.donde.antesDe(punto) {
 				continue
 			}
-			p.anotar(Variables, fichero, paso.Nombre, ambito.deUnAmbiente(), tarde(nombre, necesaria, punto))
+			probs.anotar(Variables, fichero, paso.Nombre, ambito.deUnAmbiente(), tarde(nombre, necesaria, punto))
 		}
 	}
 }
@@ -821,7 +821,7 @@ func (comp *comprobacion) revisar(p *problemas, paso PasoComprobado, fichero, te
 // seVe dice si un nombre usado dentro de un paso se ve desde su ámbito, y si no, lo anota: el orden lo mira
 // revisar, no esto. Una variable de salida solo se ve si su ámbito la deja ver desde aquí (variableDeComandoEnComprobacion.laVe):
 // un paso de scope: shared ve las suyas, no las de un ambiente.
-func (comp *comprobacion) seVe(p *problemas, paso PasoComprobado, fichero, nombre string, ambito Ambito) bool {
+func (comp *comprobacion) seVe(probs *problemas, paso PasoComprobado, fichero, nombre string, ambito Ambito) bool {
 	if esEstandar(nombre) || comp.declaradaEsVisible(nombre, ambito) {
 		return true
 	}
@@ -829,11 +829,11 @@ func (comp *comprobacion) seVe(p *problemas, paso PasoComprobado, fichero, nombr
 	case produce && salida.laVe(ambito):
 		return true
 	case produce:
-		p.anotar(Variables, fichero, paso.Nombre, ambito.deUnAmbiente(), fmt.Sprintf("usa ${var.%s}, que es una "+
+		probs.anotar(Variables, fichero, paso.Nombre, ambito.deUnAmbiente(), fmt.Sprintf("usa ${var.%s}, que es una "+
 			"variable de salida del ámbito de un ambiente, y desde el ámbito compartido no se ve", nombre))
 		return false
 	}
-	p.anotar(Variables, fichero, paso.Nombre, ambito.deUnAmbiente(), fmt.Sprintf("usa ${var.%s}, que no es una "+
+	probs.anotar(Variables, fichero, paso.Nombre, ambito.deUnAmbiente(), fmt.Sprintf("usa ${var.%s}, que no es una "+
 		"variable estándar, ni está declarada en un ámbito que se vea desde aquí, ni la produce ningún comando",
 		nombre))
 	return false
