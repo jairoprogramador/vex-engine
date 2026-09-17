@@ -21,12 +21,12 @@ type ResultadoValidacion struct {
 	VariablesDeComandos  map[string]variableDeComandoEnComprobacion
 }
 
-func (r *ResultadoValidacion) TieneErrores() bool {
-	return len(r.Fallos) > 0
+func (res *ResultadoValidacion) TieneErrores() bool {
+	return len(res.Fallos) > 0
 }
 
-func (r *ResultadoValidacion) AlError() error {
-	return &FallosDeComprobacion{Fallos: r.Fallos}
+func (res *ResultadoValidacion) AlError() error {
+	return &FallosDeComprobacion{Fallos: res.Fallos}
 }
 
 // variableDePipelineEnComprobacion es una variable y dónde se escribió.
