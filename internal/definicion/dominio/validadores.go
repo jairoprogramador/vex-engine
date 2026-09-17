@@ -57,7 +57,7 @@ func (s variableDeComandoEnComprobacion) laVe(ambito Ambito) bool {
 // ValidadorVersion valida la versión del formato.
 type ValidadorVersion struct{}
 
-func (v *ValidadorVersion) Validar(c *comprobacion) error {
+func (val *ValidadorVersion) Validar(c *comprobacion) error {
 	switch {
 	case !c.pipelineDeclarado.Configuracion.Existe:
 		c.falla(Formato, FileConfig, "", "", "no está, y el pipeline declara ahí su schema_version")
@@ -81,7 +81,7 @@ func (v *ValidadorVersion) Validar(c *comprobacion) error {
 // ValidadorArchivosIlegibles reporta archivos que no se pudieron leer.
 type ValidadorArchivosIlegibles struct{}
 
-func (v *ValidadorArchivosIlegibles) Validar(c *comprobacion) error {
+func (val *ValidadorArchivosIlegibles) Validar(c *comprobacion) error {
 	for _, i := range c.pipelineDeclarado.Ilegibles {
 		c.falla(Formato, i.Fichero, "", "", "%s", i.Motivo)
 	}
@@ -97,7 +97,7 @@ func (v *ValidadorArchivosIlegibles) Validar(c *comprobacion) error {
 // ValidadorAmbientes valida la declaración de ambientes.
 type ValidadorAmbientes struct{}
 
-func (v *ValidadorAmbientes) Validar(c *comprobacion) error {
+func (val *ValidadorAmbientes) Validar(c *comprobacion) error {
 	if !c.pipelineDeclarado.Ambientes.Existe {
 		c.falla(Ambientes, FileEnvironments, "", "", "no está, y el pipeline declara ahí sus ambientes en orden")
 		return c.resultado()
@@ -123,47 +123,47 @@ type validadorAmbientesImpl struct {
 	valores      []string
 }
 
-func (v *validadorAmbientesImpl) validar() error {
-	for i, a := range v.comprobacion.pipelineDeclarado.Ambientes.Datos {
-		v.validarUnAmbiente(i, a)
+func (val *validadorAmbientesImpl) validar() error {
+	for i, a := range val.comprobacion.pipelineDeclarado.Ambientes.Datos {
+		val.validarUnAmbiente(i, a)
 	}
-	if len(v.comprobacion.fallos) > 0 {
-		return v.comprobacion.resultado()
+	if len(val.comprobacion.fallos) > 0 {
+		return val.comprobacion.resultado()
 	}
 	return nil
 }
 
-func (v *validadorAmbientesImpl) validarUnAmbiente(idx int, a AmbienteDeclarado) {
+func (val *validadorAmbientesImpl) validarUnAmbiente(idx int, a AmbienteDeclarado) {
 	donde := fmt.Sprintf("el ambiente %d", idx+1)
-	if !v.esAmbienteValido(a, donde) {
+	if !val.esAmbienteValido(a, donde) {
 		return
 	}
-	v.nombres = append(v.nombres, a.Nombre)
-	v.valores = append(v.valores, a.Valor)
-	v.comprobacion.ambientesComprobados = append(v.comprobacion.ambientesComprobados, AmbienteComprobado(a))
+	val.nombres = append(val.nombres, a.Nombre)
+	val.valores = append(val.valores, a.Valor)
+	val.comprobacion.ambientesComprobados = append(val.comprobacion.ambientesComprobados, AmbienteComprobado(a))
 }
 
-func (v *validadorAmbientesImpl) esAmbienteValido(a AmbienteDeclarado, donde string) bool {
+func (val *validadorAmbientesImpl) esAmbienteValido(a AmbienteDeclarado, donde string) bool {
 	valido := true
 
 	if a.Nombre == "" {
-		v.comprobacion.falla(Formato, v.fichero, "", "", "%s no dice name", donde)
+		val.comprobacion.falla(Formato, val.fichero, "", "", "%s no dice name", donde)
 		valido = false
 	}
 
 	if !patronNombre.MatchString(a.Valor) {
-		v.comprobacion.falla(Formato, v.fichero, "", "", "%s tiene value %q, que no sirve como directorio de variables/: "+
+		val.comprobacion.falla(Formato, val.fichero, "", "", "%s tiene value %q, que no sirve como directorio de variables/: "+
 			"letras, dígitos, - y _", donde, a.Valor)
 		valido = false
 	}
 
-	if contieneSinMayusculas(v.nombres, a.Nombre) {
-		v.comprobacion.falla(Ambientes, v.fichero, "", "", "el name %q está dos veces", a.Nombre)
+	if contieneSinMayusculas(val.nombres, a.Nombre) {
+		val.comprobacion.falla(Ambientes, val.fichero, "", "", "el name %q está dos veces", a.Nombre)
 		valido = false
 	}
 
-	if contieneSinMayusculas(v.valores, a.Valor) {
-		v.comprobacion.falla(Ambientes, v.fichero, "", "", "el value %q está dos veces", a.Valor)
+	if contieneSinMayusculas(val.valores, a.Valor) {
+		val.comprobacion.falla(Ambientes, val.fichero, "", "", "el value %q está dos veces", a.Valor)
 		valido = false
 	}
 
@@ -173,7 +173,7 @@ func (v *validadorAmbientesImpl) esAmbienteValido(a AmbienteDeclarado, donde str
 // ValidadorPasos valida la declaración de pasos.
 type ValidadorPasos struct{}
 
-func (v *ValidadorPasos) Validar(c *comprobacion) error {
+func (val *ValidadorPasos) Validar(c *comprobacion) error {
 	if len(c.pipelineDeclarado.Pasos) == 0 {
 		c.falla(Pasos, DirSteps, "", "", "el pipeline no tiene pasos")
 		return c.resultado()
@@ -198,91 +198,91 @@ type validadorPasosImpl struct {
 	consumidas   map[string]bool
 }
 
-func (v *validadorPasosImpl) validar() error {
-	for _, escrito := range v.comprobacion.pipelineDeclarado.Pasos {
-		v.validarUnPaso(escrito)
+func (val *validadorPasosImpl) validar() error {
+	for _, escrito := range val.comprobacion.pipelineDeclarado.Pasos {
+		val.validarUnPaso(escrito)
 	}
-	if len(v.comprobacion.fallos) > 0 {
-		return v.comprobacion.resultado()
+	if len(val.comprobacion.fallos) > 0 {
+		return val.comprobacion.resultado()
 	}
 	return nil
 }
 
-func (v *validadorPasosImpl) validarUnPaso(escrito PasoDeclarado) {
+func (val *validadorPasosImpl) validarUnPaso(escrito PasoDeclarado) {
 	directorio := DirSteps + escrito.Directorio
 	m := patronDirectorioDePaso.FindStringSubmatch(escrito.Directorio)
 	if m == nil {
-		v.comprobacion.falla(Pasos, directorio, "", "", "el directorio de un paso se llama NN-<paso>, con NN de dos dígitos")
+		val.comprobacion.falla(Pasos, directorio, "", "", "el directorio de un paso se llama NN-<paso>, con NN de dos dígitos")
 		return
 	}
 
 	orden, _ := strconv.Atoi(m[1])
 	nombre := m[2]
 
-	if !v.esPasoValido(directorio, nombre, orden, m[1]) {
+	if !val.esPasoValido(directorio, nombre, orden, m[1]) {
 		return
 	}
 
-	v.procesarPaso(escrito, nombre, orden)
+	val.procesarPaso(escrito, nombre, orden)
 }
 
-func (v *validadorPasosImpl) esPasoValido(directorio, nombre string, orden int, ordenStr string) bool {
+func (val *validadorPasosImpl) esPasoValido(directorio, nombre string, orden int, ordenStr string) bool {
 	if !patronNombre.MatchString(nombre) {
-		v.comprobacion.falla(Pasos, directorio, "", "", "%q no sirve como nombre de un paso: letras, dígitos, - y _", nombre)
+		val.comprobacion.falla(Pasos, directorio, "", "", "%q no sirve como nombre de un paso: letras, dígitos, - y _", nombre)
 		return false
 	}
 
-	if otro, repetido := v.porOrden[orden]; repetido {
-		v.comprobacion.falla(Pasos, directorio, nombre, "", "el orden %s ya es de steps/%s", ordenStr, otro)
+	if otro, repetido := val.porOrden[orden]; repetido {
+		val.comprobacion.falla(Pasos, directorio, nombre, "", "el orden %s ya es de steps/%s", ordenStr, otro)
 		return false
 	}
 
-	if contieneSinMayusculas(v.nombres, nombre) {
-		v.comprobacion.falla(Pasos, directorio, nombre, "", "otro paso ya se llama %q", nombre)
+	if contieneSinMayusculas(val.nombres, nombre) {
+		val.comprobacion.falla(Pasos, directorio, nombre, "", "otro paso ya se llama %q", nombre)
 		return false
 	}
 
 	return true
 }
 
-func (v *validadorPasosImpl) procesarPaso(escrito PasoDeclarado, nombre string, orden int) {
-	v.porOrden[orden] = escrito.Directorio
-	v.nombres = append(v.nombres, nombre)
-	v.consumidas[nombre] = true
+func (val *validadorPasosImpl) procesarPaso(escrito PasoDeclarado, nombre string, orden int) {
+	val.porOrden[orden] = escrito.Directorio
+	val.nombres = append(val.nombres, nombre)
+	val.consumidas[nombre] = true
 
 	paso := PasoComprobado{Nombre: nombre, Orden: orden}
-	configuracion, tiene := v.comprobacion.pipelineDeclarado.Configuracion.Datos.Pasos[nombre]
-	v.comprobacion.consumidas[nombre] = true
+	configuracion, tiene := val.comprobacion.pipelineDeclarado.Configuracion.Datos.Pasos[nombre]
+	val.comprobacion.consumidas[nombre] = true
 	if tiene {
-		v.comprobacion.configuracion(&paso, &configuracion)
+		val.comprobacion.configuracion(&paso, &configuracion)
 	} else {
-		v.comprobacion.configuracion(&paso, nil)
+		val.comprobacion.configuracion(&paso, nil)
 	}
-	v.comprobacion.material(&paso, escrito.Material)
-	v.comprobacion.comandos(&paso, escrito.Comandos)
-	v.comprobacion.pasosComprobados = append(v.comprobacion.pasosComprobados, paso)
+	val.comprobacion.material(&paso, escrito.Material)
+	val.comprobacion.comandos(&paso, escrito.Comandos)
+	val.comprobacion.pasosComprobados = append(val.comprobacion.pasosComprobados, paso)
 }
 
-func (v *validadorPasosImpl) ordenar() {
-	sort.Slice(v.comprobacion.pasosComprobados, func(i, j int) bool {
-		return v.comprobacion.pasosComprobados[i].Orden < v.comprobacion.pasosComprobados[j].Orden
+func (val *validadorPasosImpl) ordenar() {
+	sort.Slice(val.comprobacion.pasosComprobados, func(i, j int) bool {
+		return val.comprobacion.pasosComprobados[i].Orden < val.comprobacion.pasosComprobados[j].Orden
 	})
 }
 
-func (v *validadorPasosImpl) validarPasosNoUsados() error {
+func (val *validadorPasosImpl) validarPasosNoUsados() error {
 	var sinPaso []string
-	for nombre := range v.comprobacion.pipelineDeclarado.Configuracion.Datos.Pasos {
-		if !v.consumidas[nombre] {
+	for nombre := range val.comprobacion.pipelineDeclarado.Configuracion.Datos.Pasos {
+		if !val.consumidas[nombre] {
 			sinPaso = append(sinPaso, nombre)
 		}
 	}
 	sort.Strings(sinPaso)
 	for _, nombre := range sinPaso {
-		v.comprobacion.falla(Pasos, FileConfig, "", "", "declara la configuración de %q, que no es un paso: no hay "+
+		val.comprobacion.falla(Pasos, FileConfig, "", "", "declara la configuración de %q, que no es un paso: no hay "+
 			"ningún steps/NN-%s/", nombre, nombre)
 	}
-	if len(v.comprobacion.fallos) > 0 {
-		return v.comprobacion.resultado()
+	if len(val.comprobacion.fallos) > 0 {
+		return val.comprobacion.resultado()
 	}
 	return nil
 }
@@ -290,7 +290,7 @@ func (v *validadorPasosImpl) validarPasosNoUsados() error {
 // ValidadorSalidas valida dónde se produce cada variable de salida.
 type ValidadorSalidas struct{}
 
-func (v *ValidadorSalidas) Validar(c *comprobacion) error {
+func (val *ValidadorSalidas) Validar(c *comprobacion) error {
 	c.variablesDeComandos = map[string]variableDeComandoEnComprobacion{}
 	for i, paso := range c.pasosComprobados {
 		fichero := paso.Directorio() + "/commands.yaml"
@@ -324,7 +324,7 @@ func (v *ValidadorSalidas) Validar(c *comprobacion) error {
 // ValidadorVariablesDeclaradas valida la declaración de variables.
 type ValidadorVariablesDeclaradas struct{}
 
-func (v *ValidadorVariablesDeclaradas) Validar(c *comprobacion) error {
+func (val *ValidadorVariablesDeclaradas) Validar(c *comprobacion) error {
 	donde := map[string][]variableDePipelineEnComprobacion{}
 	for _, escritas := range c.pipelineDeclarado.Variables {
 		fichero := escritas.Fichero
@@ -339,7 +339,7 @@ func (v *ValidadorVariablesDeclaradas) Validar(c *comprobacion) error {
 			continue
 		}
 		for _, variable := range escritas.Variables {
-			v.procesarVariable(c, variable, fichero, ambito, donde)
+			val.procesarVariable(c, variable, fichero, ambito, donde)
 		}
 	}
 	if len(c.fallos) > 0 {
@@ -348,8 +348,8 @@ func (v *ValidadorVariablesDeclaradas) Validar(c *comprobacion) error {
 	return nil
 }
 
-func (v *ValidadorVariablesDeclaradas) procesarVariable(c *comprobacion, variable VariableDePipelineDeclarada, fichero string, ambito Ambito, donde map[string][]variableDePipelineEnComprobacion) {
-	if !v.nombreDeclarable(c, fichero, ambito, variable.Nombre) {
+func (val *ValidadorVariablesDeclaradas) procesarVariable(c *comprobacion, variable VariableDePipelineDeclarada, fichero string, ambito Ambito, donde map[string][]variableDePipelineEnComprobacion) {
+	if !val.nombreDeclarable(c, fichero, ambito, variable.Nombre) {
 		return
 	}
 	if otra, choca := choque(donde[variable.Nombre], ambito); choca {
@@ -362,12 +362,12 @@ func (v *ValidadorVariablesDeclaradas) procesarVariable(c *comprobacion, variabl
 		}
 		return
 	}
-	nueva := variableDePipelineEnComprobacion{VariableDePipelineComprobada: v.variable(c, fichero, ambito, variable), fichero: fichero}
+	nueva := variableDePipelineEnComprobacion{VariableDePipelineComprobada: val.variable(c, fichero, ambito, variable), fichero: fichero}
 	donde[variable.Nombre] = append(donde[variable.Nombre], nueva)
 	c.variablesDePipeline = append(c.variablesDePipeline, nueva)
 }
 
-func (v *ValidadorVariablesDeclaradas) nombreDeclarable(c *comprobacion, fichero string, ambito Ambito, nombre string) bool {
+func (val *ValidadorVariablesDeclaradas) nombreDeclarable(c *comprobacion, fichero string, ambito Ambito, nombre string) bool {
 	switch {
 	case nombre == "":
 		c.falla(Formato, fichero, "", ambito.deUnAmbiente(), "una variable no dice name")
@@ -382,7 +382,7 @@ func (v *ValidadorVariablesDeclaradas) nombreDeclarable(c *comprobacion, fichero
 	return false
 }
 
-func (v *ValidadorVariablesDeclaradas) variable(c *comprobacion, fichero string, ambito Ambito, variable VariableDePipelineDeclarada) VariableDePipelineComprobada {
+func (val *ValidadorVariablesDeclaradas) variable(c *comprobacion, fichero string, ambito Ambito, variable VariableDePipelineDeclarada) VariableDePipelineComprobada {
 	declarada := VariableDePipelineComprobada{Nombre: variable.Nombre, Descripcion: variable.Descripcion, Ambito: ambito}
 	if variable.Valor == nil {
 		c.falla(Formato, fichero, "", ambito.deUnAmbiente(), "la variable %q no dice value", variable.Nombre)
@@ -395,29 +395,29 @@ func (v *ValidadorVariablesDeclaradas) variable(c *comprobacion, fichero string,
 // ValidadorUsos valida los usos de variables.
 type ValidadorUsos struct{}
 
-func (v *ValidadorUsos) Validar(c *comprobacion) error {
-	v.circulos(c)
+func (val *ValidadorUsos) Validar(c *comprobacion) error {
+	val.circulos(c)
 	if len(c.fallos) > 0 {
 		return c.resultado()
 	}
-	v.valoresDeclarados(c)
+	val.valoresDeclarados(c)
 	if len(c.fallos) > 0 {
 		return c.resultado()
 	}
-	v.usosEnLosPasos(c)
+	val.usosEnLosPasos(c)
 	if len(c.fallos) > 0 {
 		return c.resultado()
 	}
 	return nil
 }
 
-func (v *ValidadorUsos) circulos(c *comprobacion) {
-	for _, ambito := range v.ambitos(c) {
-		v.circulosEnUnAmbito(c, ambito)
+func (val *ValidadorUsos) circulos(c *comprobacion) {
+	for _, ambito := range val.ambitos(c) {
+		val.circulosEnUnAmbito(c, ambito)
 	}
 }
 
-func (v *ValidadorUsos) ambitos(c *comprobacion) []Ambito {
+func (val *ValidadorUsos) ambitos(c *comprobacion) []Ambito {
 	ambitos := []Ambito{Compartido}
 	for _, a := range c.ambientesComprobados {
 		ambitos = append(ambitos, Ambito(a.Valor))
@@ -425,7 +425,7 @@ func (v *ValidadorUsos) ambitos(c *comprobacion) []Ambito {
 	return ambitos
 }
 
-func (v *ValidadorUsos) valoresDeclarados(c *comprobacion) {
+func (val *ValidadorUsos) valoresDeclarados(c *comprobacion) {
 	for _, d := range c.variablesDePipeline {
 		nombres, malformados := usos(d.Valor)
 		ambiente := d.Ambito.deUnAmbiente()
@@ -434,7 +434,7 @@ func (v *ValidadorUsos) valoresDeclarados(c *comprobacion) {
 		}
 		for _, nombre := range nombres {
 			switch salida, produce := c.variablesDeComandos[nombre]; {
-			case esEstandar(nombre) || v.declaradaEsVisible(c, nombre, d.Ambito):
+			case esEstandar(nombre) || val.declaradaEsVisible(c, nombre, d.Ambito):
 			case produce && salida.laVe(d.Ambito):
 			case produce:
 				c.falla(Variables, d.fichero, "", ambiente, "%q usa ${var.%s}, que es una variable de salida del "+
@@ -447,52 +447,52 @@ func (v *ValidadorUsos) valoresDeclarados(c *comprobacion) {
 	}
 }
 
-func (v *ValidadorUsos) usosEnLosPasos(c *comprobacion) {
+func (val *ValidadorUsos) usosEnLosPasos(c *comprobacion) {
 	p := &problemas{}
 	for _, a := range c.ambientesComprobados {
-		v.usosEnUnAmbiente(c, p, Ambito(a.Valor))
+		val.usosEnUnAmbiente(c, p, Ambito(a.Valor))
 	}
 	p.reportar(c, len(c.ambientesComprobados))
 }
 
-func (v *ValidadorUsos) usosEnUnAmbiente(c *comprobacion, p *problemas, ambiente Ambito) {
+func (val *ValidadorUsos) usosEnUnAmbiente(c *comprobacion, p *problemas, ambiente Ambito) {
 	for i, paso := range c.pasosComprobados {
 		ambito := ambiente
 		if paso.Ambito != nil {
 			ambito = *paso.Ambito
 		}
-		v.usosEnUnPaso(c, p, i, paso, ambito)
+		val.usosEnUnPaso(c, p, i, paso, ambito)
 	}
 }
 
-func (v *ValidadorUsos) usosEnUnPaso(c *comprobacion, p *problemas, idxPaso int, paso PasoComprobado, ambito Ambito) {
+func (val *ValidadorUsos) usosEnUnPaso(c *comprobacion, p *problemas, idxPaso int, paso PasoComprobado, ambito Ambito) {
 	for j, comando := range paso.Comandos {
 		punto := posicion{paso: idxPaso, comando: j}
-		v.revisar(c, p, paso, paso.Directorio()+"/commands.yaml", comando.Linea, ambito, punto)
-		v.revisarPlantillas(c, p, paso, idxPaso, j, comando, ambito)
+		val.revisar(c, p, paso, paso.Directorio()+"/commands.yaml", comando.Linea, ambito, punto)
+		val.revisarPlantillas(c, p, paso, idxPaso, j, comando, ambito)
 	}
 }
 
-func (v *ValidadorUsos) revisarPlantillas(c *comprobacion, p *problemas, paso PasoComprobado, idxPaso, idxCmd int, comando ComandoComprobado, ambito Ambito) {
+func (val *ValidadorUsos) revisarPlantillas(c *comprobacion, p *problemas, paso PasoComprobado, idxPaso, idxCmd int, comando ComandoComprobado, ambito Ambito) {
 	for _, ruta := range comando.Plantillas {
 		k := slices.IndexFunc(paso.Material, func(f FicheroComprobado) bool { return f.Ruta == ruta })
 		if k >= 0 {
 			punto := posicion{paso: idxPaso, comando: idxCmd}
-			v.revisar(c, p, paso, paso.Directorio()+"/"+ruta, paso.Material[k].Contenido, ambito, punto)
+			val.revisar(c, p, paso, paso.Directorio()+"/"+ruta, paso.Material[k].Contenido, ambito, punto)
 		}
 	}
 }
 
-func (v *ValidadorUsos) revisar(c *comprobacion, p *problemas, paso PasoComprobado, fichero, texto string, ambito Ambito, punto posicion) {
+func (val *ValidadorUsos) revisar(c *comprobacion, p *problemas, paso PasoComprobado, fichero, texto string, ambito Ambito, punto posicion) {
 	nombres, malformados := usos(texto)
 	for _, nombre := range malformados {
 		p.anotar(Formato, fichero, paso.Nombre, "", fmt.Sprintf("${var.%s} no es un nombre de variable", nombre))
 	}
 	for _, nombre := range nombres {
-		if !v.seVe(c, p, paso, fichero, nombre, ambito) {
+		if !val.seVe(c, p, paso, fichero, nombre, ambito) {
 			continue
 		}
-		for _, necesaria := range v.necesita(c, nombre, ambito, map[string]bool{}) {
+		for _, necesaria := range val.necesita(c, nombre, ambito, map[string]bool{}) {
 			if necesaria.donde.antesDe(punto) {
 				continue
 			}
@@ -501,8 +501,8 @@ func (v *ValidadorUsos) revisar(c *comprobacion, p *problemas, paso PasoComproba
 	}
 }
 
-func (v *ValidadorUsos) seVe(c *comprobacion, p *problemas, paso PasoComprobado, fichero, nombre string, ambito Ambito) bool {
-	if esEstandar(nombre) || v.declaradaEsVisible(c, nombre, ambito) {
+func (val *ValidadorUsos) seVe(c *comprobacion, p *problemas, paso PasoComprobado, fichero, nombre string, ambito Ambito) bool {
+	if esEstandar(nombre) || val.declaradaEsVisible(c, nombre, ambito) {
 		return true
 	}
 	switch salida, produce := c.variablesDeComandos[nombre]; {
@@ -519,7 +519,7 @@ func (v *ValidadorUsos) seVe(c *comprobacion, p *problemas, paso PasoComprobado,
 	return false
 }
 
-func (v *ValidadorUsos) necesita(c *comprobacion, nombre string, ambito Ambito, visto map[string]bool) []variableDeComandoEnComprobacion {
+func (val *ValidadorUsos) necesita(c *comprobacion, nombre string, ambito Ambito, visto map[string]bool) []variableDeComandoEnComprobacion {
 	if visto[nombre] {
 		return nil
 	}
@@ -527,7 +527,7 @@ func (v *ValidadorUsos) necesita(c *comprobacion, nombre string, ambito Ambito, 
 	if esEstandar(nombre) {
 		return nil
 	}
-	d, declarada := v.declaradaVisible(c, nombre, ambito)
+	d, declarada := val.declaradaVisible(c, nombre, ambito)
 	if !declarada {
 		if salida, produce := c.variablesDeComandos[nombre]; produce {
 			return []variableDeComandoEnComprobacion{salida}
@@ -537,12 +537,12 @@ func (v *ValidadorUsos) necesita(c *comprobacion, nombre string, ambito Ambito, 
 	var necesarias []variableDeComandoEnComprobacion
 	nombres, _ := usos(d.Valor)
 	for _, usado := range nombres {
-		necesarias = append(necesarias, v.necesita(c, usado, ambito, visto)...)
+		necesarias = append(necesarias, val.necesita(c, usado, ambito, visto)...)
 	}
 	return necesarias
 }
 
-func (v *ValidadorUsos) declaradaVisible(c *comprobacion, nombre string, ambito Ambito) (variableDePipelineEnComprobacion, bool) {
+func (val *ValidadorUsos) declaradaVisible(c *comprobacion, nombre string, ambito Ambito) (variableDePipelineEnComprobacion, bool) {
 	for _, d := range c.variablesDePipeline {
 		if d.Nombre == nombre && ambito.Ve(d.Ambito) {
 			return d, true
@@ -551,12 +551,12 @@ func (v *ValidadorUsos) declaradaVisible(c *comprobacion, nombre string, ambito 
 	return variableDePipelineEnComprobacion{}, false
 }
 
-func (v *ValidadorUsos) declaradaEsVisible(c *comprobacion, nombre string, ambito Ambito) bool {
-	_, hay := v.declaradaVisible(c, nombre, ambito)
+func (val *ValidadorUsos) declaradaEsVisible(c *comprobacion, nombre string, ambito Ambito) bool {
+	_, hay := val.declaradaVisible(c, nombre, ambito)
 	return hay
 }
 
-func (v *ValidadorUsos) circulosEnUnAmbito(c *comprobacion, ambito Ambito) {
+func (val *ValidadorUsos) circulosEnUnAmbito(c *comprobacion, ambito Ambito) {
 	detector := &detectadorCirculos{
 		comprobacion: c,
 		ambito:       ambito,
