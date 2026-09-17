@@ -23,7 +23,11 @@ const VersionDelFormato = "1"
 // 6. variablesDeclaradas() → valida variables/; no puede ejecutarse antes de ambientes
 // 7. usos() → valida que las variables usadas existan y sean visibles; no puede ejecutarse antes de salidas
 func Comprobar(pipelineDeclarado PipelineDeclarado) (*PipelineComprobado, error) {
-	comprobacion := &comprobacion{pipelineDeclarado: pipelineDeclarado}
+	mapaIlegibles := make(map[string]string, len(pipelineDeclarado.Ilegibles))
+	for _, i := range pipelineDeclarado.Ilegibles {
+		mapaIlegibles[i.Fichero] = i.Motivo
+	}
+	comprobacion := &comprobacion{pipelineDeclarado: pipelineDeclarado, mapaIlegibles: mapaIlegibles}
 	if !comprobacion.version() {
 		return nil, comprobacion.resultado()
 	}
@@ -57,6 +61,7 @@ func Comprobar(pipelineDeclarado PipelineDeclarado) (*PipelineComprobado, error)
 
 type comprobacion struct {
 	pipelineDeclarado    PipelineDeclarado
+	mapaIlegibles        map[string]string
 	fallos               []Fallo
 	ambientesComprobados []AmbienteComprobado
 	pasosComprobados     []PasoComprobado
@@ -78,7 +83,8 @@ func (comp *comprobacion) resultado() error {
 
 // ilegible dice si un fichero ya falló al leerse, para no sumarle fallos que solo son consecuencia de eso.
 func (comp *comprobacion) ilegible(fichero string) bool {
-	return slices.ContainsFunc(comp.pipelineDeclarado.Ilegibles, func(i FicheroIlegibleDeclarado) bool { return i.Fichero == fichero })
+	_, es := comp.mapaIlegibles[fichero]
+	return es
 }
 
 // version rechaza cualquier formato que no sea VersionDelFormato, y entonces no comprueba nada más: todo lo
@@ -88,11 +94,7 @@ func (comp *comprobacion) version() bool {
 	case !comp.pipelineDeclarado.Configuracion.Existe:
 		comp.falla(Formato, FileConfig, "", "", "no está, y el pipeline declara ahí su schema_version")
 	case comp.ilegible(FileConfig):
-		for _, i := range comp.pipelineDeclarado.Ilegibles {
-			if i.Fichero == FileConfig {
-				comp.falla(Formato, FileConfig, "", "", "%s", i.Motivo)
-			}
-		}
+		comp.falla(Formato, FileConfig, "", "", "%s", comp.mapaIlegibles[FileConfig])
 	case comp.pipelineDeclarado.Configuracion.Datos.Version == nil:
 		comp.falla(Formato, FileConfig, "", "", "no dice schema_version, y la única que se lee es la %s", VersionDelFormato)
 	case *comp.pipelineDeclarado.Configuracion.Datos.Version != VersionDelFormato:

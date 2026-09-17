@@ -62,11 +62,7 @@ func (val *ValidadorVersion) Validar(c *comprobacion) error {
 	case !c.pipelineDeclarado.Configuracion.Existe:
 		c.falla(Formato, FileConfig, "", "", "no está, y el pipeline declara ahí su schema_version")
 	case c.ilegible(FileConfig):
-		for _, i := range c.pipelineDeclarado.Ilegibles {
-			if i.Fichero == FileConfig {
-				c.falla(Formato, FileConfig, "", "", "%s", i.Motivo)
-			}
-		}
+		c.falla(Formato, FileConfig, "", "", "%s", c.mapaIlegibles[FileConfig])
 	case c.pipelineDeclarado.Configuracion.Datos.Version == nil:
 		c.falla(Formato, FileConfig, "", "", "no dice schema_version, y la única que se lee es la %s", VersionDelFormato)
 	case *c.pipelineDeclarado.Configuracion.Datos.Version != VersionDelFormato:
