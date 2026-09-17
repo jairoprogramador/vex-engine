@@ -181,6 +181,16 @@ func TestUnaDeclaracionBienFormadaDaUnPipeline(t *testing.T) {
 		paso, _ := comprobar(t, d).Paso("despliegue")
 		require.Empty(t, paso.Reglas)
 	})
+
+	t.Run("Paso de un nombre que no existe, no está", func(t *testing.T) {
+		_, esta := p.Paso("no-existe")
+		require.False(t, esta)
+	})
+}
+
+func TestAmbitoString(t *testing.T) {
+	require.Equal(t, "compartido", dominio.Compartido.String())
+	require.Equal(t, "sand", dominio.Ambito("sand").String())
 }
 
 func TestLoQueVeUnPasoEsSuAmbito(t *testing.T) {
@@ -395,6 +405,14 @@ func TestCadaFilaDeLaComprobacionProduceSuFallo(t *testing.T) {
 			invariante: dominio.Formato, fichero: "steps/01-registro/commands.yaml", detalle: "un outputs sin name ni probe",
 		},
 		{
+			nombre: "una variable de salida con un nombre inválido",
+			mutar: func(d *dominio.PipelineDeclarado) {
+				c := &d.Pasos[0].Comandos.Datos[0]
+				c.Variables = append(c.Variables, dominio.VariableDeComandoDeclarada{Nombre: "1invalido", Expresion: "x"})
+			},
+			invariante: dominio.Formato, fichero: "steps/01-registro/commands.yaml", detalle: "que no es un nombre de variable",
+		},
+		{
 			nombre: "una aserción con scope",
 			mutar: func(d *dominio.PipelineDeclarado) {
 				d.Pasos[0].Comandos.Datos[0].Variables[1].Ambito = "shared"
@@ -407,6 +425,27 @@ func TestCadaFilaDeLaComprobacionProduceSuFallo(t *testing.T) {
 			nombre:     "una variable sin value",
 			mutar:      func(d *dominio.PipelineDeclarado) { d.Variables[0].Variables[0].Valor = nil },
 			invariante: dominio.Formato, fichero: "variables/compartidas.yaml", detalle: `"sku" no dice value`,
+		},
+		{
+			nombre: "una variable declarada sin name",
+			mutar: func(d *dominio.PipelineDeclarado) {
+				d.Variables[0].Variables = append(d.Variables[0].Variables, dominio.VariableDePipelineDeclarada{Valor: texto("x")})
+			},
+			invariante: dominio.Formato, fichero: "variables/compartidas.yaml", detalle: "una variable no dice name",
+		},
+		{
+			nombre: "una variable declarada con un nombre inválido",
+			mutar: func(d *dominio.PipelineDeclarado) {
+				d.Variables[0].Variables = append(d.Variables[0].Variables, dominio.VariableDePipelineDeclarada{Nombre: "1invalido", Valor: texto("x")})
+			},
+			invariante: dominio.Formato, fichero: "variables/compartidas.yaml", detalle: `"1invalido" no es un nombre de variable`,
+		},
+		{
+			nombre: "un valor declarado que usa un nombre de variable malformado",
+			mutar: func(d *dominio.PipelineDeclarado) {
+				d.Variables[0].Variables = append(d.Variables[0].Variables, dominio.VariableDePipelineDeclarada{Nombre: "otra", Valor: texto("${var.no-vale}")})
+			},
+			invariante: dominio.Formato, fichero: "variables/compartidas.yaml", detalle: "${var.no-vale} no es un nombre de variable",
 		},
 		{
 			nombre:     "un uso que no es un nombre de variable",
@@ -561,6 +600,21 @@ func TestCadaFilaDeLaComprobacionProduceSuFallo(t *testing.T) {
 			detalle: `usa ${var.destino}, que necesita la salida "ip", y la produce el comando 1 de "despliegue"`,
 		},
 		{
+			nombre: "una variable declarada necesita la misma salida por dos caminos distintos",
+			mutar: func(d *dominio.PipelineDeclarado) {
+				// "ip" pasa a ser compartida para que "a", "b" y "combo", declaradas en el ámbito compartido, la vean.
+				d.Pasos[1].Comandos.Datos[0].Variables[0].Ambito = "shared"
+				d.Variables[0].Variables = append(d.Variables[0].Variables,
+					dominio.VariableDePipelineDeclarada{Nombre: "a", Valor: texto("${var.ip}")},
+					dominio.VariableDePipelineDeclarada{Nombre: "b", Valor: texto("${var.ip}")},
+					dominio.VariableDePipelineDeclarada{Nombre: "combo", Valor: texto("${var.a}-${var.b}")},
+				)
+				d.Pasos[0].Comandos.Datos[0].Linea += " --combo ${var.combo}"
+			},
+			invariante: dominio.Variables, fichero: "steps/01-registro/commands.yaml",
+			detalle: `usa ${var.combo}, que necesita la salida "ip", y la produce el comando 1 de "despliegue"`,
+		},
+		{
 			nombre:     "un valor declarado que usa un nombre que no existe",
 			mutar:      func(d *dominio.PipelineDeclarado) { d.Variables[0].Variables[1].Valor = texto("${var.otra}") },
 			invariante: dominio.Variables, fichero: "variables/compartidas.yaml",
@@ -620,6 +674,17 @@ func TestCadaFilaDeLaComprobacionProduceSuFallo(t *testing.T) {
 				)
 			},
 			invariante: dominio.Variables, fichero: "variables/sand/despliegue.yaml", ambiente: "sand",
+			detalle: "se usan en círculo: a → b → a",
+		},
+		{
+			nombre: "variables compartidas que se usan en círculo",
+			mutar: func(d *dominio.PipelineDeclarado) {
+				d.Variables[0].Variables = append(d.Variables[0].Variables,
+					dominio.VariableDePipelineDeclarada{Nombre: "a", Valor: texto("${var.b}")},
+					dominio.VariableDePipelineDeclarada{Nombre: "b", Valor: texto("x-${var.a}")},
+				)
+			},
+			invariante: dominio.Variables, fichero: "variables/compartidas.yaml",
 			detalle: "se usan en círculo: a → b → a",
 		},
 
@@ -695,6 +760,13 @@ func TestCadaFilaDeLaComprobacionProduceSuFallo(t *testing.T) {
 				d.Ambientes.Datos = append(d.Ambientes.Datos, dominio.AmbienteDeclarado{Nombre: "otra", Valor: "PROD"})
 			},
 			invariante: dominio.Ambientes, fichero: "environments.yaml", detalle: `el value "PROD" está dos veces`,
+		},
+		{
+			nombre: "un name repetido",
+			mutar: func(d *dominio.PipelineDeclarado) {
+				d.Ambientes.Datos = append(d.Ambientes.Datos, dominio.AmbienteDeclarado{Nombre: "sandbox", Valor: "otro"})
+			},
+			invariante: dominio.Ambientes, fichero: "environments.yaml", detalle: `el name "sandbox" está dos veces`,
 		},
 		{
 			nombre: "un value que no sirve como directorio",
