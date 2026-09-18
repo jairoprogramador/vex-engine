@@ -21,6 +21,8 @@
   | `ejecucion.ErrNoDisponible` | el espacio de trabajo del ambiente no se alcanzó; el intento no empezó |
   | `*historial.AmbienteOcupadoError` | el ambiente tiene otro intento en curso, y dice cuál (se puede abandonar) |
 
+> Guía práctica para probarlo a mano, con ejemplos: `docs/guia-de-pruebas.md` y `scripts/demo.sh`.
+
 ## La invocación
 
 `cmd/vexd` (el binario `vexd`) es la raíz de composición: conecta los contextos y atiende **una operación por

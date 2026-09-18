@@ -39,7 +39,7 @@ const (
 	estadoExitoso    = "exitoso"
 	estadoCancelado  = "cancelado"
 	entradaEstandar  = "-"
-	marcaDeOperacion = "motor"
+	marcaDeOperacion = "vexd"
 )
 
 func main() {
