@@ -1,0 +1,3 @@
+- name: production
+  description: el único ambiente de este pipeline de prueba
+  value: prod

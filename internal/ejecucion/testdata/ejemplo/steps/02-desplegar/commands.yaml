@@ -1,0 +1,3 @@
+- name: usar-etiqueta
+  description: usa la variable producida por el paso anterior y la variable estándar del ambiente
+  cmd: echo desplegando ${var.etiqueta} en ${var.environment}

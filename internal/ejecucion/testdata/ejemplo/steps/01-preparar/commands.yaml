@@ -1,0 +1,13 @@
+- name: mostrar-plantilla
+  description: imprime la plantilla ya interpolada, para comprobar que la parte del motor se rehizo de verdad
+  cmd: cat plantilla.txt
+  templates:
+    - plantilla.txt
+
+- name: generar-etiqueta
+  description: produce la variable que consume el siguiente paso
+  cmd: echo etiqueta=v1.0.0
+  outputs:
+    - name: etiqueta
+      description: la etiqueta que se despliega
+      probe: 'etiqueta=(\S+)'
