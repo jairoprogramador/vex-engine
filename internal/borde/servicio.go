@@ -1,14 +1,29 @@
 package borde
 
-import ejecucionpublicado "github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
+import (
+	diagnosticopublicado "github.com/jairoprogramador/vex-engine/internal/diagnostico/publicado"
+	ejecucionpublicado "github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
+	historialpublicado "github.com/jairoprogramador/vex-engine/internal/historial/publicado"
+	lanzamientopublicado "github.com/jairoprogramador/vex-engine/internal/lanzamiento/publicado"
+	simulacionpublicado "github.com/jairoprogramador/vex-engine/internal/simulacion/publicado"
+)
 
-// Servicio es el borde mínimo de RD-06: recibe una petición por invocación, comprueba su versión del lenguaje
-// publicado (DEC-05.6) y la envía a Ejecución de Pipeline. RD-10 completa el resto de operaciones sobre el
-// mismo Servicio.
-type Servicio struct {
-	ejecucion ejecucionpublicado.ParaBorde
+// Dependencias son los contextos de entrada, cada uno por lo que publica hacia el borde. Los conecta la raíz
+// de composición.
+type Dependencias struct {
+	Ejecucion   ejecucionpublicado.ParaBorde
+	Simulacion  simulacionpublicado.ParaBorde
+	Lanzamiento lanzamientopublicado.ParaBorde
+	Diagnostico diagnosticopublicado.ParaBorde
+	Historial   historialpublicado.ParaBorde
 }
 
-func NuevoServicio(ejecucion ejecucionpublicado.ParaBorde) *Servicio {
-	return &Servicio{ejecucion: ejecucion}
+// Servicio es el Open Host del motor (RD-10): recibe una petición por invocación, comprueba su versión del
+// lenguaje publicado (DEC-05.6) y la envía al contexto de entrada que la atiende. No decide nada de negocio.
+type Servicio struct {
+	d Dependencias
+}
+
+func NuevoServicio(d Dependencias) *Servicio {
+	return &Servicio{d: d}
 }

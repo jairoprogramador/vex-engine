@@ -116,4 +116,5 @@ dependencias.
 | RD-07 | **implementada** en local (2026-09-17) |
 | RD-08 | **implementada** en local (2026-09-17) |
 | RD-09 | **implementada** en local (2026-09-18) |
-| RD-10 a RD-12 | pendiente |
+| RD-10 | **implementada** en local (2026-09-18) |
+| RD-11 a RD-12 | pendiente |

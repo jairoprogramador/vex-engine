@@ -14,5 +14,5 @@ func (s *Servicio) Intentar(
 	if err := comprobarVersion(p.Version); err != nil {
 		return ejecucionpublicado.Resultado{}, err
 	}
-	return s.ejecucion.Intentar(ctx, p, salida)
+	return s.d.Ejecucion.Intentar(ctx, p, salida)
 }

@@ -86,7 +86,7 @@ func montarSistema(t *testing.T) *sistema {
 	})
 
 	return &sistema{
-		borde:        borde.NuevoServicio(ejecucionServicio),
+		borde:        borde.NuevoServicio(borde.Dependencias{Ejecucion: ejecucionServicio, Historial: historialServicio}),
 		historial:    historialServicio,
 		repoProyecto: nuevoRepoDeProyecto(t),
 		repoPipeline: nuevoRepoDePipeline(t),

@@ -14,5 +14,5 @@ func (s *Servicio) HacerRollback(
 	if err := comprobarVersion(p.Version); err != nil {
 		return ejecucionpublicado.Resultado{}, err
 	}
-	return s.ejecucion.HacerRollback(ctx, p, salida)
+	return s.d.Ejecucion.HacerRollback(ctx, p, salida)
 }

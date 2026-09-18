@@ -40,7 +40,7 @@ var _ ejecucionpublicado.ParaBorde = (*ejecucionFalsa)(nil)
 
 func TestServicio_IntentarRechazaUnaVersionNoSoportadaSinLlamarAEjecucion(t *testing.T) {
 	falsa := &ejecucionFalsa{}
-	servicio := borde.NuevoServicio(falsa)
+	servicio := borde.NuevoServicio(borde.Dependencias{Ejecucion: falsa})
 
 	_, err := servicio.Intentar(context.Background(), ejecucionpublicado.PeticionDeIntento{Version: "99"}, nil)
 
@@ -50,7 +50,7 @@ func TestServicio_IntentarRechazaUnaVersionNoSoportadaSinLlamarAEjecucion(t *tes
 
 func TestServicio_IntentarDelegaEnEjecucionConUnaVersionSoportada(t *testing.T) {
 	falsa := &ejecucionFalsa{resultado: ejecucionpublicado.Resultado{Intento: "int-1", Estado: "exitoso"}}
-	servicio := borde.NuevoServicio(falsa)
+	servicio := borde.NuevoServicio(borde.Dependencias{Ejecucion: falsa})
 
 	resultado, err := servicio.Intentar(context.Background(), ejecucionpublicado.PeticionDeIntento{Version: "1", Ambiente: "prod"}, nil)
 
@@ -62,7 +62,7 @@ func TestServicio_IntentarDelegaEnEjecucionConUnaVersionSoportada(t *testing.T) 
 
 func TestServicio_HacerRollbackRechazaUnaVersionNoSoportadaSinLlamarAEjecucion(t *testing.T) {
 	falsa := &ejecucionFalsa{}
-	servicio := borde.NuevoServicio(falsa)
+	servicio := borde.NuevoServicio(borde.Dependencias{Ejecucion: falsa})
 
 	_, err := servicio.HacerRollback(context.Background(), ejecucionpublicado.PeticionDeRollback{Version: "99"}, nil)
 
@@ -72,7 +72,7 @@ func TestServicio_HacerRollbackRechazaUnaVersionNoSoportadaSinLlamarAEjecucion(t
 
 func TestServicio_HacerRollbackDelegaEnEjecucionConUnaVersionSoportada(t *testing.T) {
 	falsa := &ejecucionFalsa{resultado: ejecucionpublicado.Resultado{Despliegue: "dep-2"}}
-	servicio := borde.NuevoServicio(falsa)
+	servicio := borde.NuevoServicio(borde.Dependencias{Ejecucion: falsa})
 
 	resultado, err := servicio.HacerRollback(
 		context.Background(), ejecucionpublicado.PeticionDeRollback{Version: "1", Despliegue: "dep-1"}, nil,

@@ -5,6 +5,7 @@ package publicado
 // que ejecucion/publicado.PeticionDeIntento. Sin Metadatos: nada en Resolución de Variables tiene dónde
 // recibirlos para una petición sin intento (RD-09 §9).
 type PeticionDeSimulacion struct {
+	Version        string // DEC-05.6
 	Fuente         string
 	Commit         string
 	CopiaDeTrabajo string

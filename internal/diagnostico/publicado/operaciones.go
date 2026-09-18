@@ -5,6 +5,7 @@ import "context"
 // PeticionDeDiagnostico es lo que se pregunta: un Intento o un Lanzamiento (nunca los dos), en un
 // Ambiente, y opcionalmente una Referencia elegida a mano (DEC-06.6).
 type PeticionDeDiagnostico struct {
+	Version     string // DEC-05.6
 	Intento     string
 	Lanzamiento string
 	Ambiente    string
