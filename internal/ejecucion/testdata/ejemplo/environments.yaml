@@ -1,3 +1,9 @@
+- name: develop
+  description: ambiente de desarrollo
+  value: dev
+- name: testing
+  description: ambiente de pruebas
+  value: qa
 - name: production
-  description: el único ambiente de este pipeline de prueba
+  description: ambiente productivo
   value: prod

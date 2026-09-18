@@ -3,7 +3,5 @@ steps:
   preparar:
     rules: [instructions]
   desplegar:
-    # Sin "variables": ver RD-06 §9, hallazgo sobre resolucion/aplicacion.cambiaronLasVariables y las
-    # variables declaradas/estándar, que nunca se registran en el Historial (solo las producidas).
     rules: [instructions]
     max_age: 1h
