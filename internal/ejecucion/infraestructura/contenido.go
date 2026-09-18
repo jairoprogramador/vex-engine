@@ -16,16 +16,18 @@ import (
 const contextoApertura = "ejecucion/apertura-v1"
 
 type contenidoApertura struct {
-	FuenteDelProyecto string `json:"fuente_del_proyecto"`
-	CommitDelProyecto string `json:"commit_del_proyecto"`
-	FuenteDelPipeline string `json:"fuente_del_pipeline"`
-	CommitDelPipeline string `json:"commit_del_pipeline"`
+	FuenteDelProyecto string   `json:"fuente_del_proyecto"`
+	CommitDelProyecto string   `json:"commit_del_proyecto"`
+	FuenteDelPipeline string   `json:"fuente_del_pipeline"`
+	CommitDelPipeline string   `json:"commit_del_pipeline"`
+	OrdenDeAmbientes  []string `json:"orden_de_ambientes,omitempty"`
 }
 
 func codificarContenidoDeApertura(a dominio.AperturaDeIntento) (historialpublicado.Contenido, error) {
 	datos, err := json.Marshal(contenidoApertura{
 		FuenteDelProyecto: a.FuenteDelProyecto, CommitDelProyecto: a.CommitDelProyecto,
 		FuenteDelPipeline: a.FuenteDelPipeline, CommitDelPipeline: a.CommitDelPipeline,
+		OrdenDeAmbientes: a.OrdenDeAmbientes,
 	})
 	if err != nil {
 		return historialpublicado.Contenido{}, fmt.Errorf("ejecución: codificar el contenido de una apertura: %w", err)

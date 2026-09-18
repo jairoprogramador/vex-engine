@@ -42,6 +42,7 @@ func (s *Servicio) Intentar(ctx context.Context, p publicado.PeticionDeIntento, 
 		ConCommits: !esCopiaDeTrabajo, HashDelCodigo: material.Hash,
 		FuenteDelProyecto: p.FuenteDelProyecto, CommitDelProyecto: material.Commit,
 		FuenteDelPipeline: p.FuenteDelPipeline, CommitDelPipeline: pipeline.Commit,
+		OrdenDeAmbientes: pipeline.Ambientes,
 	})
 	if err != nil {
 		return publicado.Resultado{}, traducir(err)

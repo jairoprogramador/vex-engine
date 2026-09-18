@@ -15,10 +15,13 @@ type Pipelines interface {
 
 // Pipeline es el pipeline comprobado, en lo que este contexto necesita de él: el commit con el que se resolvió
 // —el mismo que hay que guardar en la apertura del intento para que un rollback futuro lo pueda pedir de
-// nuevo, DEC-03.9— y sus pasos, en orden.
+// nuevo, DEC-03.9—, sus pasos, en orden, y el orden de sus ambientes, que este contexto no usa para nada
+// propio: solo lo lleva hasta la apertura del intento para que quede en el Historial y Diagnóstico pueda
+// encontrar el ambiente anterior (DEC-06.6).
 type Pipeline struct {
-	Commit string
-	Pasos  []PasoDeEjecucion
+	Commit    string
+	Ambientes []string // el valor de cada ambiente, en su orden
+	Pasos     []PasoDeEjecucion
 }
 
 // PasoDeEjecucion es un paso del pipeline con todo lo que un intento necesita de él: su lugar en el orden y su
@@ -99,6 +102,9 @@ type AperturaDeIntento struct {
 	CommitDelProyecto string
 	FuenteDelPipeline string
 	CommitDelPipeline string
+	// OrdenDeAmbientes es el orden declarado en environments.yaml, para que Diagnóstico encuentre el
+	// ambiente anterior (DEC-06.6). No lo usa este contexto.
+	OrdenDeAmbientes []string
 }
 
 // Comandos ejecuta un comando en el espacio de trabajo de su ambiente y recoge su resultado. La salida se

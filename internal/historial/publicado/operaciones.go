@@ -45,7 +45,7 @@ type ParaLanzamiento interface {
 	TodosLosLanzamientos(ctx context.Context) ([]Lanzamiento, error)
 }
 
-// ParaDiagnostico son las consultas que pide el core. RD-08 las completa con las de su tabla de requisitos.
+// ParaDiagnostico son las consultas que pide el core (RD-08).
 type ParaDiagnostico interface {
 	Intento(ctx context.Context, id string) (Intento, error)
 	IntentosDeUnAmbiente(ctx context.Context, ambiente string) ([]Intento, error)
@@ -55,6 +55,10 @@ type ParaDiagnostico interface {
 	// incluido.
 	CantidadDeIntentos(ctx context.Context, despliegue, intento string) (int, error)
 	VariablesDeUnPaso(ctx context.Context, intento, paso string) ([]Variable, error)
+	// Lanzamiento es uno por su identidad, para entrar por ES-3: de cada lanzamiento, su despliegue.
+	Lanzamiento(ctx context.Context, id string) (Lanzamiento, error)
+	// Despliegue es uno por su identidad, para cuando el usuario elige la referencia a mano (DEC-06.6).
+	Despliegue(ctx context.Context, id string) (Despliegue, error)
 }
 
 // ParaBorde es lo que el motor expone al CLI y al portal.

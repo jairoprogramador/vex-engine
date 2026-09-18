@@ -53,7 +53,11 @@ func pipelineDeDominio(p definicionpublicado.Pipeline) (dominio.Pipeline, error)
 		}
 		pasos = append(pasos, pasoDeEjecucion)
 	}
-	return dominio.Pipeline{Commit: p.Commit, Pasos: pasos}, nil
+	ambientes := make([]string, 0, len(p.Ambientes))
+	for _, a := range p.Ambientes {
+		ambientes = append(ambientes, a.Valor)
+	}
+	return dominio.Pipeline{Commit: p.Commit, Ambientes: ambientes, Pasos: pasos}, nil
 }
 
 func pasoDeDominio(paso definicionpublicado.Paso) (dominio.PasoDeEjecucion, error) {

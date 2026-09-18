@@ -192,6 +192,29 @@ func (s *Servicio) HashDelCodigoDeUnDespliegue(ctx context.Context, id string) (
 	return string(a.HashDelCodigo), nil
 }
 
+// Lanzamiento es uno por su identidad (RD-08 ES-3: de cada lanzamiento, su despliegue).
+func (s *Servicio) Lanzamiento(ctx context.Context, id string) (publicado.Lanzamiento, error) {
+	lanzamientos, err := s.d.Lanzamientos.Todos(ctx)
+	if err != nil {
+		return publicado.Lanzamiento{}, traducir(err)
+	}
+	for _, l := range lanzamientos.Todos() {
+		if l.Id() == dominio.IdLanzamiento(id) {
+			return lanzamientoAPublicado(l), nil
+		}
+	}
+	return publicado.Lanzamiento{}, traducir(noExiste(nil, "el lanzamiento %s", id))
+}
+
+// Despliegue es uno por su identidad (RD-08: cuando el usuario elige la referencia a mano, DEC-06.6).
+func (s *Servicio) Despliegue(ctx context.Context, id string) (publicado.Despliegue, error) {
+	despliegue, err := s.buscarDespliegue(ctx, dominio.IdDespliegue(id))
+	if err != nil {
+		return publicado.Despliegue{}, traducir(err)
+	}
+	return despliegueAPublicado(despliegue), nil
+}
+
 func (s *Servicio) TodosLosLanzamientos(ctx context.Context) ([]publicado.Lanzamiento, error) {
 	lanzamientos, err := s.d.Lanzamientos.Todos(ctx)
 	if err != nil {

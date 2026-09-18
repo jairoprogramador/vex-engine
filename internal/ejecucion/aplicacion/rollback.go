@@ -45,6 +45,7 @@ func (s *Servicio) HacerRollback(ctx context.Context, p publicado.PeticionDeRoll
 		ConCommits: true, HashDelCodigo: material.Hash,
 		FuenteDelProyecto: destino.FuenteDelProyecto(), CommitDelProyecto: destino.CommitDelProyecto(),
 		FuenteDelPipeline: destino.FuenteDelPipeline(), CommitDelPipeline: destino.CommitDelPipeline(),
+		OrdenDeAmbientes: pipeline.Ambientes,
 	})
 	if err != nil {
 		return publicado.Resultado{}, traducir(err)
