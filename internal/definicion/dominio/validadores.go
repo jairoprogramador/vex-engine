@@ -215,7 +215,7 @@ func (val *validadorPasosImpl) validarUnPaso(escrito PasoDeclarado) {
 	}
 
 	if otro, repetido := val.porOrden[orden]; repetido {
-		val.comprobacion.falla(Fallo{Invariante: Pasos, Fichero: directorio, Paso: nombre}, "el orden %s ya es de steps/%s", orden, otro)
+		val.comprobacion.falla(Fallo{Invariante: Pasos, Fichero: directorio, Paso: nombre}, "el orden %s ya es de steps/%s", matches[1], otro)
 		valido = false
 	}
 
