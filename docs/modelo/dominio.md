@@ -214,7 +214,7 @@ distintas, y **atribuye por eliminación**.
 |---|---|---|---|
 | **Código del producto** | uno — el proyecto tiene identidad propia | no | a lo que se despliegue desde ahí |
 | **Instrucciones del pipeline** | uno, agrupadas por paso | **no** | a **todos** los despliegues de **todos** los ambientes |
-| **Variables** | muchas, las **declaradas**: por paso **y** por ámbito, que por defecto es el ambiente. Las que produce un paso son consecuencia y no cuentan *(IT-06 `DEC-06.10`, `DEC-06.12`)* | **sí**, salvo las de ámbito compartido | a **un** ambiente, y a un paso |
+| **Variables** | muchas, las **declaradas**: cada una de un **ámbito**, el de un ambiente o el compartido. Las que produce un paso son consecuencia y no cuentan *(IT-06 `DEC-06.10`, `DEC-06.12`)* | **sí**, salvo las de ámbito compartido | a **un** ambiente, y a los pasos que la ven |
 
 Esa asimetría —un eje que no varía por ambiente y otro que sí— **es el mecanismo de la
 deducción**. No es una curiosidad del formato: es lo que permite eliminar.

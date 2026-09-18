@@ -1,0 +1,16 @@
+- name: iniciar
+  description: prepara terraform con el estado del registro, uno para todo el proyecto
+  cmd: terraform init -backend-config="container_name=$TF_STATE_CONTAINER" -backend-config="key=${var.project_id}/registro.tfstate"
+  workdir: ./terraform
+
+- name: aplicar
+  description: el registro es el mismo en todos los ambientes, y lo que produce es compartido
+  cmd: terraform apply -auto-approve -var="sku=${var.registro_sku}"
+  workdir: ./terraform
+  outputs:
+    # Sin scope: heredan el del paso (rules.yaml, scope: shared).
+    - name: registro_nombre
+      description: el nombre del registro de contenedores
+      probe: registro_nombre\s*=\s*"([^"]+)"
+    - name: registro_servidor
+      probe: registro_servidor\s*=\s*"([^"]+)"

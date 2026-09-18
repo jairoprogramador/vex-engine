@@ -1,0 +1,27 @@
+package publicado
+
+import (
+	"errors"
+	"fmt"
+)
+
+var (
+	// ErrRechazado: lo pedido rompería una regla del historial, y no se escribe nada.
+	ErrRechazado = errors.New("historial: rechazado")
+
+	// ErrNoExiste: lo que se pide no está en el historial.
+	ErrNoExiste = errors.New("historial: no existe")
+)
+
+// AmbienteOcupadoError rechaza abrir un intento en un ambiente con otro en curso, y dice cuál. Ese intento
+// se puede dar por abandonado.
+type AmbienteOcupadoError struct {
+	Ambiente string
+	Intento  string
+}
+
+func (e *AmbienteOcupadoError) Error() string {
+	return fmt.Sprintf("historial: el ambiente %q tiene en curso el intento %s", e.Ambiente, e.Intento)
+}
+
+func (e *AmbienteOcupadoError) Is(objetivo error) bool { return objetivo == ErrRechazado }

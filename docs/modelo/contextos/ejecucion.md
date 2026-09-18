@@ -47,7 +47,7 @@ invocación (`DEC-09.2`).
 | | Qué es |
 |---|---|
 | **recursos de un paso** | lo que un paso usa: el hash del código, el hash de sus instrucciones (comandos y material, `DEC-08.7`) y si cambiaron sus variables |
-| **regla** | qué mira un paso para decidir si se re-ejecuta: código, instrucciones, variables de su ámbito, tiempo |
+| **regla** | qué mira un paso para decidir si se re-ejecuta: código, instrucciones, las variables que ve, tiempo |
 | **decisión** | *se re-ejecuta*, o *no se re-ejecuta*, con su **razón** y su **evidencia** |
 | **destino** | el despliegue al que vuelve un rollback |
 | **resultado de un comando** | terminó bien o falló, y lo que produjo |

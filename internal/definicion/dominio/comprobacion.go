@@ -12,17 +12,9 @@ import (
 // VersionDelFormato es la única schema_version que Comprobar acepta en config.yaml.
 const VersionDelFormato = "1"
 
-// Comprobar valida un pipeline declarado y devuelve su forma comprobada, o un error con todos los fallos encontrados.
-// El orden de validación es crítico: cada validador asume que los anteriores no fallaron.
-// 1. ValidadorVersion → verifica schema_version (si falla, no se comprueba nada más: todo lo demás fallaría por
-// la misma causa)
-// 2. ValidadorArchivosIlegibles → reporta I/O y errores de estructura
-// 3. ValidadorAmbientes → valida declaración y orden de ambientes
-// 4. ValidadorPasos → valida nombres, órdenes y referencias en config.yaml
-// 5. ValidadorSalidas → indexa variables de salida de comandos, detecta duplicados
-// 6. ValidadorVariablesDeclaradas → valida variables/; no puede ejecutarse antes de ValidadorAmbientes
-// 7. ValidadorUsos → valida que las variables usadas existan y sean visibles; no puede ejecutarse antes de
-// ValidadorSalidas
+// Comprobar valida un pipeline declarado y devuelve su forma comprobada, o un error con todos los fallos
+// encontrados. El orden en que corren los validadores es crítico — ver doc.go, "Orden de validación", que es la
+// referencia única: no se repite aquí para que no queden dos listas que mantener sincronizadas.
 func Comprobar(pipelineDeclarado PipelineDeclarado) (*PipelineComprobado, error) {
 	mapaIlegibles := make(map[string]string, len(pipelineDeclarado.Ilegibles))
 	for _, i := range pipelineDeclarado.Ilegibles {
@@ -54,20 +46,29 @@ func Comprobar(pipelineDeclarado PipelineDeclarado) (*PipelineComprobado, error)
 	}, nil
 }
 
-type comprobacion struct {
-	pipelineDeclarado    PipelineDeclarado
-	mapaIlegibles        map[string]string
+// resultadoComprobacion es lo que cada Validador produce: sus fallos, y lo que deriva del
+// pipeline declarado para que el siguiente validador lo use. Un validador nuevo que necesite
+// dejar algo para los que vienen después agrega el campo aquí, no en comprobacion.
+type resultadoComprobacion struct {
 	fallos               []Fallo
 	ambientesComprobados []AmbienteComprobado
 	pasosComprobados     []PasoComprobado
 	variablesDePipeline  []variableDePipelineEnComprobacion
-	variablesDeComandos  map[string]variableDeComandoEnComprobacion
+	variablesDeComandos  map[string]variableDeSalidaEnComprobacion
 }
 
-func (comp *comprobacion) falla(inv Invariante, fichero, paso, ambiente, formato string, args ...any) {
-	comp.fallos = append(comp.fallos, Fallo{
-		Invariante: inv, Fichero: fichero, Paso: paso, Ambiente: ambiente, Detalle: fmt.Sprintf(formato, args...),
-	})
+type comprobacion struct {
+	pipelineDeclarado PipelineDeclarado
+	mapaIlegibles     map[string]string
+	resultadoComprobacion
+}
+
+// falla registra un fallo: f identifica dónde ocurre (Invariante, Fichero y, si aplica, Paso/Ambiente); el
+// detalle se compone aquí, formateado. f llega como struct con nombres de campo para que Paso y Ambiente —los
+// dos posicionales que eran strings intercambiables— no puedan invertirse por error.
+func (comp *comprobacion) falla(f Fallo, formato string, args ...any) {
+	f.Detalle = fmt.Sprintf(formato, args...)
+	comp.fallos = append(comp.fallos, f)
 }
 
 func (comp *comprobacion) resultado() error {
@@ -86,46 +87,65 @@ var reglasDelFormato = map[string]Regla{
 	"variables":    ReglaVariables,
 }
 
-// configuracion aplica la entrada de un paso bajo steps, en config.yaml (RD-04 §9.20), con sus valores por
-// defecto: sin rules, el paso mira las tres cosas, y sin max_age, no caduca (IT-12 DEC-12.7). scope declara
-// el ámbito propio del paso (RD-04 §9.19): decide qué ve (las variables variablesDePipeline y de salida visibles desde
-// ese ámbito, por Ambito.Ve y variableDeComandoEnComprobacion.laVe), bajo qué ámbito archiva su historia, y qué hereda por
-// defecto lo que produce sin scope propio. Sin scope, su ámbito es el que representa al ambiente en que se
-// ejecuta — no un tercer concepto: es el mismo Ambito que tendría una variable variableDePipelineEnComprobacion en ese ambiente,
-// solo que asignado por defecto y no por escrito.
+// configuracion aplica la entrada de un paso bajo steps, en config.yaml (RD-04 §9.20): parte de los valores por
+// defecto y, si el paso tiene entrada propia, la reemplaza campo a campo — cada uno con su propia regla de qué
+// significa "no escrito" (aplicarReglas, aplicarEdadMaxima, aplicarAmbito).
 func (comp *comprobacion) configuracion(paso *PasoComprobado, escrita *ConfiguracionDePasoDeclarada) {
 	paso.Reglas = []Regla{ReglaCodigo, ReglaInstrucciones, ReglaVariables}
 	if escrita == nil {
 		return
 	}
-	if escrita.ReglasEscritas {
-		paso.Reglas = []Regla{}
-		for _, token := range escrita.Reglas {
-			regla, ok := reglasDelFormato[token]
-			switch {
-			case !ok:
-				comp.falla(Formato, FileConfig, paso.Nombre, "", "la regla %q no existe: code, instructions o variables", token)
-			case slices.Contains(paso.Reglas, regla):
-				comp.falla(Formato, FileConfig, paso.Nombre, "", "la regla %q está dos veces", token)
-			default:
-				paso.Reglas = append(paso.Reglas, regla)
-			}
+	comp.aplicarReglas(paso, escrita)
+	comp.aplicarEdadMaxima(paso, escrita)
+	comp.aplicarAmbito(paso, escrita)
+}
+
+// aplicarReglas reemplaza las reglas por defecto (las tres) por las escritas: sin rules, el paso las mira todas
+// (IT-12 DEC-12.7); con rules: [] las vacía a propósito — lo decide ReglasEscritas, no la longitud de la lista.
+func (comp *comprobacion) aplicarReglas(paso *PasoComprobado, escrita *ConfiguracionDePasoDeclarada) {
+	if !escrita.ReglasEscritas {
+		return
+	}
+	paso.Reglas = []Regla{}
+	for _, token := range escrita.Reglas {
+		regla, ok := reglasDelFormato[token]
+		switch {
+		case !ok:
+			comp.falla(Fallo{Invariante: Formato, Fichero: FileConfig, Paso: paso.Nombre}, "la regla %q no existe: code, instructions o variables", token)
+		case slices.Contains(paso.Reglas, regla):
+			comp.falla(Fallo{Invariante: Formato, Fichero: FileConfig, Paso: paso.Nombre}, "la regla %q está dos veces", token)
+		default:
+			paso.Reglas = append(paso.Reglas, regla)
 		}
 	}
-	if escrita.EdadMaxima != "" {
-		edad, err := time.ParseDuration(escrita.EdadMaxima)
-		if err != nil || edad <= 0 {
-			comp.falla(Formato, FileConfig, paso.Nombre, "", "max_age %q no es una duración positiva, como 720h",
-				escrita.EdadMaxima)
-		}
-		paso.EdadMaxima = edad
+}
+
+// aplicarEdadMaxima fija cuánto dura válido un registro de este paso; sin max_age, no caduca (IT-12 DEC-12.7).
+func (comp *comprobacion) aplicarEdadMaxima(paso *PasoComprobado, escrita *ConfiguracionDePasoDeclarada) {
+	if escrita.EdadMaxima == "" {
+		return
 	}
+	edad, err := time.ParseDuration(escrita.EdadMaxima)
+	if err != nil || edad <= 0 {
+		comp.falla(Fallo{Invariante: Formato, Fichero: FileConfig, Paso: paso.Nombre}, "max_age %q no es una duración positiva, como 720h",
+			escrita.EdadMaxima)
+		return
+	}
+	paso.EdadMaxima = edad
+}
+
+// aplicarAmbito declara el ámbito propio del paso (RD-04 §9.19): decide qué ve (las variables declaradas y de
+// salida visibles desde ese ámbito, por Ambito.Ve y variableDeSalidaEnComprobacion.laVe), bajo qué ámbito
+// archiva su historia, y qué hereda por defecto lo que produce sin scope propio. Sin scope, su ámbito es el que
+// representa al ambiente en que se ejecuta — no un tercer concepto: es el mismo Ambito que tendría una variable
+// declarada en ese ambiente, solo que asignado por defecto y no por escrito.
+func (comp *comprobacion) aplicarAmbito(paso *PasoComprobado, escrita *ConfiguracionDePasoDeclarada) {
 	switch escrita.Ambito {
 	case "", "environment":
 	case "shared":
 		paso.Ambito = Compartido.puntero()
 	default:
-		comp.falla(Formato, FileConfig, paso.Nombre, "", "el paso tiene scope %q, que no existe: es environment o shared",
+		comp.falla(Fallo{Invariante: Formato, Fichero: FileConfig, Paso: paso.Nombre}, "el paso tiene scope %q, que no existe: es environment o shared",
 			escrita.Ambito)
 	}
 }
@@ -136,7 +156,7 @@ func (comp *comprobacion) material(paso *PasoComprobado, escritos []FicheroDecla
 	for _, f := range escritos {
 		if f.Enlace != "" {
 			if _, ok := rutaLocal(path.Join(path.Dir(f.Ruta), f.Enlace)); !ok || path.IsAbs(f.Enlace) {
-				comp.falla(Formato, paso.Directorio()+"/"+f.Ruta, paso.Nombre, "",
+				comp.falla(Fallo{Invariante: Formato, Fichero: paso.Directorio() + "/" + f.Ruta, Paso: paso.Nombre},
 					"el enlace apunta a %q, fuera del directorio del paso", f.Enlace)
 				continue
 			}
@@ -150,25 +170,32 @@ func (comp *comprobacion) material(paso *PasoComprobado, escritos []FicheroDecla
 func (comp *comprobacion) comandos(paso *PasoComprobado, escritos Declarado[[]ComandoDeclarado]) {
 	fichero := paso.Directorio() + "/commands.yaml"
 	if !escritos.Existe {
-		comp.falla(Pasos, fichero, paso.Nombre, "", "no está, y el paso declara ahí sus comandos")
+		comp.falla(Fallo{Invariante: Pasos, Fichero: fichero, Paso: paso.Nombre}, "no está, y el paso declara ahí sus comandos")
 		return
 	}
 	if len(escritos.Datos) == 0 && !comp.ilegible(fichero) {
-		comp.falla(Pasos, fichero, paso.Nombre, "", "no declara ningún comando")
+		comp.falla(Fallo{Invariante: Pasos, Fichero: fichero, Paso: paso.Nombre}, "no declara ningún comando")
 		return
 	}
-	procesador := &procesadorComandos{
-		comprobacion: comp,
-		paso:         paso,
-		fichero:      fichero,
-	}
+	procesador := &procesadorComandos{contextoDePaso{comprobacion: comp, paso: paso, fichero: fichero}}
 	procesador.procesar(escritos.Datos)
 }
 
-type procesadorComandos struct {
+// contextoDePaso es lo que procesadorComandos y procesadorOutputs comparten para reportar un fallo: el
+// *comprobacion donde se acumula, y el paso y fichero donde ocurre. Antes cada llamada armaba su propio
+// Fallo{Fichero: ..., Paso: ...}; ahora es un solo lugar que editar si esa asociación cambia.
+type contextoDePaso struct {
 	comprobacion *comprobacion
 	paso         *PasoComprobado
 	fichero      string
+}
+
+func (ctx *contextoDePaso) falla(inv Invariante, formato string, args ...any) {
+	ctx.comprobacion.falla(Fallo{Invariante: inv, Fichero: ctx.fichero, Paso: ctx.paso.Nombre}, formato, args...)
+}
+
+type procesadorComandos struct {
+	contextoDePaso
 }
 
 func (pc *procesadorComandos) procesar(escritos []ComandoDeclarado) {
@@ -183,22 +210,17 @@ func (pc *procesadorComandos) procesarUnComando(idx int, escrito ComandoDeclarad
 		Nombre: escrito.Nombre, Descripcion: escrito.Descripcion, Linea: escrito.Linea,
 	}
 
-	if !pc.validarLinea(escrito.Linea, donde) {
-		comando.Linea = escrito.Linea
-	}
-
+	pc.validarLinea(escrito.Linea, donde)
 	pc.procesarWorkdir(&comando, escrito.Directorio, donde)
 	pc.procesarPlantillas(&comando, escrito.Plantillas, donde)
 	pc.comprobacion.outputs(pc.paso, &comando, pc.fichero, donde, escrito.Variables)
 	pc.paso.Comandos = append(pc.paso.Comandos, comando)
 }
 
-func (pc *procesadorComandos) validarLinea(linea, donde string) bool {
+func (pc *procesadorComandos) validarLinea(linea, donde string) {
 	if strings.TrimSpace(linea) == "" {
-		pc.comprobacion.falla(Formato, pc.fichero, pc.paso.Nombre, "", "%s no dice cmd", donde)
-		return false
+		pc.falla(Formato, "%s no dice cmd", donde)
 	}
-	return true
 }
 
 func (pc *procesadorComandos) procesarWorkdir(comando *ComandoComprobado, workdir, donde string) {
@@ -207,8 +229,7 @@ func (pc *procesadorComandos) procesarWorkdir(comando *ComandoComprobado, workdi
 	}
 	limpio, ok := rutaLocal(workdir)
 	if !ok {
-		pc.comprobacion.falla(Formato, pc.fichero, pc.paso.Nombre, "", "%s tiene workdir %q, que sale del directorio del paso",
-			donde, workdir)
+		pc.falla(Formato, "%s tiene workdir %q, que sale del directorio del paso", donde, workdir)
 		return
 	}
 	comando.Directorio = limpio
@@ -223,21 +244,18 @@ func (pc *procesadorComandos) procesarPlantillas(comando *ComandoComprobado, pla
 func (pc *procesadorComandos) procesarUnaPlantilla(comando *ComandoComprobado, plantilla, donde string) {
 	ruta, ok := rutaLocal(path.Join(comando.Directorio, plantilla))
 	if !ok {
-		pc.comprobacion.falla(Formato, pc.fichero, pc.paso.Nombre, "", "%s tiene la plantilla %q, que sale del directorio del paso",
-			donde, plantilla)
+		pc.falla(Formato, "%s tiene la plantilla %q, que sale del directorio del paso", donde, plantilla)
 		return
 	}
 
 	j := pc.buscarMaterial(ruta)
 	if j < 0 {
-		pc.comprobacion.falla(Formato, pc.fichero, pc.paso.Nombre, "", "%s tiene la plantilla %q, y %s no está en el material del paso",
-			donde, plantilla, ruta)
+		pc.falla(Formato, "%s tiene la plantilla %q, y %s no está en el material del paso", donde, plantilla, ruta)
 		return
 	}
 
 	if pc.paso.Material[j].Enlace != "" {
-		pc.comprobacion.falla(Formato, pc.fichero, pc.paso.Nombre, "", "%s tiene la plantilla %q, y %s es un enlace",
-			donde, plantilla, ruta)
+		pc.falla(Formato, "%s tiene la plantilla %q, y %s es un enlace", donde, plantilla, ruta)
 		return
 	}
 
@@ -258,21 +276,17 @@ func (pc *procesadorComandos) buscarMaterial(ruta string) int {
 // ejecuta.
 func (comp *comprobacion) outputs(paso *PasoComprobado, comando *ComandoComprobado, fichero, donde string, escritas []VariableDeComandoDeclarada) {
 	procesador := &procesadorOutputs{
-		comprobacion: comp,
-		paso:         paso,
-		comando:      comando,
-		fichero:      fichero,
-		donde:        donde,
-		nombresVisto: []string{},
+		contextoDePaso: contextoDePaso{comprobacion: comp, paso: paso, fichero: fichero},
+		comando:        comando,
+		donde:          donde,
+		nombresVisto:   []string{},
 	}
 	procesador.procesar(escritas)
 }
 
 type procesadorOutputs struct {
-	comprobacion *comprobacion
-	paso         *PasoComprobado
+	contextoDePaso
 	comando      *ComandoComprobado
-	fichero      string
 	donde        string
 	nombresVisto []string
 }
@@ -298,8 +312,8 @@ func (po *procesadorOutputs) procesarUnOutput(salida VariableDeComandoDeclarada)
 
 func (po *procesadorOutputs) esValido(salida VariableDeComandoDeclarada) bool {
 	if salida.Expresion == "" && salida.Nombre == "" {
-		po.comprobacion.falla(Formato, po.fichero, po.paso.Nombre, "", "%s tiene un outputs sin name ni probe: con name es una "+
-			"variable de salida, y sin name es una aserción sobre la salida del comando", po.donde)
+		po.falla(Formato, "%s tiene un outputs sin name ni probe: con name es una variable de salida, y sin "+
+			"name es una aserción sobre la salida del comando", po.donde)
 		return false
 	}
 
@@ -309,8 +323,7 @@ func (po *procesadorOutputs) esValido(salida VariableDeComandoDeclarada) bool {
 			if salida.Nombre != "" {
 				invariante, que = VariablesDeSalida, fmt.Sprintf("de %q", salida.Nombre)
 			}
-			po.comprobacion.falla(invariante, po.fichero, po.paso.Nombre, "", "%s: la expresión regular %s no es correcta: %v",
-				po.donde, que, err)
+			po.falla(invariante, "%s: la expresión regular %s no es correcta: %v", po.donde, que, err)
 		}
 	}
 
@@ -319,8 +332,8 @@ func (po *procesadorOutputs) esValido(salida VariableDeComandoDeclarada) bool {
 
 func (po *procesadorOutputs) procesarAsersion(salida VariableDeComandoDeclarada) {
 	if salida.Ambito != "" {
-		po.comprobacion.falla(Formato, po.fichero, po.paso.Nombre, "", "%s tiene una aserción con scope %q, y una aserción no "+
-			"produce ninguna variable: el ámbito es de lo que se produce", po.donde, salida.Ambito)
+		po.falla(Formato, "%s tiene una aserción con scope %q, y una aserción no produce ninguna variable: el "+
+			"ámbito es de lo que se produce", po.donde, salida.Ambito)
 	}
 	po.comando.Aserciones = append(po.comando.Aserciones, AsercionComprobada{Descripcion: salida.Descripcion, Expresion: salida.Expresion})
 }
@@ -340,14 +353,13 @@ func (po *procesadorOutputs) procesarVariable(declarada VariableDeComandoDeclara
 func (po *procesadorOutputs) validarNombreVariable(nombre string) bool {
 	switch {
 	case !patronVariable.MatchString(nombre):
-		po.comprobacion.falla(Formato, po.fichero, po.paso.Nombre, "", "%s tiene un outputs con name %q, que no es un nombre de "+
-			"variable", po.donde, nombre)
+		po.falla(Formato, "%s tiene un outputs con name %q, que no es un nombre de variable", po.donde, nombre)
 		return false
 	case esEstandar(nombre):
-		po.comprobacion.falla(Variables, po.fichero, po.paso.Nombre, "", "%s produce %q, que es una variable estándar", po.donde, nombre)
+		po.falla(Variables, "%s produce %q, que es una variable estándar", po.donde, nombre)
 		return false
 	case slices.Contains(po.nombresVisto, nombre):
-		po.comprobacion.falla(VariablesDeSalida, po.fichero, po.paso.Nombre, "", "%s produce %q dos veces", po.donde, nombre)
+		po.falla(VariablesDeSalida, "%s produce %q dos veces", po.donde, nombre)
 		return false
 	}
 	return true
@@ -361,14 +373,12 @@ func (po *procesadorOutputs) asignarAmbito(salida *VariableDeComandoComprobada, 
 	case "shared":
 		salida.Ambito = Compartido.puntero()
 	default:
-		po.comprobacion.falla(Formato, po.fichero, po.paso.Nombre, "", "%s produce %q con scope %q, que no existe: es environment "+
-			"o shared", po.donde, salida.Nombre, ambito)
+		po.falla(Formato, "%s produce %q con scope %q, que no existe: es environment o shared", po.donde, salida.Nombre, ambito)
 	}
 }
 
 func (po *procesadorOutputs) validarProbe(nombre, expresion string) {
 	if expresion == "" {
-		po.comprobacion.falla(VariablesDeSalida, po.fichero, po.paso.Nombre, "", "la variable de salida %q no dice probe: es la "+
-			"expresión regular con la que se saca su valor", nombre)
+		po.falla(VariablesDeSalida, "la variable de salida %q no dice probe: es la expresión regular con la que se saca su valor", nombre)
 	}
 }

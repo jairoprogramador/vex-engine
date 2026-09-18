@@ -1,0 +1,13 @@
+metadata:
+  name: ${var.instancia}
+  namespace: ${var.espacio}
+  labels:
+    app.kubernetes.io/managed-by: ${var.tool_name}
+    app.kubernetes.io/part-of: ${var.project_organization}
+    revision: "${var.project_hash}"
+spec:
+  replicas: ${var.replicas}
+  template:
+    spec:
+      containers:
+        - image: ${var.registro_servidor}/${var.project_name}:${var.project_version}

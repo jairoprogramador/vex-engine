@@ -77,7 +77,7 @@ puede deducir, porque un rollback lo elige.
 |---|---|
 | **registro de paso** *(entidad, dentro de Intento)* | lo que dejó un paso en un intento. Su identidad es el intento y el paso, y por eso una evidencia puede apuntar a él |
 | **identidad** de intento, de despliegue y de lanzamiento | propia y única |
-| **paso en su ámbito** | la posición bajo la que se buscan los registros de un paso (`DEC-06.12`) |
+| **paso en su ámbito** | la posición bajo la que se buscan los registros de un paso (`DEC-06.12`). El Historial la guarda y no la decide: **quién le da ámbito a un paso lo declara Definición** (`config.yaml`, `steps.<paso>.scope`; RD-04 §9.19) |
 | **clave** | por lo que se busca un registro sin saber qué significa: la forma propia y lo que piden sus clientes. Hoy, el hash del código de cada intento, pedido por Diagnóstico (`DEC-07.6`) |
 | **estado** | exitoso · fallido · cancelado |
 | **evidencia** | un enlace: el intento y el paso del registro que vale |
@@ -96,8 +96,11 @@ Uno por agregado: **intentos**, **despliegues**, **lanzamientos** y **reservas**
 Historial, y *sincronizar* vive ahí (`DEC-06.18`).
 
 **El almacén se compra** (IT-10 `DEC-10.3`), y tiene que garantizar tres cosas: que lo escrito se pueda leer
-desde cualquier máquina antes de seguir, que un registro no se sobrescriba nunca, y una escritura
-condicional para la **Ocupación**, que solo tenga éxito si el ambiente está libre.
+desde cualquier máquina antes de seguir, que un registro no se sobrescriba nunca, y una **escritura
+condicional por agregado**: añadir un registro solo si nadie añadió otro a ese agregado desde que se leyó
+(`RD-02` §9). Es lo que hace que la **Ocupación** solo tenga éxito si el ambiente está libre, que dos
+lanzamientos no tomen la misma versión (IT-10 `DEC-10.8`) y que la máquina de un intento abandonado no pueda
+seguir escribiendo (IT-07 `DEC-07.8`).
 
 ### Lo que publica
 

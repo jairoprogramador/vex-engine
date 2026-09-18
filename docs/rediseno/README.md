@@ -93,6 +93,8 @@ dependencias.
 - **El árbol y la regla de dependencias** de `arquitectura.md`. El código antiguo vive en `old-internal/`
   hasta RD-12. El comando corre sobre `./...`, lo ignora y rechaza que el código nuevo lo importe (RD-01 §9).
 - **Nada del código antiguo** se importa, se adapta ni se toca (`DEC-11.1`, `DEC-11.2`).
+- **El código antiguo no es normativo**, ni sus convenciones: de él se toman ideas generales, y el diseño sale
+  del modelo. Una convención de `CLAUDE.md` que venga del código antiguo no se hereda por defecto (RD-02 §9).
 - **Identificadores en español, sin tildes** (`DEC-02.2`, `DEC-05.7`). En inglés, solo lo que Go impone:
   los métodos de las interfaces de la biblioteca estándar (`Error()`, `String()`) y los prefijos de las
   pruebas (`Test…`) (`DEC-12.3`).
@@ -106,4 +108,7 @@ dependencias.
 | Unidad | Estado |
 |---|---|
 | RD-01 | **implementada** en local (2026-09-14). La CI corre cuando se suba |
-| RD-02 a RD-12 | pendiente |
+| RD-02 | **implementada** en local (2026-09-14) |
+| RD-03 | **implementada** en local (2026-09-14) |
+| RD-04 | **implementada** en local (2026-09-14), sin las plantillas, que quedan como referencia (RD-04 §9) |
+| RD-05 a RD-12 | pendiente |

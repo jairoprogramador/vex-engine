@@ -44,9 +44,10 @@ commit o como está en una **copia de trabajo**, y **decir su hash** (`DEC-10.6`
 | **commit** *(value object)* | un punto de la historia de una fuente con el que se vuelve a tener delante el material |
 | **hash** *(value object)* | el del código o el del pipeline: cambia si cambia el contenido |
 | **copia de trabajo** *(value object)* | el directorio donde alguien está trabajando, con cambios sin commit. Tiene hash, pero no commit |
-| **material** *(value object)* | lo que se pone delante, fijo para quien lo pide |
-| **traer una fuente** *(servicio de aplicación)* | la de hoy, la de un commit o una copia de trabajo, con su hash y, si lo hay, su commit |
-| **repositorios** *(puerto)* | hacia lo que se compra |
+| **material** *(value object)* | lo que se pone delante, fijo para quien lo pide hasta que lo retira |
+| **traer una fuente** *(servicio de aplicación)* | la de hoy, la de un commit o una copia de trabajo, con su hash y, si lo hay, su commit. El hash se calcula sobre lo que quedó delante |
+| **repositorios** *(puerto)* | hacia lo que se compra: pone delante el material |
+| **hashes** *(puerto)* | hacia lo mínimo que se escribe: el hash de lo que quedó delante, el mismo sea cual sea el acceso (RD-03 §9) |
 
 Eventos: ninguno.
 

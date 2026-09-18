@@ -22,9 +22,9 @@
 // Comprobar ejecuta ValidadorVersion primero: si el formato no es el que se lee, nada más se comprueba, porque
 // todo lo demás fallaría por la misma causa. El resto de validadoresDelPipeline corre siempre completo, en este
 // orden, y ninguno corta la comprobación de los siguientes: ValidadorArchivosIlegibles, ValidadorAmbientes,
-// ValidadorPasos, ValidadorSalidas, ValidadorVariablesDeclaradas y ValidadorUsos. Ese orden es significativo:
+// ValidadorPasos, ValidadorVariablesDeSalida, ValidadorVariablesDeclaradas y ValidadorUsoDeVariables. Ese orden es significativo:
 // ValidadorVariablesDeclaradas necesita los ambientes ya comprobados (para saber si un directorio de variables/
-// es de alguno), y ValidadorUsos necesita las salidas y las variables ya indexadas (para saber qué se ve y qué
+// es de alguno), y ValidadorUsoDeVariables necesita las salidas y las variables ya indexadas (para saber qué se ve y qué
 // falta por producirse).
 //
 // # Cómo agregar un nuevo Validador
@@ -34,6 +34,8 @@
 // comp.falla(...). Nunca hace panic ni devuelve antes de anotar todo lo que puede anotar en esa pasada — un
 // fallo no debe ocultar otros fallos no relacionados. Si la lógica crece, se descompone en un tipo
 // «validadorXxxImpl» con *comprobacion como campo (patrón ya usado por validadorPasosImpl, validadorUsosImpl,
-// etc.), no repitiendo *comprobacion como parámetro en cada método. Por último, se agrega a
+// etc.), no repitiendo *comprobacion como parámetro en cada método. Lo que un validador produce para que otro lo
+// use (como pasosComprobados o variablesDeComandos) es un campo de resultadoComprobacion, no uno suelto en
+// comprobacion: así el contexto no sigue creciendo con cada validador nuevo. Por último, se agrega a
 // validadoresDelPipeline en el orden que corresponda, y se documenta aquí por qué va ahí.
 package dominio

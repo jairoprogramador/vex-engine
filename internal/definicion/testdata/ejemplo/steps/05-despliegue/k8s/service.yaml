@@ -1,0 +1,6 @@
+metadata:
+  name: ${var.instancia}
+  namespace: ${var.espacio}
+spec:
+  ports:
+    - port: ${var.puerto}

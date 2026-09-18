@@ -77,11 +77,11 @@ flowchart LR
 | De | A | Qué usa |
 |---|---|---|
 | Diagnóstico | Historial | despliegues, intentos, cantidad de intentos, evidencia, pasos y lanzamientos (como puerta de entrada), más lo que el Historial guarda de otros contextos: hashes y el orden de los ambientes con que se desplegó |
-| Ejecución | Definición | pasos, comandos, y las formas de *regla* y de *variable de salida* |
+| Ejecución | Definición | pasos, comandos, y las formas de *regla*, de *variable de salida* y de *aserción* |
 | Ejecución | Resolución | valores, interpolación y si cambiaron las variables de un paso · a cambio le entrega lo que producen los comandos |
 | Ejecución | Suministro | el material de hoy o de un commit · hash del código y commit |
 | Ejecución | Historial | la última vez de cada paso, la evidencia y el destino de un rollback · a cambio deja los registros del intento |
-| Resolución | Definición | variables declaradas, y las formas de *ámbito* y de *variable de salida* |
+| Resolución | Definición | variables declaradas con su ámbito, y las formas de *ámbito* y de *variable de salida* |
 | Resolución | Historial | hash de variable y valor de la última vez · a cambio deja el hash de variable y el valor ofuscado |
 | Lanzamiento | Historial | el despliegue que se lanza · a cambio deja el registro del lanzamiento |
 | Definición | Suministro | el pipeline como fuente |
@@ -126,8 +126,8 @@ variable.
 variables) y comprobar que lo escrito está bien formado y bien referenciado.
 
 **Términos propios.** pipeline *(la declaración)* · paso *(el declarado)* · comando · instrucciones ·
-variable declarada · ambiente · comprobación · y cuatro **formas declaradas**: ámbito · regla ·
-variable de salida · orden de los ambientes.
+variable declarada · ambiente · comprobación · y cinco **formas declaradas**: ámbito · regla ·
+variable de salida · aserción · orden de los ambientes.
 
 **Consume.** El pipeline como fuente, de Suministro.
 
@@ -136,7 +136,7 @@ variable de salida · orden de los ambientes.
 | Vecino | Prueba |
 |---|---|
 | Ejecución | *Paso* deja de ser un nombre con una lista de comandos, igual en todos los ambientes, y pasa a ser la unidad que en un intento se ejecuta o no se re-ejecuta. *Regla* deja de ser algo escrito y pasa a ser una decisión con resultado. Fusionados, el mismo paso sería a la vez invariable y distinto en cada intento |
-| Resolución | *Variable* deja de ser un literal escrito por paso y ambiente y pasa a ser un valor efectivo, tras aplicar precedencia y ámbito. *Ámbito* deja de ser lo escrito y pasa a decidir qué ve un paso. Fusionados, convivirían lo escrito y lo vigente |
+| Resolución | *Variable* deja de ser un literal escrito en un ámbito y pasa a ser un valor efectivo, tras aplicar precedencia y ámbito. *Ámbito* deja de ser lo escrito y pasa a decidir qué ve un paso. Fusionados, convivirían lo escrito y lo vigente |
 | Suministro | *Pipeline* deja de ser un repositorio con hash y commits, cuyo contenido no se interpreta, y pasa a ser una declaración con variables, pasos y ambientes. Fusionados, la misma palabra nombraría el contenido y el envoltorio |
 | Simulación | *Variable de salida* deja de ser un nombre con una expresión regular y pasa a tener una **salida simulada** que la cumple y que nadie produjo. Fusionados, la declaración contendría valores inventados |
 

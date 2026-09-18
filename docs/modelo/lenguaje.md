@@ -44,8 +44,8 @@ sea preciso.
 de ningún actor.
 
 **5. Lo declarado tiene forma en Definición y significado en quien lo aplica** (IT-03 `DEC-03.6`).
-*Ámbito*, *regla*, *variable de salida* y *orden de los ambientes* se escriben en el pipeline; qué
-significan lo dice el contexto que los aplica.
+*Ámbito*, *regla*, *variable de salida*, *aserción* y *orden de los ambientes* se escriben en el
+pipeline; qué significan lo dice el contexto que los aplica.
 
 **6. Palabra común, dueño en cada caso.** *Hash* se usa en cuatro contextos y siempre significa lo
 mismo: una cadena que cambia si cambia lo que resume, y que solo responde *¿cambió?*. Por eso se dice
@@ -99,7 +99,9 @@ Definición **declara**; lo que declara lo aplican otros contextos.
 | **comando** | lo que un paso manda ejecutar. Un paso **sin comandos es un error de definición** |
 | **material de un paso** | lo que el DevOps escribe en el directorio de un paso para que lo usen sus comandos: plantillas, manifiestos, ficheros de la tecnología |
 | **instrucciones** | lo que el DevOps escribe para cada paso: sus comandos y el material de su directorio, sin sus variables ni su configuración. **No varían por ambiente**: es la premisa del core (IT-08 `DEC-08.7`) |
-| **variable declarada** | una variable con su valor escrito en el pipeline, por paso y por ambiente |
+| **variable declarada** | una variable con su valor escrito en el pipeline, que pertenece a un **ámbito**. **No es de un paso**: la ven todos los pasos que se ejecutan en su ámbito, y lo que uno produce lo ven los comandos posteriores del mismo paso y los demás pasos de ese ámbito |
+| **aserción** | una **expresión regular que la salida de un comando tiene que cumplir** para que el comando se dé por bueno. No produce ninguna variable, y no se confunde con la *comprobación*, que es del pipeline entero y ocurre antes del intento |
+| **variable estándar** | una variable que el pipeline usa **sin declararla**, porque el motor garantiza que está siempre, y que la herramienta documenta. Es un **metadato**, que da quien invoca (como el nombre del proyecto o el ambiente pedido), o una **generada** por el motor (como el hash del código); compartida, o **del paso**, que solo vale mientras el paso se ejecuta. Aquí se conoce su nombre, no su valor (RD-04 §9) |
 | **ambiente** | la separación: dev, staging, producción. Cada uno tiene sus propias variables |
 | **comprobación** | lo que se verifica sobre el pipeline antes de un intento: que lo escrito esté **bien formado y bien referenciado** |
 
@@ -107,9 +109,10 @@ Definición **declara**; lo que declara lo aplican otros contextos.
 
 | Forma | Qué se escribe | Significa en |
 |---|---|---|
-| **ámbito** | qué variables ve cada paso | Resolución de Variables |
-| **regla** | qué mira un paso para decidir si se re-ejecuta: el código del producto, sus instrucciones, las variables de su ámbito o el tiempo. Se escribe en el fichero de configuración de cada paso | Ejecución de Pipeline |
-| **variable de salida** | un nombre y la **expresión regular** que dice qué forma tendrá | Ejecución de Pipeline y Resolución de Variables |
+| **ámbito** | a qué espacio de variables pertenece una variable: el de un ambiente, o el compartido. Se escribe con el directorio en que se declara, y en el `scope` de una variable de salida. Un paso también declara el suyo, en `config.yaml`, bajo `steps.<paso>.scope` (RD-04 §9.19, §9.20) | Resolución de Variables |
+| **regla** | qué mira un paso para decidir si se re-ejecuta: el código del producto, sus instrucciones, las variables que ve o el tiempo. Se escribe en el fichero de configuración de cada paso | Ejecución de Pipeline |
+| **variable de salida** | un nombre, la **expresión regular** que dice qué forma tendrá y el ámbito al que pertenece | Ejecución de Pipeline y Resolución de Variables |
+| **aserción** | la **expresión regular** que la salida de un comando tiene que cumplir | Ejecución de Pipeline |
 | **orden de los ambientes** | la secuencia dev → staging → producción | Diagnóstico |
 
 **Qué comprueba la comprobación, y qué no.**
@@ -117,8 +120,8 @@ Definición **declara**; lo que declara lo aplican otros contextos.
 | Comprueba | No comprueba |
 |---|---|
 | el **formato** de lo declarado | nada del **acto de ejecutar** |
-| que toda variable usada en un comando o en un fichero de configuración **esté declarada** (como variable de salida de un paso anterior o como variable declarada) **y sea visible según el ámbito escrito** | la **interpolación completa**: el valor de algunas variables solo aparece al ejecutar |
-| que las **expresiones regulares** de las variables de salida sean correctas | |
+| que toda variable usada en un comando o en un fichero de configuración **sea una variable estándar**, **esté declarada en un ámbito que se vea desde donde se usa** o **la produzca un comando anterior** | la **interpolación completa**: el valor de algunas variables solo aparece al ejecutar |
+| que las **expresiones regulares** de las variables de salida y de las aserciones sean correctas | |
 | que ningún paso esté **sin comandos** | |
 
 Con eso, un pipeline es verificable de principio a fin **sin tocar la nube**, que es lo que el
@@ -233,12 +236,13 @@ Llevar a cabo un intento haciendo **solo el trabajo que hace falta**.
 | **recursos de un paso** | lo que un paso necesita para ejecutarse: instrucciones, variables y código del producto |
 | **hash de las instrucciones de un paso** | dice si cambiaron las instrucciones de un paso: sus comandos o su material (IT-08 `DEC-08.7`). De los otros dos recursos lo dicen Suministro (el código) y Resolución (las variables) |
 | **regla** *(aquí)* | lo que decide si un paso se re-ejecuta: se re-ejecuta si cambió, **desde su última vez**, algo de lo que la regla mira. **Cada paso decide con su propia información** |
-| **última vez de un paso** | su último registro **en su ámbito**. No depende del ambiente: un paso de ámbito compartido puede no re-ejecutarse en el siguiente ambiente si lo que mira no cambió (IT-06 `DEC-06.12`). **Solo evita re-ejecutar si es un final exitoso**, o una no re-ejecución que apunta a uno; un comienzo sin final o un final fallido obligan a re-ejecutar (IT-09 `DEC-09.7`) |
+| **aserción** *(aquí)* | lo que se exige de la salida de un comando para darlo por bueno |
+| **última vez de un paso** | su último registro **en su ámbito** (IT-06 `DEC-06.12`). **Cuál es el ámbito de un paso lo declara Definición** (RD-04 §9.19): el `scope` de `config.yaml`, bajo `steps.<paso>`, y si no lo escribe, el del ambiente en que se ejecuta. **Solo evita re-ejecutar si es un final exitoso**, o una no re-ejecución que apunta a uno; un comienzo sin final o un final fallido obligan a re-ejecutar (IT-09 `DEC-09.7`) |
 | **variable** *(aquí)* | siempre el **valor**, el que entra en un comando. Ejecución nunca ve un hash de variable |
 | **variable de salida** *(aquí)* | la que produce un comando, extraída de su salida |
 | **rollback** | volver a un despliegue anterior **con los recursos con que se hizo**. Crea un despliegue nuevo, y **existe en cualquier ambiente** |
 | **destino** | el despliegue al que vuelve un rollback. Por defecto, el anterior al último; se puede elegir cualquiera anterior |
-| **aislamiento** | que un ambiente no pise a otro, y que un paso solo vea las variables de su ámbito. Los pasos de un mismo ambiente **comparten** su espacio de trabajo, a propósito (IT-09 `DEC-09.8`) |
+| **aislamiento** | que un ambiente no pise a otro, y que un paso solo vea las variables de los ámbitos que ve desde el suyo propio: el que representa a su ambiente y el compartido, salvo que declare `scope: shared`, en cuyo caso solo el compartido (RD-04 §9.19). Los pasos de un mismo ambiente **comparten** su espacio de trabajo, a propósito (IT-09 `DEC-09.8`) |
 | **espacio de trabajo** | la copia mutable **de cada ambiente** donde trabajan los pasos. **Es el mismo en cada intento de ese ambiente** y no interfiere con el de otro. Entre ambientes, lo que un paso le deja a otro ambiente son variables producidas y lo que nombran en el mundo (IT-06 `DEC-06.17`). **Es memoria**: vive en un lugar fijo por ambiente que el motor conoce, y guarda los archivos que genera la tecnología de los pasos, que el motor no interpreta (IT-06 `DEC-06.18`). Cada intento empieza con el material declarado: lo que pone el motor se vuelve a poner, y lo que generó la tecnología no se toca (IT-06 `DEC-06.19`). **Término interno**: no es un subdominio |
 
 **Un negativo se dice con su razón, no con un verbo.** *No se re-ejecuta* nombra el hecho que lo
@@ -256,7 +260,7 @@ Con qué valores concretos se despliega aquí, y si cambiaron, **sin que el valo
 | Término | Qué nombra |
 |---|---|
 | **variable** *(aquí)* | el **valor efectivo** con el que se despliega en este ambiente |
-| **ámbito** *(aquí)* | **qué variables ve un paso**. No es el ambiente: un ámbito puede *ser* el de un ambiente sin que sean lo mismo. Por defecto, el ámbito de un paso es **su ambiente**; también puede ser **compartido** entre ambientes (IT-06 `DEC-06.12`) |
+| **ámbito** *(aquí)* | el **espacio de variables al que pertenece una variable**, y por lo tanto qué variables ve un paso: las de su ambiente y las compartidas. No es el ambiente: un ámbito puede *ser* el de un ambiente sin que sean lo mismo, y el **compartido** no es de ninguno. **Un paso también tiene ámbito** (RD-04 §9.19), y es el mismo tipo de cosa que el de una variable: decide qué ve, bajo qué ámbito archiva su historia, y qué hereda por defecto lo que produce. Sin declararlo, es el que **representa** al ambiente en que se ejecuta — no un tercer concepto, el mismo `Ambito` que tendría una variable de ese ambiente, asignado por defecto en vez de por escrito |
 | **precedencia** | qué valor gana cuando dos sitios le dan valor al mismo nombre |
 | **origen** | de dónde sale el valor de una variable: escrito en el pipeline o producido por un paso |
 | **variable de salida** *(aquí)* | un valor efectivo cuyo origen es «producido por un paso» |
@@ -329,8 +333,8 @@ Un término con varios sentidos en varios contextos es legítimo. Cada fila es u
 | **paso** | nombre y comandos *(Definición)* · la unidad que se ejecuta o no *(Ejecución)* · la posición de sus registros *(Historial)* | de declarar a hacer, y de hacer a recordar |
 | **intento** | el que se está llevando a cabo *(Ejecución)* · el hecho con estado *(Historial)* | de algo que cambia a algo que ya no cambia |
 | **variable** | declarada *(Definición)* · valor efectivo *(Resolución)* · valor que entra en un comando *(Ejecución)* | de lo escrito a lo vigente, y de lo vigente a lo que se usa sin conservarlo |
-| **variable de salida** | nombre y expresión regular *(Definición)* · lo que produce un comando *(Ejecución)* · un valor efectivo producido por un paso *(Resolución)* | de la forma al producto, y del producto a la precedencia |
-| **ámbito** | lo escrito *(Definición)* · qué variables ve un paso *(Resolución)* | de la forma al significado |
+| **variable de salida** | nombre, expresión regular y ámbito *(Definición)* · lo que produce un comando *(Ejecución)* · un valor efectivo producido por un paso *(Resolución)* | de la forma al producto, y del producto a la precedencia |
+| **ámbito** | lo escrito *(Definición)* · el espacio de variables al que pertenece una variable, y por eso qué ve un paso *(Resolución)* | de la forma al significado |
 | **regla** | lo escrito *(Definición)* · lo que decide si se re-ejecuta *(Ejecución)* | de la forma a una decisión con resultado |
 | **orden de los ambientes** | la secuencia escrita *(Definición)* · de dónde vino lo que hay en un ambiente *(Diagnóstico)* | de la forma al significado |
 | **pipeline** | la declaración *(Definición)* · una fuente *(Suministro)* | del envoltorio al contenido |
@@ -380,7 +384,8 @@ Distinciones que hay que poder hacer sin dudar.
 | **deducción** | **inferencia** | la deducción es forzosa y es un hecho; la inferencia es probable. El core **solo deduce** |
 | **comparar** | **volver atrás** | comparar es una consulta: un intento contra un despliegue de referencia; un rollback **no compara, elige a dónde volver** |
 | **registro** | **historial** | un registro es **un hecho**; el historial es el **conjunto** |
-| **ámbito** | **ambiente** | el ambiente es la **separación** (dev, staging, producción); el ámbito es **qué variables ve un paso** |
+| **ámbito** | **ambiente** | el ambiente es la **separación** (dev, staging, producción); el ámbito es el **espacio de variables** al que pertenece una variable. Todo ambiente tiene su ámbito, y además está el **compartido**, que no es de ningún ambiente |
+| **aserción** | **comprobación** | la aserción es de **una salida de un comando**, al ejecutar; la comprobación es del **pipeline entero**, antes del intento |
 | **versión** | **nombre del lanzamiento** | la versión es la etiqueta **técnica**; el nombre lo pone el **dueño del negocio**. Coinciden por defecto y no son lo mismo |
 | **hash** | **commit** | el hash responde *¿cambió?*; el commit, *¿cómo vuelvo a tenerlo delante?* |
 | **padre** | **destino** | el padre es una relación del Historial; el destino es a dónde vuelve un rollback, en Ejecución. El destino de un rollback acaba siendo el padre del despliegue nuevo |

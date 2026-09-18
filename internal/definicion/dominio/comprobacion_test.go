@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,9 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/definicion/dominio"
 )
 
+// Helpers: construyen los valores mínimos que cada prueba necesita, para que las tablas de casos no repitan
+// boilerplate.
+
 func texto(s string) *string { return &s }
 
 func version(v string) *string { return &v }
@@ -23,16 +27,16 @@ func version(v string) *string { return &v }
 // compartido da un *dominio.Ambito con el valor Compartido: lo único declarable como ámbito propio de un
 // paso o de una variable de salida (RD-04 §9.19).
 func compartido() *dominio.Ambito {
-	c := dominio.Compartido
-	return &c
+	ambito := dominio.Compartido
+	return &ambito
 }
 
 // mutarConfiguracion cambia la entrada de un paso bajo steps, en config.yaml (RD-04 §9.20): un mapa no es
 // direccionable, así que hace falta leer, mutar y volver a escribir.
 func mutarConfiguracion(d *dominio.PipelineDeclarado, nombre string, mutar func(*dominio.ConfiguracionDePasoDeclarada)) {
-	c := d.Configuracion.Datos.Pasos[nombre]
-	mutar(&c)
-	d.Configuracion.Datos.Pasos[nombre] = c
+	configuracion := d.Configuracion.Datos.Pasos[nombre]
+	mutar(&configuracion)
+	d.Configuracion.Datos.Pasos[nombre] = configuracion
 }
 
 // valida es un pipeline pequeño que pasa la comprobación: un paso que crea el registro y produce una variable
@@ -47,14 +51,14 @@ func valida() dominio.PipelineDeclarado {
 				"registro": {Reglas: []string{"instructions"}, ReglasEscritas: true, EdadMaxima: "720h"},
 			},
 		}},
-		Ambientes: dominio.DeclaradoDe(
-			dominio.AmbienteDeclarado{Nombre: "sandbox", Descripcion: "pruebas", Valor: "sand"},
-			dominio.AmbienteDeclarado{Nombre: "production", Valor: "prod"},
-		),
+		Ambientes: dominio.Declarado[[]dominio.AmbienteDeclarado]{Existe: true, Datos: []dominio.AmbienteDeclarado{
+			{Nombre: "sandbox", Descripcion: "pruebas", Valor: "sand"},
+			{Nombre: "production", Valor: "prod"},
+		}},
 		Pasos: []dominio.PasoDeclarado{
 			{
 				Directorio: "01-registro",
-				Comandos: dominio.DeclaradoDe(dominio.ComandoDeclarado{
+				Comandos: dominio.Declarado[[]dominio.ComandoDeclarado]{Existe: true, Datos: []dominio.ComandoDeclarado{{
 					Nombre:     "crear",
 					Linea:      "terraform apply -var project=${var.project_id} -var sku=${var.sku}",
 					Directorio: "./terraform",
@@ -63,21 +67,21 @@ func valida() dominio.PipelineDeclarado {
 						// Sin name: una aserción sobre la salida del comando, que no produce ninguna variable.
 						{Descripcion: "terraform terminó", Expresion: "Apply complete"},
 					},
-				}),
+				}}},
 				// Terraform usa ${var.…} propio: como no está en templates, no es del motor.
 				Material: []dominio.FicheroDeclarado{{Ruta: "terraform/main.tf", Contenido: `name = "${var.name}"`}},
 			},
 			{
 				Directorio: "02-despliegue",
-				Comandos: dominio.DeclaradoDe(
-					dominio.ComandoDeclarado{
+				Comandos: dominio.Declarado[[]dominio.ComandoDeclarado]{Existe: true, Datos: []dominio.ComandoDeclarado{
+					{
 						Nombre: "aplicar", Linea: "kubectl apply -f . -n ${var.espacio}", Directorio: "k8s",
 						Plantillas: []string{"deployment.yaml"},
 						Variables:  []dominio.VariableDeComandoDeclarada{{Nombre: "ip", Expresion: `ip=(\S+)`}},
 					},
 					// Ve lo que produjo el comando anterior del mismo paso.
-					dominio.ComandoDeclarado{Nombre: "comprobar", Linea: "curl ${var.ip}"},
-				),
+					{Nombre: "comprobar", Linea: "curl ${var.ip}"},
+				}},
 				Material: []dominio.FicheroDeclarado{
 					{Ruta: "k8s/deployment.yaml", Contenido: "image: ${var.imagen}/${var.project_name}:${var.project_hash}\n" +
 						"env: ${var.environment}\nworkdir: ${var.step_workdir}\n"},
@@ -105,15 +109,15 @@ func valida() dominio.PipelineDeclarado {
 
 func comprobar(t *testing.T, d dominio.PipelineDeclarado) *dominio.PipelineComprobado {
 	t.Helper()
-	p, err := dominio.Comprobar(d)
+	pipeline, err := dominio.Comprobar(d)
 	require.NoError(t, err)
-	return p
+	return pipeline
 }
 
 func fallos(t *testing.T, d dominio.PipelineDeclarado) []dominio.Fallo {
 	t.Helper()
-	p, err := dominio.Comprobar(d)
-	require.Nil(t, p, "si falla la comprobación no hay pipeline")
+	pipeline, err := dominio.Comprobar(d)
+	require.Nil(t, pipeline, "si falla la comprobación no hay pipeline")
 	require.ErrorIs(t, err, dominio.ErrNoComprobado)
 	var lista *dominio.FallosDeComprobacion
 	require.True(t, errors.As(err, &lista))
@@ -122,17 +126,17 @@ func fallos(t *testing.T, d dominio.PipelineDeclarado) []dominio.Fallo {
 }
 
 func TestUnaDeclaracionBienFormadaDaUnPipeline(t *testing.T) {
-	p := comprobar(t, valida())
+	pipeline := comprobar(t, valida())
 
-	require.Equal(t, "1", p.Version())
-	require.Equal(t, strings.Repeat("a", 40), p.Commit())
-	require.Equal(t, "contenido-v1:abc", p.Hash())
+	require.Equal(t, "1", pipeline.Version())
+	require.Equal(t, strings.Repeat("a", 40), pipeline.Commit())
+	require.Equal(t, "contenido-v1:abc", pipeline.Hash())
 	require.Equal(t, []dominio.AmbienteComprobado{
 		{Nombre: "sandbox", Descripcion: "pruebas", Valor: "sand"},
 		{Nombre: "production", Valor: "prod"},
-	}, p.Ambientes(), "en su orden")
+	}, pipeline.Ambientes(), "en su orden")
 
-	pasos := p.Pasos()
+	pasos := pipeline.Pasos()
 	require.Len(t, pasos, 2)
 
 	registro := pasos[0]
@@ -154,8 +158,8 @@ func TestUnaDeclaracionBienFormadaDaUnPipeline(t *testing.T) {
 			{Nombre: "espacio", Ambito: "sand", Valor: "${var.project_name}-${var.equipo}"},
 			{Nombre: "equipo", Ambito: "sand", Valor: "plataforma"},
 			{Nombre: "espacio", Ambito: "prod", Valor: "${var.project_name}"},
-		}, p.Variables())
-		require.Equal(t, dominio.Compartido, p.Variables()[0].Ambito, "la raíz de variables/ es el ámbito compartido")
+		}, pipeline.Variables())
+		require.Equal(t, dominio.Compartido, pipeline.Variables()[0].Ambito, "la raíz de variables/ es el ámbito compartido")
 	})
 
 	t.Run("un outputs con name es una variable de salida, y sin name una aserción", func(t *testing.T) {
@@ -182,8 +186,17 @@ func TestUnaDeclaracionBienFormadaDaUnPipeline(t *testing.T) {
 		require.Empty(t, paso.Reglas)
 	})
 
+	t.Run("config.yaml declara el paso sin rules, y las reglas siguen siendo las tres por defecto", func(t *testing.T) {
+		d := valida()
+		d.Configuracion.Datos.Pasos["despliegue"] = dominio.ConfiguracionDePasoDeclarada{EdadMaxima: "24h"}
+		paso, _ := comprobar(t, d).Paso("despliegue")
+		require.Equal(t, []dominio.Regla{dominio.ReglaCodigo, dominio.ReglaInstrucciones, dominio.ReglaVariables}, paso.Reglas,
+			"sin ReglasEscritas, aunque el paso sí tenga entrada en steps")
+		require.Equal(t, 24*time.Hour, paso.EdadMaxima)
+	})
+
 	t.Run("Paso de un nombre que no existe, no está", func(t *testing.T) {
-		_, esta := p.Paso("no-existe")
+		_, esta := pipeline.Paso("no-existe")
 		require.False(t, esta)
 	})
 }
@@ -215,9 +228,9 @@ func TestLoQueVeUnPasoEsSuAmbito(t *testing.T) {
 }
 
 func TestUnPasoSinScopeEsDelAmbienteEnQueSeEjecuta(t *testing.T) {
-	p := comprobar(t, valida())
-	registro, _ := p.Paso("registro")
-	despliegue, _ := p.Paso("despliegue")
+	pipeline := comprobar(t, valida())
+	registro, _ := pipeline.Paso("registro")
+	despliegue, _ := pipeline.Paso("despliegue")
 	require.Nil(t, registro.Ambito, "sin scope en su rules.yaml")
 	require.Nil(t, despliegue.Ambito, "tampoco tiene rules.yaml")
 }
@@ -229,8 +242,8 @@ func TestElAmbitoDeUnPasoLoHeredaLoQueProduceSinScopePropio(t *testing.T) {
 	d.Pasos[0].Comandos.Datos[0].Variables[0].Ambito = "" // ahora depende del ámbito del paso
 	mutarConfiguracion(&d, "registro", func(c *dominio.ConfiguracionDePasoDeclarada) { c.Ambito = "shared" })
 
-	p := comprobar(t, d)
-	registro, _ := p.Paso("registro")
+	pipeline := comprobar(t, d)
+	registro, _ := pipeline.Paso("registro")
 	require.Equal(t, compartido(), registro.Ambito, "rules.yaml declaró scope: shared")
 	require.Equal(t, compartido(), registro.Comandos[0].VariablesDeSalida[0].Ambito, "sin scope propio, hereda el del paso")
 }
@@ -285,6 +298,18 @@ func TestAmbitoEfectivo(t *testing.T) {
 	t.Run("una salida con scope propio ignora el de su paso", func(t *testing.T) {
 		salida := dominio.VariableDeComandoComprobada{Ambito: compartido()}
 		require.Equal(t, dominio.Compartido, salida.AmbitoEfectivo(sand))
+	})
+}
+
+func TestVariableDeComandoComprobadaEsCompartida(t *testing.T) {
+	t.Run("sin ámbito propio no es compartida", func(t *testing.T) {
+		salida := dominio.VariableDeComandoComprobada{}
+		require.False(t, salida.EsCompartida())
+	})
+
+	t.Run("con ámbito propio es compartida", func(t *testing.T) {
+		salida := dominio.VariableDeComandoComprobada{Ambito: compartido()}
+		require.True(t, salida.EsCompartida())
 	})
 }
 
@@ -399,16 +424,16 @@ func TestCadaFilaDeLaComprobacionProduceSuFallo(t *testing.T) {
 		{
 			nombre: "un outputs sin name ni probe",
 			mutar: func(d *dominio.PipelineDeclarado) {
-				c := &d.Pasos[0].Comandos.Datos[0]
-				c.Variables = append(c.Variables, dominio.VariableDeComandoDeclarada{Descripcion: "nada"})
+				comando := &d.Pasos[0].Comandos.Datos[0]
+				comando.Variables = append(comando.Variables, dominio.VariableDeComandoDeclarada{Descripcion: "nada"})
 			},
 			invariante: dominio.Formato, fichero: "steps/01-registro/commands.yaml", detalle: "un outputs sin name ni probe",
 		},
 		{
 			nombre: "una variable de salida con un nombre inválido",
 			mutar: func(d *dominio.PipelineDeclarado) {
-				c := &d.Pasos[0].Comandos.Datos[0]
-				c.Variables = append(c.Variables, dominio.VariableDeComandoDeclarada{Nombre: "1invalido", Expresion: "x"})
+				comando := &d.Pasos[0].Comandos.Datos[0]
+				comando.Variables = append(comando.Variables, dominio.VariableDeComandoDeclarada{Nombre: "1invalido", Expresion: "x"})
 			},
 			invariante: dominio.Formato, fichero: "steps/01-registro/commands.yaml", detalle: "que no es un nombre de variable",
 		},
@@ -463,8 +488,8 @@ func TestCadaFilaDeLaComprobacionProduceSuFallo(t *testing.T) {
 		{
 			nombre: "una plantilla que sale del paso",
 			mutar: func(d *dominio.PipelineDeclarado) {
-				c := &d.Pasos[1].Comandos.Datos[0]
-				c.Plantillas = append(c.Plantillas, "../../fuera.yaml")
+				comando := &d.Pasos[1].Comandos.Datos[0]
+				comando.Plantillas = append(comando.Plantillas, "../../fuera.yaml")
 			},
 			invariante: dominio.Formato, fichero: "steps/02-despliegue/commands.yaml",
 			detalle: `la plantilla "../../fuera.yaml", que sale del directorio del paso`,
@@ -490,28 +515,28 @@ func TestCadaFilaDeLaComprobacionProduceSuFallo(t *testing.T) {
 		{
 			nombre: "un nombre de paso que no sirve como nombre de fichero",
 			mutar: func(d *dominio.PipelineDeclarado) {
-				d.Pasos = append(d.Pasos, dominio.PasoDeclarado{Directorio: "03-mi paso", Comandos: dominio.DeclaradoDe(dominio.ComandoDeclarado{Linea: "ls"})})
+				d.Pasos = append(d.Pasos, dominio.PasoDeclarado{Directorio: "03-mi paso", Comandos: dominio.Declarado[[]dominio.ComandoDeclarado]{Existe: true, Datos: []dominio.ComandoDeclarado{{Linea: "ls"}}}})
 			},
 			invariante: dominio.Pasos, fichero: "steps/03-mi paso", detalle: `"mi paso" no sirve como nombre de un paso`,
 		},
 		{
 			nombre: "un directorio sin NN de dos dígitos",
 			mutar: func(d *dominio.PipelineDeclarado) {
-				d.Pasos = append(d.Pasos, dominio.PasoDeclarado{Directorio: "3-extra", Comandos: dominio.DeclaradoDe(dominio.ComandoDeclarado{Linea: "ls"})})
+				d.Pasos = append(d.Pasos, dominio.PasoDeclarado{Directorio: "3-extra", Comandos: dominio.Declarado[[]dominio.ComandoDeclarado]{Existe: true, Datos: []dominio.ComandoDeclarado{{Linea: "ls"}}}})
 			},
 			invariante: dominio.Pasos, fichero: "steps/3-extra", detalle: "NN-<paso>, con NN de dos dígitos",
 		},
 		{
 			nombre: "un orden repetido",
 			mutar: func(d *dominio.PipelineDeclarado) {
-				d.Pasos = append(d.Pasos, dominio.PasoDeclarado{Directorio: "02-extra", Comandos: dominio.DeclaradoDe(dominio.ComandoDeclarado{Linea: "ls"})})
+				d.Pasos = append(d.Pasos, dominio.PasoDeclarado{Directorio: "02-extra", Comandos: dominio.Declarado[[]dominio.ComandoDeclarado]{Existe: true, Datos: []dominio.ComandoDeclarado{{Linea: "ls"}}}})
 			},
 			invariante: dominio.Pasos, fichero: "steps/02-extra", detalle: "el orden 02 ya es de steps/02-despliegue",
 		},
 		{
 			nombre: "un nombre repetido, aunque cambie de mayúsculas",
 			mutar: func(d *dominio.PipelineDeclarado) {
-				d.Pasos = append(d.Pasos, dominio.PasoDeclarado{Directorio: "03-Despliegue", Comandos: dominio.DeclaradoDe(dominio.ComandoDeclarado{Linea: "ls"})})
+				d.Pasos = append(d.Pasos, dominio.PasoDeclarado{Directorio: "03-Despliegue", Comandos: dominio.Declarado[[]dominio.ComandoDeclarado]{Existe: true, Datos: []dominio.ComandoDeclarado{{Linea: "ls"}}}})
 			},
 			invariante: dominio.Pasos, fichero: "steps/03-Despliegue", detalle: `otro paso ya se llama "Despliegue"`,
 		},
@@ -706,8 +731,8 @@ func TestCadaFilaDeLaComprobacionProduceSuFallo(t *testing.T) {
 		{
 			nombre: "una variable de salida producida dos veces por el mismo comando",
 			mutar: func(d *dominio.PipelineDeclarado) {
-				c := &d.Pasos[0].Comandos.Datos[0]
-				c.Variables = append(c.Variables, dominio.VariableDeComandoDeclarada{Nombre: "registro", Expresion: "(.*)", Ambito: "shared"})
+				comando := &d.Pasos[0].Comandos.Datos[0]
+				comando.Variables = append(comando.Variables, dominio.VariableDeComandoDeclarada{Nombre: "registro", Expresion: "(.*)", Ambito: "shared"})
 			},
 			invariante: dominio.VariablesDeSalida, fichero: "steps/01-registro/commands.yaml",
 			detalle: `el comando 1 produce "registro" dos veces`,
@@ -781,15 +806,11 @@ func TestCadaFilaDeLaComprobacionProduceSuFallo(t *testing.T) {
 			d := valida()
 			caso.mutar(&d)
 			lista := fallos(t, d)
-			esperado := func(f dominio.Fallo) bool {
-				return f.Invariante == caso.invariante && f.Fichero == caso.fichero && f.Ambiente == caso.ambiente &&
-					strings.Contains(f.Detalle, caso.detalle)
+			esperado := func(fallo dominio.Fallo) bool {
+				return fallo.Invariante == caso.invariante && fallo.Fichero == caso.fichero && fallo.Ambiente == caso.ambiente &&
+					strings.Contains(fallo.Detalle, caso.detalle)
 			}
-			encontrado := false
-			for _, f := range lista {
-				encontrado = encontrado || esperado(f)
-			}
-			require.True(t, encontrado, "no está el fallo esperado entre:\n%v", lista)
+			require.True(t, slices.ContainsFunc(lista, esperado), "no está el fallo esperado entre:\n%v", lista)
 			if !caso.varios {
 				require.Len(t, lista, 1, "un fallo no arrastra otros:\n%v", lista)
 			}
@@ -814,12 +835,13 @@ func TestRenumerarUnPasoNoCambiaSuIdentidad(t *testing.T) {
 }
 
 func TestUnFicheroQueNoEstaEnTemplatesSeCopiaSinInterpolar(t *testing.T) {
-	registro, _ := comprobar(t, valida()).Paso("registro")
+	pipeline := comprobar(t, valida())
+	registro, _ := pipeline.Paso("registro")
 	require.Equal(t, "terraform/main.tf", registro.Material[0].Ruta)
 	require.False(t, registro.Material[0].Plantilla, "se copia tal cual")
 	require.Equal(t, `name = "${var.name}"`, registro.Material[0].Contenido)
 
-	despliegue, _ := comprobar(t, valida()).Paso("despliegue")
+	despliegue, _ := pipeline.Paso("despliegue")
 	require.True(t, despliegue.Material[0].Plantilla)
 	require.False(t, despliegue.Material[1].Plantilla)
 
@@ -838,8 +860,8 @@ func TestLasVariablesEstandarSeUsanSinDeclararlas(t *testing.T) {
 	comprobar(t, valida())
 
 	clases := map[string]dominio.VariableEstandar{}
-	for _, v := range dominio.VariablesEstandar() {
-		clases[v.Nombre] = v
+	for _, variable := range dominio.VariablesEstandar() {
+		clases[variable.Nombre] = variable
 	}
 	require.Len(t, clases, 11)
 	require.Equal(t, dominio.Metadato, clases["project_name"].Origen)
@@ -890,18 +912,19 @@ func TestNoHayFormaDeObtenerUnPipelineQueNoHayaPasadoLaComprobacion(t *testing.T
 	})
 
 	t.Run("lo que devuelve es una copia", func(t *testing.T) {
-		p := comprobar(t, valida())
-		pasos := p.Pasos()
+		pipeline := comprobar(t, valida())
+		pasos := pipeline.Pasos()
 		pasos[0].Nombre = "otro"
 		pasos[0].Comandos[0].Linea = "rm -rf /"
 		pasos[0].Comandos[0].Aserciones[0].Expresion = "otra"
 		pasos[1].Material[0].Plantilla = false
-		p.Ambientes()[0].Valor = "otro"
-		p.Variables()[0].Valor = "otro"
+		pipeline.Ambientes()[0].Valor = "otro"
+		pipeline.Variables()[0].Valor = "otro"
 
-		require.Equal(t, comprobar(t, valida()).Pasos(), p.Pasos())
-		require.Equal(t, comprobar(t, valida()).Ambientes(), p.Ambientes())
-		require.Equal(t, comprobar(t, valida()).Variables(), p.Variables())
+		otraVez := comprobar(t, valida())
+		require.Equal(t, otraVez.Pasos(), pipeline.Pasos())
+		require.Equal(t, otraVez.Ambientes(), pipeline.Ambientes())
+		require.Equal(t, otraVez.Variables(), pipeline.Variables())
 	})
 }
 

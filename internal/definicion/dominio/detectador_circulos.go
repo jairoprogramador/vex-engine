@@ -92,7 +92,7 @@ func (det *detectadorCirculos) caminoDesde(nombre string) []string {
 
 func (det *detectadorCirculos) reportarCirculo(nombre, usado string) {
 	camino := det.caminoDesde(usado)
-	det.comprobacion.falla(Variables, det.literales[nombre].fichero, "", det.ambito.deUnAmbiente(),
+	det.comprobacion.falla(Fallo{Invariante: Variables, Fichero: det.literales[nombre].fichero, Ambiente: det.ambito.deUnAmbiente()},
 		"las variables se usan en círculo: %s → %s", strings.Join(camino, " → "), usado)
 }
 

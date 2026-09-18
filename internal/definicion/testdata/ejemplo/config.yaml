@@ -1,0 +1,15 @@
+schema_version: 1
+steps:
+  pruebas:
+    rules: [code, instructions, variables]
+    max_age: 720h
+  registro:
+    rules: [instructions, variables]
+    scope: shared
+  infraestructura:
+    rules: [instructions, variables]
+  imagen:
+    # Sin rules: el paso mira las tres cosas.
+    max_age: 24h
+  aviso:
+    rules: [instructions]

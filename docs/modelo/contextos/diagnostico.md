@@ -32,7 +32,7 @@ un valor.
   (`DEC-06.13`):
   - las instrucciones, con el hash de las instrucciones de cada paso, nunca con el del pipeline
     (`DEC-06.9`);
-  - las variables, solo las declaradas y visibles en el ámbito del paso; las producidas van al sustento
+  - las variables, solo las declaradas y visibles desde el paso; las producidas van al sustento
     (`DEC-06.10`);
   - si un paso no se re-ejecutó, sus recursos son los del registro al que apunta su evidencia
     (`DEC-06.5`).
@@ -45,7 +45,7 @@ un valor.
 | **ES-2** | *Funcionó en staging, falla en producción* | programador | el intento que falla en producción contra el último despliegue de **staging** con el mismo hash del código | si también coinciden las instrucciones de cada paso, el código y las instrucciones quedan descartados. Queda **un** candidato: las variables. Las de ámbito compartido son las mismas en los dos ambientes, así que las que pueden diferir son las del ámbito de cada ambiente |
 | **ES-1 + ES-2** | *El caso normal* | programador | las dos a la vez | ES-1 deja el código y las variables; ES-2 descarta el código. **Respuesta: las variables** |
 | **ES-3** | *Falla ante el cliente* | dueño del negocio | entra por un lanzamiento, que lleva a su despliegue; el intento de ese despliegue es el que falla, y sigue como ES-1 y ES-2 | lo mismo que el caso al que lleva |
-| **ES-4** | *Un paso no se re-ejecutó* | dentro de cualquier escenario | para ese paso, los recursos del registro al que apunta su evidencia, que puede venir de otro ambiente si su ámbito es compartido | la comparación contra los recursos con los que ese paso se hizo de verdad |
+| **ES-4** | *Un paso no se re-ejecutó* | dentro de cualquier escenario | para ese paso, los recursos del registro al que apunta su evidencia, que puede venir de otro ambiente si el paso no se re-ejecuta entre ambientes | la comparación contra los recursos con los que ese paso se hizo de verdad |
 | **ES-5** | *Nada cambió en ningún eje* | programador | como ES-1 y ES-2 | *«ninguno de los tres ejes cambió»*: la causa no está en ellos. Es un hecho, no un fallo del core. Si cambió alguna variable producida, aparece en el sustento |
 | **ES-6** | *No hay contra qué comparar* | cualquiera | no existe ningún despliegue de referencia | *«no hay referencia»*, sin atribución |
 | **ES-7** | *Intento sin desenlace o cancelado* | cualquiera | — | no se atribuye causa: una cancelación no es un fallo de nadie, y de un intento sin desenlace no se sabe cómo terminó |
@@ -90,7 +90,7 @@ en vez de adivinarse (Customer–Supplier, `context-map.md` fila #1).
 | Value object | Qué es |
 |---|---|
 | **eje** | código · instrucciones · variables. Lista cerrada: no hay un cuarto (`DEC-01.2`) |
-| **ejes de un paso** | para un paso, lo que identifica cada eje con los recursos con que se hizo de verdad: el hash del código, el de sus instrucciones y el de cada variable declarada de su ámbito. **Solo hashes** |
+| **ejes de un paso** | para un paso, lo que identifica cada eje con los recursos con que se hizo de verdad: el hash del código, el de sus instrucciones y el de cada variable declarada que ve. **Solo hashes** |
 | **referencia** | un despliegue, los ejes de cada uno de sus pasos y por qué se eligió: *mismo ambiente*, *ambiente anterior con el mismo código* o *elegida por el usuario* |
 | **comparación** | el intento que falla contra una referencia: el estado de cada eje en cada paso, *cambió* o *no cambió* |
 | **atribución** | el conjunto de ejes candidatos. **Sin orden**: ningún candidato va delante de otro |

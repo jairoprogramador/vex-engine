@@ -25,7 +25,7 @@ ejecuta, el único que tiene un valor en claro.
 
 | Lee de | Qué |
 |---|---|
-| **Definición** | las variables declaradas · las formas de ámbito y de variable de salida |
+| **Definición** | las variables declaradas, cada una con su ámbito · el ámbito propio de cada paso (`config.yaml`, `steps.<paso>.scope`; RD-04 §9.19, §9.20) · las formas de ámbito y de variable de salida · los nombres de las **variables estándar**, cuyos valores da Resolución: los metadatos llegan con la solicitud y las generadas las crea el motor; las del paso solo valen mientras el paso se ejecuta (RD-04 §9, lo precisa RD-05) |
 | **Historial** | el hash y el valor de la última vez de cada variable. El valor, por la relación reservada (`DEC-04.7`) |
 
 Y **escribe en el Historial** el hash de cada variable, bajo paso e intento, y el valor ofuscado, por la
@@ -42,8 +42,8 @@ la invocación (`DEC-08.3`), y lo que tiene que quedar se escribe en el Historia
 
 | Invariante | Qué dice |
 |---|---|
-| ámbito | un paso solo ve las variables de su ámbito: su ambiente o el compartido (`DEC-06.12`) |
-| orden | una variable producida solo existe para los pasos posteriores al que la produjo |
+| ámbito | una variable pertenece a un ámbito, y un paso ve las de los ámbitos que ve **desde el suyo propio** (`DEC-06.12`, RD-04 §9.19): sin `scope` declarado, el que representa a su ambiente — su ambiente y el compartido, como siempre —; con `scope: shared`, solo el compartido. Lo compartido no ve lo del ambiente, y un paso de `scope: shared` tampoco |
+| orden | una variable producida solo existe **desde el comando que la produjo**: la ven los comandos posteriores de su paso y los pasos posteriores de su ámbito (RD-04 §9) |
 | precedencia | si dos orígenes dan valor al mismo nombre, **gana la producida**; entre producidas, **la del paso más reciente** (`DEC-08.4`) |
 | paso que no se re-ejecuta | aporta las variables que produjo la última vez, con su valor pedido al Historial por la relación reservada |
 | el valor no circula | solo sale hacia el comando que se ejecuta y, ofuscado, hacia el Historial |
@@ -55,7 +55,7 @@ la invocación (`DEC-08.3`), y lo que tiene que quedar se escribe en el Historia
 |---|---|
 | **variable efectiva** | nombre, valor, origen y ámbito. El valor es sensible y **no se muestra nunca** |
 | **origen** | declarada · producida |
-| **ámbito** | su ambiente · compartido |
+| **ámbito** | el de un ambiente · el compartido. Es de la variable, y también del paso (RD-04 §9.19): sin declarar el suyo, el del ambiente en que se ejecuta. Decide qué ve el paso y bajo cuál busca su última vez |
 | **hash de variable** | dice si una variable cambió sin mostrar su valor. **Comparable entre ambientes de un mismo proyecto** (`DEC-08.6`). **Simple, sin clave**: no es una garantía de seguridad (`DEC-08.8`) |
 
 ### Servicios de dominio
@@ -64,7 +64,7 @@ la invocación (`DEC-08.3`), y lo que tiene que quedar se escribe en el Historia
 |---|---|
 | **interpolación** | sustituye cada variable por su valor dentro de un comando o del material de un paso |
 | **calcular el hash de una variable** | el único punto donde un valor se convierte en hash |
-| **¿cambiaron las variables de un paso?** | compara los hashes de ahora con los de la última vez del paso en su ámbito |
+| **¿cambiaron las variables de un paso?** | compara los hashes de ahora con los de la última vez del paso en su ámbito. **Cuál es el ámbito de un paso lo declara Definición** (`config.yaml`, `steps.<paso>.scope`; RD-04 §9.19): Resolución lo usa, no lo decide |
 
 ### Factoría
 

@@ -1,0 +1,11 @@
+- name: sandbox
+  description: ambientes efímeros para probar
+  value: sand
+
+- name: staging
+  description: preproducción estable
+  value: stag
+
+- name: production
+  description: con usuarios reales
+  value: prod

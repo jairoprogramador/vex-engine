@@ -37,11 +37,14 @@ paso?* y la petición sin intento.
 
 ## §6 Alcance
 
-**Dentro**: lo anterior. **Fuera**: decidir si un paso se re-ejecuta, que es de Ejecución.
+**Dentro**: lo anterior. **Fuera**: decidir bajo qué ámbito se busca la última vez de un paso, que RD-04
+§9.19 cerró declarándolo en `config.yaml` (`DEC-06.12`) — aquí solo se **usa**, pidiéndoselo a Definición;
+y decidir si un paso se re-ejecuta, que es de Ejecución.
 
 ## §7 Verificación
 
-- Pruebas de precedencia y de ámbito, incluido el compartido.
+- Pruebas de precedencia y de ámbito, incluido el compartido: un paso ve las variables del ámbito de su
+  ambiente y las del compartido, y lo que produce un comando lo ven los posteriores de su paso.
 - El mismo valor da el mismo hash en todos los ambientes de un proyecto.
 - Una petición sin intento no calcula hashes ni escribe nada.
 - El valor solo sale hacia la interpolación y hacia la relación reservada.
