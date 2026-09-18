@@ -23,7 +23,7 @@ El motor nuevo sustituye al antiguo y no queda nada del código antiguo.
 ## §5 Solución
 
 - La imagen que lleva el motor pasa a llevar el nuevo (la de `runtime/`, que está fuera de `vex-engine`).
-- `cmd/motor/` pasa a `cmd/vexd/`.
+- `cmd/motor/` pasa a `cmd/vexd/` (hecho).
 - Se borran:
   - `old-internal/` entero (RD-01 §9);
   - el `cmd/vexd/` antiguo;
@@ -48,4 +48,14 @@ El motor nuevo sustituye al antiguo y no queda nada del código antiguo.
 
 ## §9 Hallazgos al implementar
 
-*Vacío.*
+*Hecho a medias el 2026-09-18*, sin esperar al CLI ni al portal, que quedan fuera por ahora.
+
+**Hecho**: se borraron `old-internal/` y el `cmd/vexd/` antiguo (y con ellos `cobra` de `go.mod`); `cmd/motor/`
+(ahora `cmd/vexd/`) conecta los contextos y atiende con el borde las once operaciones (`docs/modelo/lenguaje-publicado.md`, «La
+invocación»); `reglas.yml` compila, analiza y prueba `./...`; `goreleaser.yaml` construye `./cmd/vexd` con el
+binario `vexd`.
+
+**Pendiente**: la imagen de `runtime/`; borrar las cinco `SPEC-*.md`,
+`vex-guia-logica.md`, `vex-plan-registro-local.md` y `vex-plan-revision.md`; reescribir la sección del motor de
+`CLAUDE.md`; y adaptar el CLI y el portal, sin lo cual **un release con este binario rompe a los dos** (ya no
+existen `vexd run`, `RequestInput` ni `--state-config`).

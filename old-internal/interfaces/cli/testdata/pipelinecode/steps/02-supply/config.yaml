@@ -1,3 +1,0 @@
-scope: environment
-rules:
-  - state_changed

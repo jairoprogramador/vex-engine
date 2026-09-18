@@ -25,8 +25,8 @@ aparta a `old-internal/`, y `internal/` queda solo para lo nuevo.
 |---|---|
 | los ocho contextos | `internal/<contexto>/` |
 | el borde | `internal/borde/` |
-| la raíz de composición | `cmd/motor/` mientras exista el antiguo; pasa a `cmd/vexd/` al borrarlo |
-| el código antiguo | `old-internal/`, con sus importaciones reescritas, y `cmd/vexd/`. Sigue compilando y se puede seguir publicando hasta RD-12 |
+| la raíz de composición | `cmd/vexd/`. Fue `cmd/motor/` mientras convivió con el antiguo |
+| el código antiguo | **Borrado** (`old-internal/` y el `cmd/vexd/` antiguo), por RD-12 |
 
 **La regla de dependencias funciona desde el primer paquete**, y es el mismo comando de `arquitectura.md`
 sobre `./...`: el awk ignora lo que no está bajo `internal/`, y **rechaza que el código nuevo importe algo

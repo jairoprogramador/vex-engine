@@ -21,6 +21,31 @@
   | `ejecucion.ErrNoDisponible` | el espacio de trabajo del ambiente no se alcanzó; el intento no empezó |
   | `*historial.AmbienteOcupadoError` | el ambiente tiene otro intento en curso, y dice cuál (se puede abandonar) |
 
+## La invocación
+
+`cmd/vexd` (el binario `vexd`) es la raíz de composición: conecta los contextos y atiende **una operación por
+invocación** con `internal/borde/`.
+
+```
+vexd <operación> --almacen <dir> [--espacio <dir>] [--material <dir>] [--entrada <fichero>]
+```
+
+| Operación | `intentar` `rollback` `simular` `lanzar` `reservar` `liberar` `diagnosticar` `abandonar` `intento` `intentos` `despliegues` |
+|---|---|
+| **Petición** | un JSON, de `--entrada` o de la entrada estándar, con los campos del tipo de la tabla de abajo (los nombres de campo de Go, sin distinguir mayúsculas). Un campo que el tipo no tiene se rechaza |
+| **Respuesta** | un JSON en la salida estándar. Las que no devuelven nada responden `{}` |
+| **Salida de los comandos** | la salida de error, en vivo y tal cual (`DEC-12.5`) |
+| **Errores** | texto en la salida de error |
+| **`--almacen`** | el almacén del Historial, un directorio que **tiene que existir** (o `$VEX_ALMACEN`) |
+| **`--espacio`** | el espacio de trabajo de los ambientes; solo `intentar` y `rollback` (o `$VEX_ESPACIO`) |
+| **`--material`** | donde Suministro pone el material de las fuentes; una copia desechable (o `$VEX_MATERIAL`) |
+
+Los tres directorios los da la invocación y no la petición (`DEC-06.18`): por eso `DirectorioDelAlmacen` y
+`DirectorioDeEspacioDeTrabajo` de `PeticionDeIntento` y `PeticionDeRollback` no los lee nadie.
+
+Código de salida: `0` bien · `1` la operación falló, o el intento terminó `fallido` · `2` la invocación o la
+petición son inválidas (incluida una versión no soportada) · `130` cancelado, por señal o el intento `cancelado`.
+
 ## Operaciones
 
 | Operación | Petición | Respuesta | Contexto |

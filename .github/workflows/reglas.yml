@@ -1,7 +1,6 @@
-name: Motor nuevo
+name: Motor
 
-# El motor nuevo (internal/, cmd/motor) y su regla de dependencias (docs/rediseno/RD-01).
-# El código antiguo vive en old-internal/ y cmd/vexd hasta RD-12, y esta comprobación no lo mira.
+# El motor (internal/, cmd/vexd) y su regla de dependencias (docs/rediseno/RD-01).
 
 on:
   push:
@@ -20,13 +19,13 @@ jobs:
           go-version-file: go.mod
 
       - name: Compilar
-        run: go build ./internal/... ./cmd/motor/
+        run: go build ./...
 
       - name: Analizar
-        run: go vet ./internal/... ./cmd/motor/
+        run: go vet ./...
 
       - name: Probar
-        run: go test ./internal/...
+        run: go test ./...
 
       - name: Regla de dependencias
         run: |
