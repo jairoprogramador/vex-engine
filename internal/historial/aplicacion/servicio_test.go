@@ -384,6 +384,34 @@ func TestLanzamientoYReserva(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestHashDelCodigoDeUnDespliegueYTodosLosLanzamientos(t *testing.T) {
+	h, ctx := nuevoHistorial()
+	_, d1, _ := intentar(t, h, ctx, apertura("staging"), publicado.Exitoso, "")
+	otroCodigo := apertura("prod")
+	otroCodigo.HashDelCodigo = "h2"
+	_, d2, _ := intentar(t, h, ctx, otroCodigo, publicado.Exitoso, "")
+
+	hash, err := h.HashDelCodigoDeUnDespliegue(ctx, d1.Id)
+	require.NoError(t, err)
+	require.Equal(t, "h1", hash)
+	hash, err = h.HashDelCodigoDeUnDespliegue(ctx, d2.Id)
+	require.NoError(t, err)
+	require.Equal(t, "h2", hash)
+	_, err = h.HashDelCodigoDeUnDespliegue(ctx, "no-existe")
+	require.ErrorIs(t, err, publicado.ErrNoExiste)
+
+	l1, err := h.RegistrarLanzamiento(ctx, "staging", d1.Id, nada)
+	require.NoError(t, err)
+	l2, err := h.RegistrarLanzamiento(ctx, "prod", d2.Id, nada)
+	require.NoError(t, err)
+
+	// TodosLosLanzamientos no se filtra por ambiente: junta los de todos, en el orden en que se registraron
+	// (IT-10 DEC-10.8 — la versión es un número por proyecto).
+	todos, err := h.TodosLosLanzamientos(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []publicado.Lanzamiento{l1, l2}, todos)
+}
+
 func TestNadaDeLoPublicadoContieneUnValor(t *testing.T) {
 	const secreto = "s3cr3t-de-produccion"
 	h, ctx := nuevoHistorial()

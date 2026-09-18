@@ -176,6 +176,34 @@ func (s *Servicio) UltimoDespliegueConHashDelCodigo(
 	return publicado.Despliegue{}, false, nil
 }
 
+func (s *Servicio) HashDelCodigoDeUnDespliegue(ctx context.Context, id string) (string, error) {
+	despliegue, err := s.buscarDespliegue(ctx, dominio.IdDespliegue(id))
+	if err != nil {
+		return "", traducir(err)
+	}
+	intento, err := s.d.Intentos.Intento(ctx, despliegue.Intento())
+	if err != nil {
+		return "", traducir(err)
+	}
+	a, ok := intento.Apertura()
+	if !ok {
+		return "", traducir(noExiste(nil, "la apertura del intento %s", despliegue.Intento()))
+	}
+	return string(a.HashDelCodigo), nil
+}
+
+func (s *Servicio) TodosLosLanzamientos(ctx context.Context) ([]publicado.Lanzamiento, error) {
+	lanzamientos, err := s.d.Lanzamientos.Todos(ctx)
+	if err != nil {
+		return nil, traducir(err)
+	}
+	var resultado []publicado.Lanzamiento
+	for _, l := range lanzamientos.Todos() {
+		resultado = append(resultado, lanzamientoAPublicado(l))
+	}
+	return resultado, nil
+}
+
 func (s *Servicio) CantidadDeIntentos(ctx context.Context, despliegue, intento string) (int, error) {
 	d, err := s.buscarDespliegue(ctx, dominio.IdDespliegue(despliegue))
 	if err != nil {

@@ -49,4 +49,26 @@ obtener la versión.
 
 ## §9 Hallazgos al implementar
 
-*Vacío.*
+**El `ParaLanzamiento` del Historial no alcanzaba.** Calcular la versión (`DEC-10.8`) exige recorrer el
+Historial de dos formas que el puerto no daba: el hash del código de un despliegue, y la lista completa de
+lanzamientos ya hechos, de cualquier ambiente. El Historial no puede darlas por sí solo desde dentro de
+`RegistrarLanzamiento`, porque su `Contenido` es opaco (`DEC-03.13`) — solo quien lo produjo, Lanzamiento,
+puede decodificarlo. Se extendió `ParaLanzamiento` con `HashDelCodigoDeUnDespliegue` y
+`TodosLosLanzamientos`, ambas de solo lectura, siguiendo el mismo patrón de recorrido que ya usaba
+`UltimoDespliegueConHashDelCodigo`. El propio `Contenido` de Lanzamiento guarda también el hash del código
+(además de versión y nombre) para no tener que volver a consultar el Historial por cada lanzamiento pasado
+al decidir la versión de uno nuevo.
+
+**Ventana de duplicado de versión en escrituras concurrentes, aceptada.** `RegistrarLanzamiento` del
+Historial reintenta ante conflicto (`conReintento`, 3 veces), releyendo `Lanzamientos.Todos` y
+`Despliegues.DeUnAmbiente` en cada vuelta, pero siempre reusa el mismo `Contenido` que se le pasó la
+primera vez — no puede recalcularlo, porque le es opaco. Si dos códigos nunca antes lanzados se lanzan a la
+vez en dos ambientes distintos, ambos pueden calcular la misma «próxima versión» antes de que cualquiera de
+las dos escrituras llegue, y el reintento ciego del Historial deja pasar las dos con la misma versión en
+lugar de forzar un conflicto que Lanzamiento pudiera resolver recalculando. Aceptado y documentado, no
+resuelto: arreglarlo exigiría cambiar la forma del puerto `RegistrarLanzamiento` del Historial, y este
+mismo documento (§5) dice que Lanzamiento se adapta a esa forma, no al revés.
+
+**"Obtener la versión" (§3) no es una operación publicada aparte.** `contextos/lanzamiento.md` solo lista
+tres servicios de aplicación (escuchar, lanzar, reservar/liberar). Se implementó como la capacidad interna
+de la que depende `lanzar` (`DecidirVersion`, dominio puro), no como una consulta nueva en `publicado/`.

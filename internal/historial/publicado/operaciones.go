@@ -37,6 +37,12 @@ type ParaLanzamiento interface {
 	UltimoDespliegue(ctx context.Context, ambiente string) (Despliegue, bool, error)
 	UltimaReserva(ctx context.Context, ambiente string) (Reserva, bool, error)
 	UltimoLanzamiento(ctx context.Context, ambiente string) (Lanzamiento, bool, error)
+	// HashDelCodigoDeUnDespliegue es el hash del código con el que se hizo un despliegue.
+	HashDelCodigoDeUnDespliegue(ctx context.Context, despliegue string) (string, error)
+	// TodosLosLanzamientos son todos, de todos los ambientes, en el orden en que se registraron. Lanzamiento
+	// los recorre para decidir la versión de un código (IT-10 DEC-10.8): el Historial no puede, porque su
+	// contenido es opaco (DEC-03.13).
+	TodosLosLanzamientos(ctx context.Context) ([]Lanzamiento, error)
 }
 
 // ParaDiagnostico son las consultas que pide el core. RD-08 las completa con las de su tabla de requisitos.
