@@ -30,6 +30,10 @@ func (p pipelinesEnMemoria) DeUnCommit(ctx context.Context, fuente, _ string) (*
 	return p.DeHoy(ctx, fuente)
 }
 
+func (p pipelinesEnMemoria) DeUnaCopiaDeTrabajo(ctx context.Context, directorio string) (*dominio.PipelineComprobado, error) {
+	return p.DeHoy(ctx, directorio)
+}
+
 func declaracion() dominio.PipelineDeclarado {
 	uno, valor, imagen := "1", "Basic", "${var.registro}"
 	return dominio.PipelineDeclarado{
@@ -100,6 +104,14 @@ func TestTraeElPipelineComprobadoEnElLenguajePublicado(t *testing.T) {
 			{Nombre: "imagen", Ambito: "sand", Valor: "${var.registro}"},
 		},
 	}, p)
+}
+
+func TestTraeElPipelineDeUnaCopiaDeTrabajo(t *testing.T) {
+	s := aplicacion.NuevoServicio(aplicacion.Dependencias{Pipelines: pipelinesEnMemoria{declaracion: declaracion()}})
+
+	p, err := s.DeUnaCopiaDeTrabajo(context.Background(), "/mi/copia")
+	require.NoError(t, err)
+	require.Equal(t, "c1", p.Commit)
 }
 
 func TestLosFallosDeLaComprobacionLleganConSuLista(t *testing.T) {

@@ -25,8 +25,10 @@ type ParaResolucion interface {
 	VariablesEstandar() []VariableEstandar
 }
 
-// ParaSimulacion es lo que usa Simulación de Pipeline: el pipeline entero, o sus fallos (IT-10 DEC-10.6).
+// ParaSimulacion es lo que usa Simulación de Pipeline: el pipeline entero, de una copia de trabajo o de un
+// commit (IT-10 DEC-10.6), o sus fallos.
 type ParaSimulacion interface {
 	DeUnCommit(ctx context.Context, fuente, commit string) (Pipeline, error)
+	DeUnaCopiaDeTrabajo(ctx context.Context, directorio string) (Pipeline, error)
 	VariablesEstandar() []VariableEstandar
 }

@@ -38,6 +38,16 @@ func (p *PipelinesDeSuministro) DeUnCommit(ctx context.Context, fuente, commit s
 	return p.comprobar(ctx, material)
 }
 
+// DeUnaCopiaDeTrabajo lee el pipeline directamente del directorio donde alguien está trabajando, con cambios
+// sin commit (IT-10 DEC-10.6) — lo único que necesita Simulación para aceptar una copia de trabajo.
+func (p *PipelinesDeSuministro) DeUnaCopiaDeTrabajo(ctx context.Context, directorio string) (*dominio.PipelineComprobado, error) {
+	material, err := p.suministro.TraerCopiaDeTrabajo(ctx, directorio)
+	if err != nil {
+		return nil, traducir(err)
+	}
+	return p.comprobar(ctx, material)
+}
+
 // comprobar lee el material, lo comprueba y siempre lo retira. Si no se puede retirar, no se entrega el
 // pipeline: el error no se pierde.
 func (p *PipelinesDeSuministro) comprobar(ctx context.Context, material suministro.Material) (*dominio.PipelineComprobado, error) {

@@ -108,6 +108,20 @@ func TestElPipelineDeHoyYElDeUnCommit(t *testing.T) {
 	vacio(t, base)
 }
 
+func TestElPipelineDeUnaCopiaDeTrabajo(t *testing.T) {
+	ctx := context.Background()
+	pipelines, base := nuevosPipelines(t)
+	copia := t.TempDir()
+	require.NoError(t, os.CopyFS(copia, os.DirFS(filepath.Join("..", "testdata", "ejemplo"))))
+
+	p, err := pipelines.DeUnaCopiaDeTrabajo(ctx, copia)
+	require.NoError(t, err)
+	require.Empty(t, p.Commit(), "una copia de trabajo no tiene commit")
+	require.NotEmpty(t, p.Hash())
+	require.Len(t, p.Pasos(), 6)
+	vacio(t, base)
+}
+
 func TestUnPipelineQueNoPasaLaComprobacionTambienSeRetira(t *testing.T) {
 	pipelines, base := nuevosPipelines(t)
 	f := fuenteDelEjemplo(t)

@@ -18,11 +18,12 @@ type ParaEjecucion interface {
 	Retirar(ctx context.Context, material Material) error
 }
 
-// ParaDefinicion es lo que usa Definición de Pipeline: el pipeline como fuente, el de hoy o el de un commit
-// (IT-03 DEC-03.9).
+// ParaDefinicion es lo que usa Definición de Pipeline: el pipeline como fuente, el de hoy, el de un commit
+// (IT-03 DEC-03.9) o el de una copia de trabajo, para servir a su vez a Simulación (IT-10 DEC-10.6).
 type ParaDefinicion interface {
 	TraerDeHoy(ctx context.Context, fuente string) (Material, error)
 	TraerDeUnCommit(ctx context.Context, fuente, commit string) (Material, error)
+	TraerCopiaDeTrabajo(ctx context.Context, directorio string) (Material, error)
 	Retirar(ctx context.Context, material Material) error
 }
 

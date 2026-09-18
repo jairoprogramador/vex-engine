@@ -397,3 +397,9 @@ pasa la regla de dependencias.
       consumir hace caer un caso; dejar caer la asignación desde el mapa no compila (el argumento de
       `configuracion()` deja de tener de dónde salir), así que esa fila no tiene ni forma de quedar sin
       vigilar.
+21. **`ParaSimulacion` gana `DeUnaCopiaDeTrabajo`** (al implementar RD-09, 2026-09-18), como anticipaba el
+    hallazgo 10: `DEC-10.6` exige que Simulación acepte una copia de trabajo, no solo un commit.
+    `dominio.Pipelines` gana el mismo método; `PipelinesDeSuministro` lo implementa igual que `DeUnCommit`,
+    pero llamando a `TraerCopiaDeTrabajo` (nuevo en `suministro/publicado.ParaDefinicion`, RD-03 §9 hallazgo
+    11). Sin cambios en la comprobación: `comprobar(material)` ya era genérica sobre cualquier origen del
+    material.

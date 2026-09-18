@@ -37,6 +37,10 @@ func (s *Servicio) DeUnCommit(ctx context.Context, fuente, commit string) (publi
 	return publicar(s.d.Pipelines.DeUnCommit(ctx, fuente, commit))
 }
 
+func (s *Servicio) DeUnaCopiaDeTrabajo(ctx context.Context, directorio string) (publicado.Pipeline, error) {
+	return publicar(s.d.Pipelines.DeUnaCopiaDeTrabajo(ctx, directorio))
+}
+
 func (s *Servicio) VariablesEstandar() []publicado.VariableEstandar {
 	estandar := dominio.VariablesEstandar()
 	variables := make([]publicado.VariableEstandar, len(estandar))

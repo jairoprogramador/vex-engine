@@ -109,6 +109,11 @@ dependencias.
 |---|---|
 | RD-01 | **implementada** en local (2026-09-14). La CI corre cuando se suba |
 | RD-02 | **implementada** en local (2026-09-14) |
-| RD-03 | **implementada** en local (2026-09-14) |
-| RD-04 | **implementada** en local (2026-09-14), sin las plantillas, que quedan como referencia (RD-04 §9) |
-| RD-05 a RD-12 | pendiente |
+| RD-03 | **implementada** en local (2026-09-14), ampliada el 2026-09-18 (`TraerCopiaDeTrabajo` en `ParaDefinicion`, RD-03 §9 hallazgo 11) |
+| RD-04 | **implementada** en local (2026-09-14), sin las plantillas, que quedan como referencia (RD-04 §9); ampliada el 2026-09-18 (`DeUnaCopiaDeTrabajo`, RD-04 §9 hallazgo 21) |
+| RD-05 | **implementada** en local (2026-09-17) |
+| RD-06 | **implementada** en local (2026-09-17) |
+| RD-07 | **implementada** en local (2026-09-17) |
+| RD-08 | **implementada** en local (2026-09-17) |
+| RD-09 | **implementada** en local (2026-09-18) |
+| RD-10 a RD-12 | pendiente |

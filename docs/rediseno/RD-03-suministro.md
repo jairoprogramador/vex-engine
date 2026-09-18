@@ -94,3 +94,7 @@ dependencias.
    instalado.
 10. **Fuera, como decía la ficha**: el acceso remoto (RD-11). La raíz de composición no conecta Suministro
     hasta RD-06.
+11. **`ParaDefinicion` gana `TraerCopiaDeTrabajo`** (al implementar RD-09, 2026-09-18), como anticipaba el
+    hallazgo 7: Definición necesitaba leer un pipeline de una copia de trabajo para servir a Simulación
+    (`DEC-10.6`). El `*aplicacion.Servicio` ya implementaba el método — lo usaba para `ParaEjecucion` y
+    `ParaSimulacion` — así que ampliar la interfaz no tocó ni una línea de `suministro/aplicacion`.
