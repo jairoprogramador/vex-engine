@@ -17,11 +17,11 @@ func (s *Servicio) decidirPaso(
 ) (dominio.Decision, dominio.RecursosDeUnPaso, error) {
 	hashDeInstrucciones := dominio.CalcularHashDeInstrucciones(paso.Comandos, paso.Material)
 
-	cambiaron, err := s.d.Variables.CambiaronLasVariables(ctx, intento, paso.Nombre(), ambito)
+	hashDeVariables, err := s.d.Variables.HashDeLasVariables(ctx, intento, ambito)
 	if err != nil {
 		return dominio.Decision{}, dominio.RecursosDeUnPaso{}, fmt.Errorf("ejecución: decidir el paso %q: %w", paso.Nombre(), err)
 	}
-	ahora := dominio.NuevosRecursosDeUnPaso(hashDelCodigo, hashDeInstrucciones, cambiaron)
+	ahora := dominio.NuevosRecursosDeUnPaso(hashDelCodigo, hashDeInstrucciones, hashDeVariables)
 
 	ultimaVez, err := s.d.Historial.UltimaVezDeUnPaso(ctx, paso.Nombre(), ambito)
 	if err != nil {

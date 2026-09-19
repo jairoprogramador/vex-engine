@@ -37,12 +37,12 @@ func (v *Variables) Interpolar(ctx context.Context, intento, paso string, ambito
 	return interpolado, nil
 }
 
-func (v *Variables) CambiaronLasVariables(ctx context.Context, intento, paso string, ambito dominio.Ambito) (bool, error) {
-	cambiaron, err := v.variables.CambiaronLasVariables(ctx, intento, paso, ambitoResolucion(ambito))
+func (v *Variables) HashDeLasVariables(ctx context.Context, intento string, ambito dominio.Ambito) (dominio.HashDeVariables, error) {
+	hash, err := v.variables.HashDeLasVariables(ctx, intento, ambitoResolucion(ambito))
 	if err != nil {
-		return false, fmt.Errorf("ejecución: ¿cambiaron las variables del paso %q?: %w", paso, err)
+		return dominio.HashDeVariables{}, fmt.Errorf("ejecución: el hash de las variables: %w", err)
 	}
-	return cambiaron, nil
+	return dominio.NuevoHashDeVariables(hash), nil
 }
 
 func (v *Variables) RegistrarProducido(ctx context.Context, intento, paso, nombre, valor string, ambito dominio.Ambito) error {

@@ -64,7 +64,7 @@ la invocación (`DEC-08.3`), y lo que tiene que quedar se escribe en el Historia
 |---|---|
 | **interpolación** | sustituye cada variable por su valor dentro de un comando o del material de un paso |
 | **calcular el hash de una variable** | el único punto donde un valor se convierte en hash |
-| **¿cambiaron las variables de un paso?** | compara los hashes de ahora con los de la última vez del paso en su ámbito. **Cuál es el ámbito de un paso lo declara Definición** (`config.yaml`, `steps.<paso>.scope`; RD-04 §9.19): Resolución lo usa, no lo decide |
+| **¿cambiaron las variables de un paso?** | da un hash de lo que el paso consume — las del pipeline de su ámbito, las que produjeron pasos anteriores y los metadatos, **nunca las generadas por el motor** (`project_workdir`, `step_workdir`, `project_hash`…: describen la corrida, y el directorio del material es otro en cada intento). Ejecución lo guarda con el paso y lo compara con el de la última vez. **Cuál es el ámbito de un paso lo declara Definición** (`config.yaml`, `steps.<paso>.scope`; RD-04 §9.19): Resolución lo usa, no lo decide |
 
 ### Factoría
 

@@ -10,7 +10,7 @@ import (
 
 // Los dos contenidos que Ejecución escribe en el Historial: el de la apertura de un intento (las dos fuentes
 // con las que se abrió, para que un rollback futuro pueda reconstruirlas — DEC-03.9) y el de un registro de
-// paso (sus recursos: el hash del código y el de sus instrucciones — DEC-08.7). El Historial no interpreta
+// paso (sus recursos: el hash del código, el de sus instrucciones — DEC-08.7 — y el de sus variables). El Historial no interpreta
 // ninguno de los dos: nunca lee su Contexto ni sus Datos (docs/modelo/contextos/historial.md).
 
 const contextoApertura = "ejecucion/apertura-v1"
@@ -54,12 +54,14 @@ const contextoRegistro = "ejecucion/registro-v1"
 type contenidoRegistro struct {
 	HashDelCodigo       string `json:"hash_del_codigo"`
 	HashDeInstrucciones string `json:"hash_de_instrucciones"`
+	HashDeVariables     string `json:"hash_de_variables"`
 }
 
 func codificarContenidoDeRegistro(recursos dominio.RecursosDeUnPaso) (historialpublicado.Contenido, error) {
 	datos, err := json.Marshal(contenidoRegistro{
 		HashDelCodigo:       recursos.HashDelCodigo().String(),
 		HashDeInstrucciones: recursos.HashDeInstrucciones().String(),
+		HashDeVariables:     recursos.HashDeVariables().String(),
 	})
 	if err != nil {
 		return historialpublicado.Contenido{}, fmt.Errorf("ejecución: codificar el contenido de un registro: %w", err)
@@ -84,5 +86,5 @@ func decodificarContenidoDeRegistro(c historialpublicado.Contenido) (dominio.Rec
 	if err != nil {
 		return dominio.RecursosDeUnPaso{}, err
 	}
-	return dominio.NuevosRecursosDeUnPaso(codigo, instrucciones, false), nil
+	return dominio.NuevosRecursosDeUnPaso(codigo, instrucciones, dominio.NuevoHashDeVariables(cr.HashDeVariables)), nil
 }

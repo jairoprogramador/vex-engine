@@ -26,20 +26,31 @@ func NuevoHashDeInstrucciones(valor string) (HashDeInstrucciones, error) {
 
 func (h HashDeInstrucciones) String() string { return h.valor }
 
+// HashDeVariables es el hash de las variables que un paso consume: las del pipeline de su ámbito, las que
+// produjeron pasos anteriores y los metadatos — nunca las generadas por el motor. Lo calcula Resolución; este
+// dominio solo lo guarda con el paso y lo compara. Puede estar vacío: es lo que deja un registro escrito antes de
+// que el paso lo guardara, y por eso nunca coincide con uno calculado — el paso se reejecuta una vez.
+type HashDeVariables struct{ valor string }
+
+func NuevoHashDeVariables(valor string) HashDeVariables { return HashDeVariables{valor: valor} }
+
+func (h HashDeVariables) String() string { return h.valor }
+
 // RecursosDeUnPaso es lo que un paso usa para decidir si se re-ejecuta: el hash del código, el hash de sus
-// instrucciones y si cambiaron las variables que ve. Cada uno lo calcula su dueño (DEC-09.3): el código,
-// Suministro; las instrucciones, la infraestructura de este contexto; si cambiaron las variables, Resolución.
+// instrucciones y el de las variables que consume. Cada uno lo calcula su dueño (DEC-09.3): el código,
+// Suministro; las instrucciones, la infraestructura de este contexto; las variables, Resolución. Los tres se
+// guardan con el paso y la próxima vez se comparan por igual.
 type RecursosDeUnPaso struct {
 	hashDelCodigo       HashDeCodigo
 	hashDeInstrucciones HashDeInstrucciones
-	cambiaronVariables  bool
+	hashDeVariables     HashDeVariables
 }
 
 func NuevosRecursosDeUnPaso(
-	hashDelCodigo HashDeCodigo, hashDeInstrucciones HashDeInstrucciones, cambiaronVariables bool,
+	hashDelCodigo HashDeCodigo, hashDeInstrucciones HashDeInstrucciones, hashDeVariables HashDeVariables,
 ) RecursosDeUnPaso {
 	return RecursosDeUnPaso{
-		hashDelCodigo: hashDelCodigo, hashDeInstrucciones: hashDeInstrucciones, cambiaronVariables: cambiaronVariables,
+		hashDelCodigo: hashDelCodigo, hashDeInstrucciones: hashDeInstrucciones, hashDeVariables: hashDeVariables,
 	}
 }
 
@@ -47,4 +58,4 @@ func (r RecursosDeUnPaso) HashDelCodigo() HashDeCodigo { return r.hashDelCodigo 
 
 func (r RecursosDeUnPaso) HashDeInstrucciones() HashDeInstrucciones { return r.hashDeInstrucciones }
 
-func (r RecursosDeUnPaso) CambiaronVariables() bool { return r.cambiaronVariables }
+func (r RecursosDeUnPaso) HashDeVariables() HashDeVariables { return r.hashDeVariables }

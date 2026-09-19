@@ -12,9 +12,6 @@ type Historial interface {
 	RegistrarVariable(ctx context.Context, intento, paso, nombre string, hash HashDeVariable, origen Origen, ambito Ambito) error
 	// GuardarValor es de la relación reservada: el valor en claro, y nada más.
 	GuardarValor(ctx context.Context, intento, paso, nombre, valor string) error
-	// UltimaVezDeUnPaso da el hash de cada variable que tenía la última vez que el paso se ejecutó de verdad
-	// bajo ese ámbito. Sin última vez, false.
-	UltimaVezDeUnPaso(ctx context.Context, paso string, ambito Ambito) (map[string]HashDeVariable, bool, error)
 	// ValoresDeLaUltimaVez es lo mismo, pero con el valor en claro (relación reservada) y el ámbito con el que
 	// se produjo cada una — para un paso que no se re-ejecuta y aporta lo de su última vez.
 	ValoresDeLaUltimaVez(ctx context.Context, paso string, ambito Ambito) (map[string]ValorDeLaUltimaVez, bool, error)

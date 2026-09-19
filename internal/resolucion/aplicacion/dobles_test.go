@@ -60,7 +60,6 @@ var _ dominio.Definicion = (*definicionFalsa)(nil)
 type historialFalso struct {
 	t *testing.T
 
-	ultimaVez        map[string]map[string]dominio.HashDeVariable
 	valoresUltimaVez map[string]map[string]dominio.ValorDeLaUltimaVez
 
 	registros        []variableRegistrada
@@ -85,7 +84,6 @@ func nuevoHistorialFalso(t *testing.T) *historialFalso {
 	t.Helper()
 	return &historialFalso{
 		t:                t,
-		ultimaVez:        map[string]map[string]dominio.HashDeVariable{},
 		valoresUltimaVez: map[string]map[string]dominio.ValorDeLaUltimaVez{},
 	}
 }
@@ -118,16 +116,6 @@ func (h *historialFalso) GuardarValor(_ context.Context, intento, paso, nombre, 
 	h.valoresGuardados = append(h.valoresGuardados, valorGuardado{intento, paso, nombre, valor})
 	h.orden = append(h.orden, "valor:"+nombre)
 	return nil
-}
-
-func (h *historialFalso) UltimaVezDeUnPaso(
-	_ context.Context, paso string, ambito dominio.Ambito,
-) (map[string]dominio.HashDeVariable, bool, error) {
-	if h.prohibido {
-		h.t.Fatalf("no se esperaba llamar a Historial.UltimaVezDeUnPaso (%q)", paso)
-	}
-	hashes, ok := h.ultimaVez[h.clave(paso, ambito)]
-	return hashes, ok, nil
 }
 
 func (h *historialFalso) ValoresDeLaUltimaVez(

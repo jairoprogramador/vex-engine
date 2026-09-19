@@ -16,6 +16,8 @@ func hash(t *testing.T, valor string) dominio.HashDeCodigo {
 	return h
 }
 
+func hashVars(valor string) dominio.HashDeVariables { return dominio.NuevoHashDeVariables(valor) }
+
 func hashInstrucciones(t *testing.T, valor string) dominio.HashDeInstrucciones {
 	t.Helper()
 	h, err := dominio.NuevoHashDeInstrucciones(valor)
@@ -32,7 +34,7 @@ func reglaCon(t *testing.T, codigo, instrucciones, variables bool, edadMaxima ti
 
 func TestDecidirPasoSinUltimaVezSiempreReejecuta(t *testing.T) {
 	regla := reglaCon(t, true, true, true, 0)
-	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), false)
+	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v1"))
 
 	d := dominio.DecidirPaso(regla, ahora, dominio.UltimaVezDeUnPaso{Hay: false})
 
@@ -41,7 +43,7 @@ func TestDecidirPasoSinUltimaVezSiempreReejecuta(t *testing.T) {
 
 func TestDecidirPasoConComienzoSinFinalSiempreReejecuta(t *testing.T) {
 	regla := reglaCon(t, true, true, true, 0)
-	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), false)
+	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v1"))
 
 	// Un comienzo sin final se traduce a Hay=true, Valida=false: no es un final exitoso.
 	d := dominio.DecidirPaso(regla, ahora, dominio.UltimaVezDeUnPaso{Hay: true, Valida: false})
@@ -51,7 +53,7 @@ func TestDecidirPasoConComienzoSinFinalSiempreReejecuta(t *testing.T) {
 
 func TestDecidirPasoConFinalFallidoSiempreReejecuta(t *testing.T) {
 	regla := reglaCon(t, true, true, true, 0)
-	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), false)
+	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v1"))
 
 	d := dominio.DecidirPaso(regla, ahora, dominio.UltimaVezDeUnPaso{Hay: true, Valida: false})
 
@@ -60,7 +62,7 @@ func TestDecidirPasoConFinalFallidoSiempreReejecuta(t *testing.T) {
 
 func TestDecidirPasoConFinalExitosoSinCambiosNoReejecuta(t *testing.T) {
 	regla := reglaCon(t, true, true, true, time.Hour)
-	recursos := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), false)
+	recursos := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v1"))
 
 	d := dominio.DecidirPaso(regla, recursos, dominio.UltimaVezDeUnPaso{
 		Hay: true, Valida: true, Recursos: recursos, Edad: time.Minute,
@@ -73,8 +75,8 @@ func TestDecidirPasoConFinalExitosoSinCambiosNoReejecuta(t *testing.T) {
 
 func TestDecidirPasoReejecutaSiCambioElCodigoYLaReglaLoMira(t *testing.T) {
 	regla := reglaCon(t, true, false, false, 0)
-	antes := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), false)
-	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c2"), hashInstrucciones(t, "i1"), false)
+	antes := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v1"))
+	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c2"), hashInstrucciones(t, "i1"), hashVars("v1"))
 
 	d := dominio.DecidirPaso(regla, ahora, dominio.UltimaVezDeUnPaso{Hay: true, Valida: true, Recursos: antes})
 
@@ -83,8 +85,8 @@ func TestDecidirPasoReejecutaSiCambioElCodigoYLaReglaLoMira(t *testing.T) {
 
 func TestDecidirPasoNoReejecutaSiCambioElCodigoYLaReglaNoLoMira(t *testing.T) {
 	regla := reglaCon(t, false, true, false, 0)
-	antes := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), false)
-	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c2"), hashInstrucciones(t, "i1"), false)
+	antes := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v1"))
+	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c2"), hashInstrucciones(t, "i1"), hashVars("v1"))
 
 	d := dominio.DecidirPaso(regla, ahora, dominio.UltimaVezDeUnPaso{Hay: true, Valida: true, Recursos: antes})
 
@@ -93,8 +95,8 @@ func TestDecidirPasoNoReejecutaSiCambioElCodigoYLaReglaNoLoMira(t *testing.T) {
 
 func TestDecidirPasoReejecutaSiCambiaronLasInstruccionesYLaReglaLasMira(t *testing.T) {
 	regla := reglaCon(t, false, true, false, 0)
-	antes := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), false)
-	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i2"), false)
+	antes := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v1"))
+	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i2"), hashVars("v1"))
 
 	d := dominio.DecidirPaso(regla, ahora, dominio.UltimaVezDeUnPaso{Hay: true, Valida: true, Recursos: antes})
 
@@ -103,8 +105,20 @@ func TestDecidirPasoReejecutaSiCambiaronLasInstruccionesYLaReglaLasMira(t *testi
 
 func TestDecidirPasoReejecutaSiCambiaronLasVariablesYLaReglaLasMira(t *testing.T) {
 	regla := reglaCon(t, false, false, true, 0)
-	antes := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), false)
-	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), true)
+	antes := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v1"))
+	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v2"))
+
+	d := dominio.DecidirPaso(regla, ahora, dominio.UltimaVezDeUnPaso{Hay: true, Valida: true, Recursos: antes})
+
+	require.True(t, d.SeReejecuta())
+}
+
+// Un registro escrito antes de que el paso guardara el hash de sus variables lo trae vacío: no se puede saber
+// si cambiaron, así que se reejecuta — una vez, porque el registro nuevo ya lo lleva.
+func TestDecidirPasoReejecutaSiLaUltimaVezNoGuardoElHashDeLasVariables(t *testing.T) {
+	regla := reglaCon(t, false, false, true, 0)
+	antes := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars(""))
+	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v1"))
 
 	d := dominio.DecidirPaso(regla, ahora, dominio.UltimaVezDeUnPaso{Hay: true, Valida: true, Recursos: antes})
 
@@ -113,8 +127,8 @@ func TestDecidirPasoReejecutaSiCambiaronLasVariablesYLaReglaLasMira(t *testing.T
 
 func TestDecidirPasoNoReejecutaSiCambiaronLasVariablesYLaReglaNoLasMira(t *testing.T) {
 	regla := reglaCon(t, true, true, false, 0)
-	antes := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), false)
-	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), true)
+	antes := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v1"))
+	ahora := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v2"))
 
 	d := dominio.DecidirPaso(regla, ahora, dominio.UltimaVezDeUnPaso{Hay: true, Valida: true, Recursos: antes})
 
@@ -123,7 +137,7 @@ func TestDecidirPasoNoReejecutaSiCambiaronLasVariablesYLaReglaNoLasMira(t *testi
 
 func TestDecidirPasoReejecutaSiLaUltimaVezCaduco(t *testing.T) {
 	regla := reglaCon(t, false, false, false, 30*time.Minute)
-	recursos := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), false)
+	recursos := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v1"))
 
 	d := dominio.DecidirPaso(regla, recursos, dominio.UltimaVezDeUnPaso{
 		Hay: true, Valida: true, Recursos: recursos, Edad: 31 * time.Minute,
@@ -134,7 +148,7 @@ func TestDecidirPasoReejecutaSiLaUltimaVezCaduco(t *testing.T) {
 
 func TestDecidirPasoNoReejecutaSiLaUltimaVezNoHaCaducado(t *testing.T) {
 	regla := reglaCon(t, false, false, false, 30*time.Minute)
-	recursos := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), false)
+	recursos := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v1"))
 
 	d := dominio.DecidirPaso(regla, recursos, dominio.UltimaVezDeUnPaso{
 		Hay: true, Valida: true, Recursos: recursos, Edad: 29 * time.Minute,
@@ -145,7 +159,7 @@ func TestDecidirPasoNoReejecutaSiLaUltimaVezNoHaCaducado(t *testing.T) {
 
 func TestDecidirPasoConUnConjuntoDeReglasVacioSiempreReejecuta(t *testing.T) {
 	regla := reglaCon(t, false, false, false, 0)
-	recursos := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), false)
+	recursos := dominio.NuevosRecursosDeUnPaso(hash(t, "c1"), hashInstrucciones(t, "i1"), hashVars("v1"))
 
 	d := dominio.DecidirPaso(regla, recursos, dominio.UltimaVezDeUnPaso{
 		Hay: true, Valida: true, Recursos: recursos,

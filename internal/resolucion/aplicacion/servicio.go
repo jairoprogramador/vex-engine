@@ -57,10 +57,10 @@ func (p paraEjecucion) Interpolar(
 	return p.s.interpolar(ctx, intento, ambito, texto)
 }
 
-func (p paraEjecucion) CambiaronLasVariables(
-	ctx context.Context, intento, paso string, ambito publicado.Ambito,
-) (bool, error) {
-	return p.s.cambiaronLasVariables(ctx, intento, paso, ambito)
+func (p paraEjecucion) HashDeLasVariables(
+	ctx context.Context, intento string, ambito publicado.Ambito,
+) (string, error) {
+	return p.s.hashDeLasVariables(ctx, intento, ambito)
 }
 
 func (p paraEjecucion) RegistrarProducido(

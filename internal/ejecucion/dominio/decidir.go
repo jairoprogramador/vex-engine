@@ -69,7 +69,7 @@ func DecidirPaso(regla Regla, ahora RecursosDeUnPaso, ultimaVez UltimaVezDeUnPas
 	if regla.MiraInstrucciones() && ahora.HashDeInstrucciones() != ultimaVez.Recursos.HashDeInstrucciones() {
 		return decisionDeReejecutar("las instrucciones cambiaron")
 	}
-	if regla.MiraVariables() && ahora.CambiaronVariables() {
+	if regla.MiraVariables() && ahora.HashDeVariables() != ultimaVez.Recursos.HashDeVariables() {
 		return decisionDeReejecutar("las variables que ve cambiaron")
 	}
 	if edadMaxima := regla.EdadMaxima(); edadMaxima != 0 && ultimaVez.Edad > edadMaxima {

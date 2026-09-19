@@ -69,7 +69,7 @@ func recursosDePrueba(t *testing.T, codigo, instrucciones string) dominio.Recurs
 	require.NoError(t, err)
 	i, err := dominio.NuevoHashDeInstrucciones(instrucciones)
 	require.NoError(t, err)
-	return dominio.NuevosRecursosDeUnPaso(c, i, false)
+	return dominio.NuevosRecursosDeUnPaso(c, i, dominio.NuevoHashDeVariables("v1"))
 }
 
 func ambitoProd(t *testing.T) dominio.Ambito {
@@ -152,6 +152,7 @@ func TestAdaptadorDeHistorial_UltimaVezDeUnFinalExitosoEsValidaYApuntaASiMisma(t
 	require.True(t, u.Valida)
 	require.Equal(t, recursos.HashDelCodigo(), u.Recursos.HashDelCodigo())
 	require.Equal(t, recursos.HashDeInstrucciones(), u.Recursos.HashDeInstrucciones())
+	require.Equal(t, recursos.HashDeVariables(), u.Recursos.HashDeVariables(), "el hash de las variables viaja con el paso")
 	require.Equal(t, dominio.Evidencia{Intento: id, Paso: "01-pruebas"}, u.Evidencia)
 }
 

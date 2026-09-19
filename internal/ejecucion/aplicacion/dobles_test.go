@@ -73,11 +73,10 @@ func (f *fuentesFalsas) Retirar(_ context.Context, m dominio.Material) error {
 var _ dominio.Fuentes = (*fuentesFalsas)(nil)
 
 type variablesFalsas struct {
-	mu               sync.Mutex
-	cambiaronPorPaso map[string]bool
-	err              error
-	noReejecutados   []string
-	producidas       []string
+	mu             sync.Mutex
+	err            error
+	noReejecutados []string
+	producidas     []string
 }
 
 func (v *variablesFalsas) DeclararVariablesDeUnPaso(
@@ -90,8 +89,12 @@ func (v *variablesFalsas) Interpolar(_ context.Context, _, _ string, _ dominio.A
 	return texto, v.err
 }
 
-func (v *variablesFalsas) CambiaronLasVariables(_ context.Context, _, paso string, _ dominio.Ambito) (bool, error) {
-	return v.cambiaronPorPaso[paso], v.err
+// hashDeVariablesDePrueba es el que da variablesFalsas: siempre el mismo, así que las variables «no cambian» salvo
+// que una prueba guarde otro en la última vez del paso.
+const hashDeVariablesDePrueba = "variables-de-prueba"
+
+func (v *variablesFalsas) HashDeLasVariables(_ context.Context, _ string, _ dominio.Ambito) (dominio.HashDeVariables, error) {
+	return dominio.NuevoHashDeVariables(hashDeVariablesDePrueba), v.err
 }
 
 func (v *variablesFalsas) RegistrarProducido(_ context.Context, _, paso, nombre, valor string, _ dominio.Ambito) error {

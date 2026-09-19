@@ -32,8 +32,8 @@ func TestLosRecursosDeUnPasoGuardanLosTresDatos(t *testing.T) {
 	instrucciones, err := dominio.NuevoHashDeInstrucciones("h2")
 	require.NoError(t, err)
 
-	r := dominio.NuevosRecursosDeUnPaso(codigo, instrucciones, true)
+	r := dominio.NuevosRecursosDeUnPaso(codigo, instrucciones, dominio.NuevoHashDeVariables("h3"))
 	require.Equal(t, codigo, r.HashDelCodigo())
 	require.Equal(t, instrucciones, r.HashDeInstrucciones())
-	require.True(t, r.CambiaronVariables())
+	require.Equal(t, dominio.NuevoHashDeVariables("h3"), r.HashDeVariables())
 }

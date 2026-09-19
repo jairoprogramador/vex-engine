@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -202,29 +204,43 @@ func (s *salidaDePrueba) String() string {
 func TestE2E_UnPrimerIntentoLlegaADespliegue(t *testing.T) {
 	s := montarSistema(t)
 	salida := &salidaDePrueba{}
+	pasos := pasosDelEjemplo(t)
 
 	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), salida)
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
 	require.NotEmpty(t, resultado.Despliegue)
-	require.Contains(t, salida.String(), "hola vex-demo", "la plantilla se interpoló con el metadato del proyecto")
-	require.Contains(t, salida.String(), "etiqueta=v1.0.0")
-	require.Contains(t, salida.String(), "desplegando v1.0.0 en prod")
+	require.NotEmpty(t, resultado.Detalle.Tiempo)
+	require.Equal(t, nombresDeLosPasos(pasos), nombresDelDetalle(resultado.Detalle), "todos los pasos, en su orden")
+	for _, paso := range resultado.Detalle.Pasos {
+		require.Equal(t, "ejecutado", paso.Estado, "en el primer intento nada se puede precargar: %s", paso.Nombre)
+	}
+	for _, paso := range pasos {
+		if len(paso.Comandos) > 0 {
+			require.Contains(t, salida.String(), paso.Nombre+":", "la salida de sus comandos llegó en vivo")
+		}
+	}
+	require.NotContains(t, salida.String(), "${var.", "las variables y las plantillas se interpolaron")
 }
 
+// Sin cambios, un segundo intento precarga todos los pasos, sea cual sea la regla de cada uno — también los que
+// miran las variables, aunque el directorio del material (project_workdir) sea otro en cada intento.
 func TestE2E_UnSegundoIntentoSinCambiosNoReejecutaNada(t *testing.T) {
 	s := montarSistema(t)
 	primero, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", primero.Estado)
+	pasos := pasosDelEjemplo(t)
 
-	salida := &salidaDePrueba{}
-	segundo, err := s.borde.Intentar(context.Background(), s.peticion(t), salida)
+	segundo, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", segundo.Estado)
-	require.Empty(t, salida.String(), "ningún comando debería haberse ejecutado")
+	require.Equal(t, nombresDeLosPasos(pasos), nombresDelDetalle(segundo.Detalle))
+	for _, paso := range segundo.Detalle.Pasos {
+		require.Equal(t, "precargado", paso.Estado, "paso %s", paso.Nombre)
+	}
 }
 
 func TestE2E_CambiarUnaPlantillaReejecutaSoloEsePaso(t *testing.T) {
@@ -232,19 +248,72 @@ func TestE2E_CambiarUnaPlantillaReejecutaSoloEsePaso(t *testing.T) {
 	_, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
 	require.NoError(t, err)
 
+	// El paso a cambiar es uno con plantilla y con reglas que miran las instrucciones: cambiarla tiene
+	// que reejecutarlo, y solo a él.
+	var elegido pasoDelEjemplo
+	otros := pasosDelEjemplo(t)
+	for i, paso := range otros {
+		if paso.plantilla() != "" && paso.mira("instructions") {
+			elegido = paso
+			otros = slices.Delete(otros, i, i+1)
+			break
+		}
+	}
+	require.NotEmpty(t, elegido.Nombre, "el ejemplo necesita un paso con plantilla y reglas que miren las instrucciones")
+
 	repo, err := git.PlainOpen(s.repoPipeline)
 	require.NoError(t, err)
-	escribirFichero(t, s.repoPipeline, "steps/01-preparar/plantilla.txt", "hola de nuevo ${var.project_name}\n")
+	plantilla := elegido.plantilla()
+	actual, err := os.ReadFile(filepath.Join(s.repoPipeline, filepath.FromSlash(plantilla)))
+	require.NoError(t, err)
+	escribirFichero(t, s.repoPipeline, plantilla, string(actual)+"\nlínea añadida por la prueba\n")
 	commitear(t, repo)
 
-	salida := &salidaDePrueba{}
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), salida)
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
-	require.Contains(t, salida.String(), "hola de nuevo vex-demo", "el paso con la plantilla cambiada sí se re-ejecuta")
-	require.Contains(t, salida.String(), "etiqueta=v1.0.0", "el mismo paso re-ejecuta TODOS sus comandos, no solo el de la plantilla")
-	require.NotContains(t, salida.String(), "desplegando", "el otro paso no debería re-ejecutarse: sus instrucciones no cambiaron")
+	estados := estadosPorPaso(resultado.Detalle)
+	require.Equal(t, "ejecutado", estados[elegido.Nombre], "el paso con la plantilla cambiada sí se reejecuta")
+	for _, paso := range otros {
+		require.Equal(t, "precargado", estados[paso.Nombre], "nada de lo que ve cambió: %s", paso.Nombre)
+	}
+}
+
+// Una variable definida en el pipeline que cambia reejecuta el paso que mira las variables, y a los que no las
+// miran no los toca.
+func TestE2E_CambiarUnaVariableDelPipelineReejecutaSoloAlPasoQueLaMira(t *testing.T) {
+	s := montarSistema(t)
+	_, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	require.NoError(t, err)
+
+	pasos := pasosDelEjemplo(t)
+	var quienLaMira pasoDelEjemplo
+	for _, paso := range pasos {
+		if paso.mira("variables") {
+			quienLaMira = paso
+			break
+		}
+	}
+	require.NotEmpty(t, quienLaMira.Nombre, "el ejemplo necesita un paso que mire las variables")
+
+	repo, err := git.PlainOpen(s.repoPipeline)
+	require.NoError(t, err)
+	escribirFichero(t, s.repoPipeline, "variables/prod/"+quienLaMira.Nombre+".yaml",
+		"- name: variable_de_la_prueba\n  value: \"un-valor\"\n")
+	commitear(t, repo)
+
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+
+	require.NoError(t, err)
+	require.Equal(t, "exitoso", resultado.Estado)
+	estados := estadosPorPaso(resultado.Detalle)
+	require.Equal(t, "ejecutado", estados[quienLaMira.Nombre], "ve una variable nueva del pipeline")
+	for _, paso := range pasos {
+		if !paso.mira("variables") {
+			require.Equal(t, "precargado", estados[paso.Nombre], "no mira las variables: %s", paso.Nombre)
+		}
+	}
 }
 
 func TestE2E_UnIntentoConCopiaDeTrabajoNuncaLlegaADespliegue(t *testing.T) {
@@ -263,8 +332,8 @@ func TestE2E_UnSegundoIntentoEnElMismoAmbienteSeRechaza(t *testing.T) {
 	s := montarSistema(t)
 	ctx := context.Background()
 	_, err := s.historial.AbrirIntento(ctx, historialpublicado.Apertura{
-		Ambiente: "prod", Solicitante: "otro", Pasos: []historialpublicado.PasoDeclarado{{Nombre: "01-preparar"}},
-		HastaPaso: "01-preparar", HashDelCodigo: "h", ConCommits: true,
+		Ambiente: "prod", Solicitante: "otro", Pasos: []historialpublicado.PasoDeclarado{{Nombre: primerPaso(t)}},
+		HastaPaso: primerPaso(t), HashDelCodigo: "h", ConCommits: true,
 	})
 	require.NoError(t, err)
 
@@ -275,16 +344,45 @@ func TestE2E_UnSegundoIntentoEnElMismoAmbienteSeRechaza(t *testing.T) {
 	require.True(t, errors.As(err, &ocupado), "se esperaba un *AmbienteOcupadoError, se obtuvo: %v", err)
 }
 
+// Lo que un comando imprime pasa por la salida en vivo y no queda en ningún registro: lo que se busca en ellos
+// es lo que de verdad se imprimió, línea a línea, no un texto escrito a mano.
 func TestE2E_LoQueImprimeUnComandoNoQuedaEnNingunRegistro(t *testing.T) {
 	s := montarSistema(t)
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	salida := &salidaDePrueba{}
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), salida)
 	require.NoError(t, err)
 
+	impresas := lineasSignificativas(salida.String())
+	require.NotEmpty(t, impresas, "la prueba solo vale si los comandos imprimieron algo")
 	intento, err := s.historial.Intento(context.Background(), resultado.Intento)
 	require.NoError(t, err)
-	for _, r := range intento.Registros {
-		require.NotContains(t, string(r.Contenido.Datos), "etiqueta=v1.0.0")
-		require.NotContains(t, string(r.Contenido.Datos), "hola vex-demo")
+	apertura := fmt.Sprintf("%+v", intento.Apertura)
+	for _, linea := range impresas {
+		for _, r := range intento.Registros {
+			require.NotContains(t, string(r.Contenido.Datos), linea)
+		}
+		require.NotContains(t, apertura, linea)
 	}
-	require.NotContains(t, fmt.Sprintf("%+v", intento.Apertura), "etiqueta=v1.0.0")
+}
+
+// lineasSignificativas son las líneas de la salida, sin el "paso:" con que la marca salidaDePrueba, y lo bastante
+// largas para que encontrarlas en un registro no sea casualidad.
+func lineasSignificativas(salida string) []string {
+	const largoMinimo = 8
+	var lineas []string
+	for _, linea := range strings.Split(salida, "\n") {
+		if _, texto, ok := strings.Cut(linea, ":"); ok {
+			linea = texto
+		}
+		if linea = strings.TrimSpace(linea); len(linea) >= largoMinimo {
+			lineas = append(lineas, linea)
+		}
+	}
+	return lineas
+}
+
+// primerPaso es el nombre del primer paso del ejemplo, para las pruebas que abren un intento a mano.
+func primerPaso(t *testing.T) string {
+	t.Helper()
+	return pasosDelEjemplo(t)[0].Nombre
 }

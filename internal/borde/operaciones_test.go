@@ -222,16 +222,29 @@ func TestServicio_LaSalidaDeLosComandosLlegaTalCualAEjecucion(t *testing.T) {
 // Consultar el historial no devuelve ningún valor (DEC-04.7): de un intento que produjo una variable, lo que
 // se puede consultar por el borde no contiene lo que la variable valía.
 func TestE2E_ConsultarElHistorialNoDevuelveNingunValor(t *testing.T) {
-	const valorProducido = "v1.0.0" // lo que produce la variable de 01-preparar
 	s := montarSistema(t)
 	ctx := context.Background()
 	resultado, err := s.borde.Intentar(ctx, s.peticion(t), &salidaDePrueba{})
 	require.NoError(t, err)
 	require.NotEmpty(t, resultado.Despliegue)
-	guardados, err := s.historial.ValoresDeUnPaso(ctx, resultado.Intento, "preparar")
-	require.NoError(t, err)
-	require.Contains(t, guardados, "etiqueta", "la prueba solo vale si el valor sí existe, por la relación reservada")
-	require.Equal(t, valorProducido, guardados["etiqueta"])
+
+	// Los valores son los que produjo cada paso del ejemplo que declara salidas, no uno escrito a mano.
+	const largoMinimo = 6 // más corto, encontrarlo en una consulta serializada podría ser casualidad
+	var valoresProducidos []string
+	for _, paso := range pasosDelEjemplo(t) {
+		if len(paso.productos()) == 0 {
+			continue
+		}
+		guardados, err := s.historial.ValoresDeUnPaso(ctx, resultado.Intento, paso.Nombre)
+		require.NoError(t, err)
+		for _, nombre := range paso.productos() {
+			require.Contains(t, guardados, nombre, "la prueba solo vale si el valor sí existe, por la relación reservada")
+			if len(guardados[nombre]) >= largoMinimo {
+				valoresProducidos = append(valoresProducidos, guardados[nombre])
+			}
+		}
+	}
+	require.NotEmpty(t, valoresProducidos, "el ejemplo necesita producir algún valor de %d o más caracteres", largoMinimo)
 
 	intento, err := s.borde.Intento(ctx, borde.PeticionDeConsultaDeIntento{Version: "1", Intento: resultado.Intento})
 	require.NoError(t, err)
@@ -245,7 +258,9 @@ func TestE2E_ConsultarElHistorialNoDevuelveNingunValor(t *testing.T) {
 	for nombre, consulta := range map[string]any{"intento": intento, "intentos": intentos, "despliegues": despliegues} {
 		serializada, err := json.Marshal(consulta)
 		require.NoError(t, err)
-		require.NotContains(t, string(serializada), valorProducido, nombre)
+		for _, valor := range valoresProducidos {
+			require.NotContains(t, string(serializada), valor, nombre)
+		}
 	}
 }
 
@@ -253,8 +268,8 @@ func TestE2E_AbandonarUnIntentoPorElBordeLiberaElAmbiente(t *testing.T) {
 	s := montarSistema(t)
 	ctx := context.Background()
 	id, err := s.historial.AbrirIntento(ctx, historialpublicado.Apertura{
-		Ambiente: "prod", Solicitante: "otro", Pasos: []historialpublicado.PasoDeclarado{{Nombre: "01-preparar"}},
-		HastaPaso: "01-preparar", HashDelCodigo: "h", ConCommits: true,
+		Ambiente: "prod", Solicitante: "otro", Pasos: []historialpublicado.PasoDeclarado{{Nombre: primerPaso(t)}},
+		HastaPaso: primerPaso(t), HashDelCodigo: "h", ConCommits: true,
 	})
 	require.NoError(t, err)
 

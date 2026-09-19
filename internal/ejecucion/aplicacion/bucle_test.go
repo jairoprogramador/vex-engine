@@ -33,7 +33,7 @@ func nuevasDependenciasDePrueba(t *testing.T, nombresDePasos ...string) (aplicac
 	d := &dependenciasDePrueba{
 		pipelines:        &pipelinesFalsos{pipeline: dominio.Pipeline{Commit: "c-pipeline", Pasos: pasos}},
 		fuentes:          &fuentesFalsas{material: dominio.Material{Directorio: "/material", Hash: hashDelCodigo, Commit: "c-proyecto"}},
-		variables:        &variablesFalsas{cambiaronPorPaso: map[string]bool{}},
+		variables:        &variablesFalsas{},
 		historial:        nuevoHistorialFalso(t),
 		comandos:         &comandosFalsos{resultado: dominio.ResultadoDeUnComando{Exitoso: true}},
 		espacioDeTrabajo: &espacioDeTrabajoFalso{},
@@ -99,7 +99,7 @@ func TestIntentar_UnPasoConUltimaVezValidaYSinCambiosNoSeReejecuta(t *testing.T)
 	hashDeInstrucciones := dominio.CalcularHashDeInstrucciones(paso.Comandos, paso.Material)
 	d.historial.ultimaVezPorPaso["01-pruebas"] = dominio.UltimaVezDeUnPaso{
 		Hay: true, Valida: true,
-		Recursos:  dominio.NuevosRecursosDeUnPaso(d.fuentes.material.Hash, hashDeInstrucciones, false),
+		Recursos:  dominio.NuevosRecursosDeUnPaso(d.fuentes.material.Hash, hashDeInstrucciones, dominio.NuevoHashDeVariables(hashDeVariablesDePrueba)),
 		Evidencia: dominio.Evidencia{Intento: "int-viejo", Paso: "01-pruebas"},
 	}
 	servicio := aplicacion.NuevoServicio(deps)

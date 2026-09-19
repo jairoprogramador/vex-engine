@@ -82,37 +82,6 @@ func TestAdaptadorDeHistorial_RegistrarVariableEscribeElHashComoContenidoDeResol
 	require.Len(t, variables, 1)
 	require.Equal(t, "resolucion/variable-v1", variables[0].Contenido.Contexto)
 	require.NotContains(t, string(variables[0].Contenido.Datos), "un-valor", "el hash nunca lleva el valor en claro")
-
-	hashes, ok, err := adaptador.UltimaVezDeUnPaso(ctx, "supply", mustAmbitoProd(t))
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, hash, hashes["n"])
-}
-
-func TestAdaptadorDeHistorial_UltimaVezDeUnPasoSigueElSaltoDeEvidencia(t *testing.T) {
-	h, ctx := nuevoHistorialReal(t)
-	adaptador := infraestructura.NuevoHistorial(h, h)
-	prod := mustAmbitoProd(t)
-
-	id1, err := h.AbrirIntento(ctx, aperturaDeUnSoloPaso("prod"))
-	require.NoError(t, err)
-	require.NoError(t, h.RegistrarComienzo(ctx, id1, "supply", nada))
-	hash := dominio.CalcularHashDeVariable("un-valor")
-	require.NoError(t, adaptador.RegistrarVariable(ctx, id1, "supply", "n", hash, dominio.OrigenProducida, prod))
-	require.NoError(t, adaptador.GuardarValor(ctx, id1, "supply", "n", "un-valor"))
-	require.NoError(t, h.RegistrarFinal(ctx, id1, "supply", true, nada))
-	_, _, err = h.CerrarIntento(ctx, id1, historialpublicado.Exitoso, "")
-	require.NoError(t, err)
-
-	id2, err := h.AbrirIntento(ctx, aperturaDeUnSoloPaso("prod"))
-	require.NoError(t, err)
-	require.NoError(t, h.RegistrarNoReejecucion(
-		ctx, id2, "supply", historialpublicado.Evidencia{Intento: id1, Paso: "supply"}, nada))
-
-	hashes, ok, err := adaptador.UltimaVezDeUnPaso(ctx, "supply", prod)
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, hash, hashes["n"], "el hash real vive en el intento que apunta la evidencia, no en la no re-ejecución")
 }
 
 func TestAdaptadorDeHistorial_ValoresDeLaUltimaVezUsaLaRelacionReservadaYConservaElAmbito(t *testing.T) {

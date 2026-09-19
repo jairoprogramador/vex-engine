@@ -17,7 +17,7 @@ type variablesFalsas struct {
 	ambitoRecibido   resolucionpublicado.Ambito
 	estandarRecibido map[string]string
 	interpolado      string
-	cambiaron        bool
+	hash             string
 	err              error
 }
 
@@ -36,10 +36,10 @@ func (v *variablesFalsas) Interpolar(
 	return v.interpolado, v.err
 }
 
-func (v *variablesFalsas) CambiaronLasVariables(
-	_ context.Context, _, _ string, _ resolucionpublicado.Ambito,
-) (bool, error) {
-	return v.cambiaron, v.err
+func (v *variablesFalsas) HashDeLasVariables(
+	_ context.Context, _ string, _ resolucionpublicado.Ambito,
+) (string, error) {
+	return v.hash, v.err
 }
 
 func (v *variablesFalsas) RegistrarProducido(
@@ -75,11 +75,11 @@ func TestAdaptadorDeVariables_TraduceElAmbitoCompartido(t *testing.T) {
 	require.Equal(t, resolucionpublicado.Ambito{Compartido: true}, falsas.ambitoRecibido)
 }
 
-func TestAdaptadorDeVariables_PropagaElResultadoDeCambiaron(t *testing.T) {
-	falsas := &variablesFalsas{cambiaron: true}
+func TestAdaptadorDeVariables_PropagaElHashDeLasVariables(t *testing.T) {
+	falsas := &variablesFalsas{hash: "entradas-v1:abc"}
 	adaptador := infraestructura.NuevasVariables(falsas)
 
-	cambiaron, err := adaptador.CambiaronLasVariables(context.Background(), "int-1", "01-pruebas", dominio.AmbitoCompartido())
+	hash, err := adaptador.HashDeLasVariables(context.Background(), "int-1", dominio.AmbitoCompartido())
 	require.NoError(t, err)
-	require.True(t, cambiaron)
+	require.Equal(t, dominio.NuevoHashDeVariables("entradas-v1:abc"), hash)
 }

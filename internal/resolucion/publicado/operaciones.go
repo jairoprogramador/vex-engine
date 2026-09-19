@@ -16,9 +16,10 @@ type ParaEjecucion interface {
 	) ([]Variable, error)
 	// Interpolar sustituye cada ${var.<nombre>} por su valor entre lo visible desde ambito en este intento.
 	Interpolar(ctx context.Context, intento, paso string, ambito Ambito, texto string) (string, error)
-	// CambiaronLasVariables compara lo visible ahora contra los hashes de la última vez que el paso se
-	// ejecutó de verdad bajo ese ámbito. Sin última vez, siempre true.
-	CambiaronLasVariables(ctx context.Context, intento, paso string, ambito Ambito) (bool, error)
+	// HashDeLasVariables resume lo que un paso consume, visible desde ambito: las del pipeline, las que
+	// produjeron pasos anteriores y los metadatos — no las generadas por el motor. Dos hashes iguales son las
+	// mismas variables con los mismos valores; quien decide guarda el de la última vez y los compara.
+	HashDeLasVariables(ctx context.Context, intento string, ambito Ambito) (string, error)
 	// RegistrarProducido registra lo que produjo un comando: primero su hash en Historial, después su valor
 	// por la relación reservada, y solo si las dos escrituras llegan, lo pliega en lo visible del intento.
 	RegistrarProducido(ctx context.Context, intento, paso, nombre, valor string, ambito Ambito) error

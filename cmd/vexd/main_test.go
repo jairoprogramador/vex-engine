@@ -62,12 +62,25 @@ func TestIntentar_LlegaADespliegueYLaSalidaDeLosComandosVaAlError(t *testing.T) 
 	r := invocar(t, e.intento(), append([]string{"intentar"}, e.banderas...)...)
 
 	require.Equal(t, salidaBien, r.codigo, r.errores)
-	var resultado struct{ Intento, Estado, Despliegue string }
+	var resultado struct {
+		Intento, Estado, Despliegue string
+		Detalle                     struct {
+			Tiempo string
+			Pasos  []struct{ Nombre, Estado string }
+		}
+	}
 	require.NoError(t, json.Unmarshal([]byte(r.salida), &resultado), "la salida estándar es solo la respuesta")
 	require.Equal(t, "exitoso", resultado.Estado)
 	require.NotEmpty(t, resultado.Despliegue)
-	require.Contains(t, r.errores, "hola vex-demo")
-	require.NotContains(t, r.salida, "hola vex-demo", "lo que imprimen los comandos no se mezcla con la respuesta")
+	require.NotEmpty(t, resultado.Detalle.Tiempo)
+	require.NotEmpty(t, resultado.Detalle.Pasos, "el detalle lista los pasos que se dieron")
+	for _, paso := range resultado.Detalle.Pasos {
+		require.NotEmpty(t, paso.Nombre)
+		require.Equal(t, "ejecutado", paso.Estado, "en el primer intento nada se precarga: %s", paso.Nombre)
+	}
+	require.NotEmpty(t, r.errores, "lo que imprimen los comandos va al error")
+	require.NotContains(t, r.errores, "${var.", "las variables se interpolaron")
+	require.NotContains(t, r.salida, r.errores, "lo que imprimen los comandos no se mezcla con la respuesta")
 }
 
 func TestConsultas_VenLoQueIntentarDejoEnElHistorial(t *testing.T) {

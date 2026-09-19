@@ -76,7 +76,7 @@ func recursosDePrueba(t *testing.T, codigo, instrucciones string) ejecuciondomin
 	require.NoError(t, err)
 	i, err := ejecuciondominio.NuevoHashDeInstrucciones(instrucciones)
 	require.NoError(t, err)
-	return ejecuciondominio.NuevosRecursosDeUnPaso(c, i, false)
+	return ejecuciondominio.NuevosRecursosDeUnPaso(c, i, ejecuciondominio.NuevoHashDeVariables("v1"))
 }
 
 func ambitoDePrueba(t *testing.T, ambiente string) resoluciondominio.Ambito {

@@ -42,28 +42,6 @@ func (h *Historial) GuardarValor(ctx context.Context, intento, paso, nombre, val
 	return nil
 }
 
-func (h *Historial) UltimaVezDeUnPaso(
-	ctx context.Context, paso string, ambito dominio.Ambito,
-) (map[string]dominio.HashDeVariable, bool, error) {
-	intento, pasoOrigen, ok, err := h.origenDeLaUltimaVez(ctx, paso, ambito)
-	if err != nil || !ok {
-		return nil, false, err
-	}
-	variables, err := h.registros.VariablesDeUnPaso(ctx, intento, pasoOrigen)
-	if err != nil {
-		return nil, false, fmt.Errorf("resolución: variables de la última vez del paso %q: %w", paso, err)
-	}
-	hashes := make(map[string]dominio.HashDeVariable, len(variables))
-	for _, v := range variables {
-		hash, _, err := decodificarContenido(v.Contenido)
-		if err != nil {
-			return nil, false, err
-		}
-		hashes[v.Nombre] = hash
-	}
-	return hashes, true, nil
-}
-
 func (h *Historial) ValoresDeLaUltimaVez(
 	ctx context.Context, paso string, ambito dominio.Ambito,
 ) (map[string]dominio.ValorDeLaUltimaVez, bool, error) {
