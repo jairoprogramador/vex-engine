@@ -1,7 +1,7 @@
 schema_version: 1
 steps:
-  preparar:
+  test:
     rules: [instructions]
-  desplegar:
+  acr:
     rules: [instructions]
     max_age: 1h

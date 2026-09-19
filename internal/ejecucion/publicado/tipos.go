@@ -54,4 +54,19 @@ type Resultado struct {
 	Intento    string
 	Estado     string
 	Despliegue string
+	Detalle    Detalle
+}
+
+// Detalle cuenta cómo fue el intento: cuánto tardó y qué pasó con cada paso que se llegó a dar. No se guarda —
+// se arma con lo que el intento ya sabe al recorrerse.
+type Detalle struct {
+	Tiempo string
+	Pasos  []PasoDelDetalle
+}
+
+// PasoDelDetalle es un paso dado y cómo terminó: "ejecutado", "precargado" (no se reejecutó), "fallido" o
+// "cancelado".
+type PasoDelDetalle struct {
+	Nombre string
+	Estado string
 }

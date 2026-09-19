@@ -174,7 +174,7 @@ case "$OPERACION" in
   abandonar|intento) pedir_texto INTENTO "Intento (id)" 1 ;;
 esac
 if [ -z "$LIMPIO" ]; then
-  pregunta_si_no "¿Borrar la demo anterior y empezar sin historial?" 0
+  pregunta_si_no "¿Empezar sin historial?" 0
   LIMPIO="$RESPUESTA_SI_NO"
 fi
 if [ -z "$COMPILAR" ]; then

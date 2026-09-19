@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/jairoprogramador/vex-engine/internal/ejecucion/aplicacion"
 	"github.com/jairoprogramador/vex-engine/internal/ejecucion/dominio"
+	"github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
 )
 
 func TestIntentar_SiElEspacioDeTrabajoNoEstaDisponibleElIntentoNoEmpieza(t *testing.T) {
@@ -61,4 +63,19 @@ func TestIntentar_LaSalidaLlegaPorCadaPasoMientrasCorre(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, salida.recibido)
 	require.Contains(t, salida.recibido[0], "01-pruebas:")
+}
+
+func TestIntentar_ElResultadoTraeElDetalleQueDaElHistorial(t *testing.T) {
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
+	d.historial.detalle = dominio.DetalleDelIntento{
+		Tiempo: 4 * time.Second,
+		Pasos:  []dominio.PasoDelDetalle{{Nombre: "pruebas", Estado: dominio.PasoPrecargado}},
+	}
+	servicio := aplicacion.NuevoServicio(deps)
+
+	resultado, err := servicio.Intentar(context.Background(), peticionDePrueba(), &salidaFalsa{})
+
+	require.NoError(t, err)
+	require.Equal(t, "4s", resultado.Detalle.Tiempo)
+	require.Equal(t, []publicado.PasoDelDetalle{{Nombre: "pruebas", Estado: "precargado"}}, resultado.Detalle.Pasos)
 }

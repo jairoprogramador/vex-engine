@@ -19,6 +19,8 @@ type ParaEjecucion interface {
 	CerrarIntento(ctx context.Context, intento string, estado Estado, destino string) (Despliegue, bool, error)
 	UltimaVezDeUnPaso(ctx context.Context, paso string, ambito Ambito) (RegistroDePaso, bool, error)
 	DespliegueYSuIntento(ctx context.Context, despliegue string) (Despliegue, Intento, error)
+	// Intento es uno por su identidad, con sus registros: de ahí sale el detalle de lo que hizo.
+	Intento(ctx context.Context, id string) (Intento, error)
 }
 
 // ParaResolucion es lo que usa Resolución de Variables. El valor, por la relación reservada.

@@ -1,0 +1,1 @@
+hola ${var.project_name} desde el ambiente ${var.environment} con variables

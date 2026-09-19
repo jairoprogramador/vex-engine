@@ -134,6 +134,36 @@ func (h *Historial) UltimaVezDeUnPaso(
 	}
 }
 
+func (h *Historial) DetalleDelIntento(ctx context.Context, intento string) (dominio.DetalleDelIntento, error) {
+	i, err := h.historial.Intento(ctx, intento)
+	if err != nil {
+		return dominio.DetalleDelIntento{}, fmt.Errorf("ejecución: leer el intento %q: %w", intento, err)
+	}
+	return detalleDeUnIntento(i), nil
+}
+
+// detalleDeUnIntento lee los registros: una no-reejecución es un paso precargado, y un final es uno ejecutado
+// — con éxito o sin él. Un comienzo solo no dice cómo terminó el paso, así que solo el final lo cuenta.
+func detalleDeUnIntento(i historialpublicado.Intento) dominio.DetalleDelIntento {
+	detalle := dominio.DetalleDelIntento{}
+	for _, r := range i.Registros {
+		if fin := r.Instante.Sub(i.Instante); fin > detalle.Tiempo {
+			detalle.Tiempo = fin
+		}
+		switch r.Tipo {
+		case historialpublicado.NoReejecucion:
+			detalle.Pasos = append(detalle.Pasos, dominio.PasoDelDetalle{Nombre: r.Paso, Estado: dominio.PasoPrecargado})
+		case historialpublicado.Final:
+			estado := dominio.PasoEjecutado
+			if !r.Exitoso {
+				estado = dominio.PasoFallido
+			}
+			detalle.Pasos = append(detalle.Pasos, dominio.PasoDelDetalle{Nombre: r.Paso, Estado: estado})
+		}
+	}
+	return detalle
+}
+
 func (h *Historial) DespliegueParaRollback(ctx context.Context, despliegue string) (dominio.Destino, error) {
 	d, intento, err := h.historial.DespliegueYSuIntento(ctx, despliegue)
 	if err != nil {

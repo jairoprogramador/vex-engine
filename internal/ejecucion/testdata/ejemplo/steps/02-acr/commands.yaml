@@ -1,0 +1,18 @@
+- name: comando-acr-01
+  description: usa la variable producida por el paso anterior y la variable estándar del ambiente
+  cmd: echo desplegando ${var.etiqueta} en ${var.environment}
+
+- name: comando-acr-02
+  description: leer archivo dentro de un directorio
+  workdir: terraform
+  cmd: cat hola.txt
+
+- name: comando-acr-03
+  description: leer archivo dentro de un directorio
+  workdir: terraform
+  cmd: echo 'creado' >> create.txt
+
+- name: comando-acr-04
+  description: leer archivo dentro de un directorio
+  workdir: terraform
+  cmd: cat create.txt

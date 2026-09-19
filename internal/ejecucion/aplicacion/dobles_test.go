@@ -131,6 +131,8 @@ type historialFalso struct {
 	destinoCerrado    string
 	despliegueACerrar string
 
+	detalle dominio.DetalleDelIntento
+
 	destinoParaRollback    dominio.Destino
 	errDestinoParaRollback error
 }
@@ -203,6 +205,10 @@ func (h *historialFalso) UltimaVezDeUnPaso(_ context.Context, paso string, _ dom
 
 func (h *historialFalso) DespliegueParaRollback(context.Context, string) (dominio.Destino, error) {
 	return h.destinoParaRollback, h.errDestinoParaRollback
+}
+
+func (h *historialFalso) DetalleDelIntento(context.Context, string) (dominio.DetalleDelIntento, error) {
+	return h.detalle, nil
 }
 
 var _ dominio.Historial = (*historialFalso)(nil)

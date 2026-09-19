@@ -201,3 +201,37 @@ func TestAdaptadorDeHistorial_DespliegueParaRollbackDaLasDosFuentes(t *testing.T
 	require.Equal(t, apertura.FuenteDelPipeline, destino.FuenteDelPipeline())
 	require.Equal(t, apertura.CommitDelPipeline, destino.CommitDelPipeline())
 }
+
+func TestAdaptadorDeHistorial_ElDetalleDistingueElPasoPrecargadoDelEjecutado(t *testing.T) {
+	h, ctx := nuevoHistorialReal(t)
+	adaptador := infraestructura.NuevoHistorial(h)
+	recursos := recursosDePrueba(t, "c1", "i1")
+
+	primero, err := adaptador.AbrirIntento(ctx, aperturaDePrueba(t, "prod"))
+	require.NoError(t, err)
+	require.NoError(t, adaptador.RegistrarComienzo(ctx, primero, "01-pruebas", recursos))
+	require.NoError(t, adaptador.RegistrarFinal(ctx, primero, "01-pruebas", true, recursos))
+	_, _, err = adaptador.CerrarIntento(ctx, primero, dominio.Exitoso, "")
+	require.NoError(t, err)
+
+	aperturaConDosPasos := aperturaDePrueba(t, "prod")
+	aperturaConDosPasos.Pasos = append(aperturaConDosPasos.Pasos, pasoDePrueba(t, "02-acr"))
+	aperturaConDosPasos.HastaPaso = "02-acr"
+	segundo, err := adaptador.AbrirIntento(ctx, aperturaConDosPasos)
+	require.NoError(t, err)
+	evidencia := dominio.Evidencia{Intento: primero, Paso: "01-pruebas"}
+	require.NoError(t, adaptador.RegistrarNoReejecucion(ctx, segundo, "01-pruebas", evidencia, recursos))
+	require.NoError(t, adaptador.RegistrarComienzo(ctx, segundo, "02-acr", recursos))
+	require.NoError(t, adaptador.RegistrarFinal(ctx, segundo, "02-acr", false, recursos))
+	_, _, err = adaptador.CerrarIntento(ctx, segundo, dominio.Fallido, "")
+	require.NoError(t, err)
+
+	detalle, err := adaptador.DetalleDelIntento(ctx, segundo)
+
+	require.NoError(t, err)
+	require.Equal(t, []dominio.PasoDelDetalle{
+		{Nombre: "01-pruebas", Estado: dominio.PasoPrecargado},
+		{Nombre: "02-acr", Estado: dominio.PasoFallido},
+	}, detalle.Pasos)
+	require.Positive(t, detalle.Tiempo)
+}

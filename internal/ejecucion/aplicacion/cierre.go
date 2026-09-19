@@ -21,5 +21,11 @@ func (s *Servicio) cerrar(ctx context.Context, id string, intento *dominio.Inten
 	if err != nil {
 		return publicado.Resultado{}, fmt.Errorf("ejecución: cerrar el intento %q: %w", id, err)
 	}
-	return resultadoAPublicado(id, desenlace, despliegue), nil
+	// El detalle es una lectura de cortesía: el intento ya está cerrado, y perder su identidad y su desenlace
+	// porque no se pudo releer sería peor que devolverlos sin detalle.
+	detalle, err := s.d.Historial.DetalleDelIntento(context.WithoutCancel(ctx), id)
+	if err != nil {
+		detalle = dominio.DetalleDelIntento{}
+	}
+	return resultadoAPublicado(id, desenlace, despliegue, detalle), nil
 }

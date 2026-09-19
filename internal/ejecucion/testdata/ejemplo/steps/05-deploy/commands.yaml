@@ -1,0 +1,3 @@
+- name: comando-deploy-01
+  description: despliegue exitoso
+  cmd: echo 'despliegue exitoso'

@@ -88,6 +88,9 @@ type Historial interface {
 	// DespliegueParaRollback da lo que EJ-2 necesita de un despliegue destino: su ambiente y las dos fuentes
 	// con las que se hizo, ya decodificadas de su Contenido.
 	DespliegueParaRollback(ctx context.Context, despliegue string) (Destino, error)
+	// DetalleDelIntento arma, con lo que el Historial ya guarda del intento, cuánto tardó y qué pasó con cada
+	// paso. No se escribe nada para esto.
+	DetalleDelIntento(ctx context.Context, intento string) (DetalleDelIntento, error)
 }
 
 // AperturaDeIntento es lo que un intento declara al abrirse.
