@@ -125,11 +125,17 @@ decisión de re-ejecutar se puede probar sin ejecutar nada.
    de alcance aquí. Queda para quien retome Resolución: o declarar también escribe un hash al Historial, o
    `cambiaronLasVariables` compara solo lo producido.
 
-8. **El espacio de trabajo es `<raíz>/<ambiente>/{motor,tecnologia}/`.** `motor/<paso>/` es lo único que
-   `RehacerParteDelMotor` toca — se borra y se reescribe entero en cada intento (`DEC-06.19`); `tecnologia/` no
-   lo crea ni lo lee nunca este contexto: existe si algún comando del pipeline decide escribir ahí. La
-   disposición exacta no la fija el modelo, así que queda registrada aquí como la que implementan
-   `EspacioDeTrabajo.DirectorioDelAmbiente`/`DirectorioDelPaso`.
+8. **El espacio de trabajo es `<raíz>/<proyecto>/<pipeline>/<ambiente>/<paso>/`.** `<proyecto>` y `<pipeline>`
+   no son `Metadatos.ProjectName`: salen de `FuenteDelProyecto` y `FuenteDelPipeline` —la URL del remoto
+   `origin` si la fuente lo tiene, o el nombre de su directorio— y se vuelven nombre de directorio con
+   `dominio.NombreDeDirectorio`: los 16 primeros hex del SHA-256 de la forma canónica (`host/ruta`, sin usuario,
+   sin `.git`), así que la misma fuente da siempre el mismo nombre y `ssh`/`https` del mismo repositorio
+   coinciden. Con `CopiaDeTrabajo`, la fuente que identifica al proyecto es la propia copia. Motivo: un
+   proyecto usa varios pipelines a lo largo de su vida, y un pipeline lo usan varios proyectos; sus datos no se
+   mezclan. `RehacerParteDelMotor` borra y reescribe solo el directorio de cada paso (`DEC-06.19`), nunca el
+   del ambiente: lo que los comandos escriban fuera de ellos —p. ej. un `tfstate`— no se toca. Un paso que
+   desaparece del pipeline deja su directorio viejo. La disposición no la fija el modelo, así que queda
+   registrada aquí como la que implementan `EspacioDeTrabajo.Ubicar`/`DirectorioDelPaso`.
 
 9. **`cmd/vexd` sigue sin tocarse (`DEC-11.1`/`DEC-11.2`).** `internal/borde` queda listo — `Servicio`,
    `comprobarVersion`, `Intentar`, `HacerRollback` — pero nadie lo cablea todavía a un binario real: eso es

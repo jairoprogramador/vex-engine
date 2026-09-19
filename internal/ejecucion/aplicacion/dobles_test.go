@@ -241,20 +241,20 @@ type espacioDeTrabajoFalso struct {
 	interpolado bool
 }
 
-func (e *espacioDeTrabajoFalso) RehacerParteDelMotor(context.Context, string, []dominio.PasoDeEjecucion) error {
+func (e *espacioDeTrabajoFalso) Ubicar(_, _, ambiente string) (dominio.Ubicacion, error) {
+	return dominio.Ubicacion{Proyecto: "proyecto", Pipeline: "pipeline", Ambiente: ambiente}, nil
+}
+
+func (e *espacioDeTrabajoFalso) RehacerParteDelMotor(context.Context, dominio.Ubicacion, []dominio.PasoDeEjecucion) error {
 	e.rehecho = true
 	return e.errRehacer
 }
 
-func (e *espacioDeTrabajoFalso) DirectorioDelAmbiente(ambiente string) string {
-	return "/ws/" + ambiente
+func (e *espacioDeTrabajoFalso) DirectorioDelPaso(u dominio.Ubicacion, paso string) string {
+	return "/ws/" + u.Proyecto + "/" + u.Pipeline + "/" + u.Ambiente + "/" + paso
 }
 
-func (e *espacioDeTrabajoFalso) DirectorioDelPaso(ambiente, paso string) string {
-	return "/ws/" + ambiente + "/" + paso
-}
-
-func (e *espacioDeTrabajoFalso) InterpolarPlantillas(context.Context, string, dominio.PasoDeEjecucion, dominio.Interpolador) error {
+func (e *espacioDeTrabajoFalso) InterpolarPlantillas(context.Context, dominio.Ubicacion, dominio.PasoDeEjecucion, dominio.Interpolador) error {
 	e.interpolado = true
 	return nil
 }

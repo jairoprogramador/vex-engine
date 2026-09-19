@@ -30,7 +30,16 @@ func (s *Servicio) Intentar(ctx context.Context, p publicado.PeticionDeIntento, 
 		return publicado.Resultado{}, traducir(err)
 	}
 
-	if err := s.d.EspacioDeTrabajo.RehacerParteDelMotor(ctx, p.Ambiente, pipeline.Pasos); err != nil {
+	// Con una copia de trabajo, la fuente del proyecto puede venir vacía: es ella quien lo identifica.
+	fuenteDelProyecto := p.FuenteDelProyecto
+	if esCopiaDeTrabajo {
+		fuenteDelProyecto = p.CopiaDeTrabajo
+	}
+	ubicacion, err := s.d.EspacioDeTrabajo.Ubicar(fuenteDelProyecto, p.FuenteDelPipeline, p.Ambiente)
+	if err != nil {
+		return publicado.Resultado{}, traducir(err)
+	}
+	if err := s.d.EspacioDeTrabajo.RehacerParteDelMotor(ctx, ubicacion, pipeline.Pasos); err != nil {
 		return publicado.Resultado{}, traducir(err)
 	}
 
@@ -54,7 +63,7 @@ func (s *Servicio) Intentar(ctx context.Context, p publicado.PeticionDeIntento, 
 	}
 
 	c := contextoDelIntento{
-		id: id, ambiente: p.Ambiente, fuenteDelPipeline: p.FuenteDelPipeline, commitDelPipeline: pipeline.Commit,
+		id: id, ambiente: p.Ambiente, ubicacion: ubicacion, fuenteDelPipeline: p.FuenteDelPipeline, commitDelPipeline: pipeline.Commit,
 		hashDelCodigo: material.Hash, pasosPorNombre: pasosPorNombre, salida: salida,
 		estandarCompartidas: estandarCompartidas(
 			p.Metadatos, p.Ambiente, material.Hash.String(), material.Commit, material.Directorio, s.d.NombreDeLaHerramienta,

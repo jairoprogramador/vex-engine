@@ -13,16 +13,16 @@ import (
 // detiene en el primer comando que no sale exitoso: exitoso=false y err=nil. Un error de verdad (interpolar,
 // ejecutar, registrar) siempre es err != nil.
 func (s *Servicio) ejecutarPaso(
-	ctx context.Context, intento, ambiente string, paso dominio.PasoDeEjecucion, ambito dominio.Ambito, salida publicado.Salida,
+	ctx context.Context, intento string, ubicacion dominio.Ubicacion, paso dominio.PasoDeEjecucion, ambito dominio.Ambito, salida publicado.Salida,
 ) (bool, error) {
 	interpolar := func(texto string) (string, error) {
 		return s.d.Variables.Interpolar(ctx, intento, paso.Nombre(), ambito, texto)
 	}
-	if err := s.d.EspacioDeTrabajo.InterpolarPlantillas(ctx, ambiente, paso, interpolar); err != nil {
+	if err := s.d.EspacioDeTrabajo.InterpolarPlantillas(ctx, ubicacion, paso, interpolar); err != nil {
 		return false, fmt.Errorf("ejecución: interpolar las plantillas del paso %q: %w", paso.Nombre(), err)
 	}
 
-	directorio := s.d.EspacioDeTrabajo.DirectorioDelPaso(ambiente, paso.Nombre())
+	directorio := s.d.EspacioDeTrabajo.DirectorioDelPaso(ubicacion, paso.Nombre())
 	escritor := &escritorDeSalida{salida: salida, paso: paso.Nombre()}
 
 	for _, comando := range paso.Comandos {

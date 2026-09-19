@@ -9,9 +9,9 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/ejecucion/dominio"
 )
 
-// EspacioDeTrabajo es el espacio de trabajo de verdad, en disco: bajo raiz/<ambiente>/, la parte del motor vive
-// en motor/ (se rehace entera al empezar cada intento, DEC-06.19) y la de la tecnología en tecnologia/, que
-// este puerto nunca lee ni escribe — la crea, si hace falta, lo que corren los comandos del pipeline.
+// EspacioDeTrabajo es el espacio de trabajo de verdad, en disco: bajo raiz/<proyecto>/<pipeline>/<ambiente>/
+// hay un directorio por paso, que se rehace entero al empezar cada intento (DEC-06.19). Cualquier otra cosa
+// que los comandos del pipeline escriban en el ambiente, este puerto ni la lee ni la borra.
 type EspacioDeTrabajo struct {
 	raiz string
 }
@@ -22,27 +22,38 @@ func NuevoEspacioDeTrabajo(raiz string) *EspacioDeTrabajo {
 	return &EspacioDeTrabajo{raiz: raiz}
 }
 
-func (e *EspacioDeTrabajo) DirectorioDelAmbiente(ambiente string) string {
-	return filepath.Join(e.raiz, ambiente, "motor")
-}
-
-func (e *EspacioDeTrabajo) DirectorioDelPaso(ambiente, paso string) string {
-	return filepath.Join(e.DirectorioDelAmbiente(ambiente), paso)
-}
-
-func (e *EspacioDeTrabajo) RehacerParteDelMotor(_ context.Context, ambiente string, pasos []dominio.PasoDeEjecucion) error {
-	motor := e.DirectorioDelAmbiente(ambiente)
-	if err := os.RemoveAll(motor); err != nil {
-		return fmt.Errorf("ejecución: el ambiente %q: %w: %w", ambiente, dominio.ErrNoDisponible, err)
+func (e *EspacioDeTrabajo) Ubicar(fuenteDelProyecto, fuenteDelPipeline, ambiente string) (dominio.Ubicacion, error) {
+	proyecto, err := nombreDeLaFuente(fuenteDelProyecto)
+	if err != nil {
+		return dominio.Ubicacion{}, fmt.Errorf("ejecución: el proyecto %q: %w", fuenteDelProyecto, err)
 	}
+	pipeline, err := nombreDeLaFuente(fuenteDelPipeline)
+	if err != nil {
+		return dominio.Ubicacion{}, fmt.Errorf("ejecución: el pipeline %q: %w", fuenteDelPipeline, err)
+	}
+	return dominio.Ubicacion{Proyecto: proyecto, Pipeline: pipeline, Ambiente: ambiente}, nil
+}
+
+func (e *EspacioDeTrabajo) directorioDelAmbiente(u dominio.Ubicacion) string {
+	return filepath.Join(e.raiz, u.Proyecto, u.Pipeline, u.Ambiente)
+}
+
+func (e *EspacioDeTrabajo) DirectorioDelPaso(u dominio.Ubicacion, paso string) string {
+	return filepath.Join(e.directorioDelAmbiente(u), paso)
+}
+
+func (e *EspacioDeTrabajo) RehacerParteDelMotor(_ context.Context, u dominio.Ubicacion, pasos []dominio.PasoDeEjecucion) error {
 	for _, paso := range pasos {
-		directorioDelPaso := e.DirectorioDelPaso(ambiente, paso.Nombre())
+		directorioDelPaso := e.DirectorioDelPaso(u, paso.Nombre())
+		if err := os.RemoveAll(directorioDelPaso); err != nil {
+			return fmt.Errorf("ejecución: el ambiente %q: %w: %w", u.Ambiente, dominio.ErrNoDisponible, err)
+		}
 		if err := os.MkdirAll(directorioDelPaso, 0o755); err != nil {
-			return fmt.Errorf("ejecución: el ambiente %q: %w: %w", ambiente, dominio.ErrNoDisponible, err)
+			return fmt.Errorf("ejecución: el ambiente %q: %w: %w", u.Ambiente, dominio.ErrNoDisponible, err)
 		}
 		for _, f := range paso.Material {
 			if err := escribirFichero(directorioDelPaso, f); err != nil {
-				return fmt.Errorf("ejecución: el ambiente %q: %w: %w", ambiente, dominio.ErrNoDisponible, err)
+				return fmt.Errorf("ejecución: el ambiente %q: %w: %w", u.Ambiente, dominio.ErrNoDisponible, err)
 			}
 		}
 	}
@@ -68,9 +79,9 @@ func escribirFichero(directorioDelPaso string, f dominio.FicheroDeclarado) error
 // antes de ejecutar los comandos del paso es lo que permite que una plantilla use variables producidas por
 // pasos anteriores (docs/modelo/contextos/ejecucion.md, «Espacio de trabajo»).
 func (e *EspacioDeTrabajo) InterpolarPlantillas(
-	_ context.Context, ambiente string, paso dominio.PasoDeEjecucion, interpolar dominio.Interpolador,
+	_ context.Context, u dominio.Ubicacion, paso dominio.PasoDeEjecucion, interpolar dominio.Interpolador,
 ) error {
-	directorioDelPaso := e.DirectorioDelPaso(ambiente, paso.Nombre())
+	directorioDelPaso := e.DirectorioDelPaso(u, paso.Nombre())
 	for _, f := range paso.Material {
 		if !f.Plantilla() {
 			continue

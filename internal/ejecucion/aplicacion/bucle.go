@@ -12,6 +12,7 @@ import (
 type contextoDelIntento struct {
 	id                string
 	ambiente          string
+	ubicacion         dominio.Ubicacion
 	fuenteDelPipeline string
 	commitDelPipeline string
 	hashDelCodigo     dominio.HashDeCodigo
@@ -50,7 +51,7 @@ func (s *Servicio) darUnPaso(ctx context.Context, c contextoDelIntento, intento 
 		return err
 	}
 
-	directorioDelPaso := s.d.EspacioDeTrabajo.DirectorioDelPaso(c.ambiente, paso.Nombre())
+	directorioDelPaso := s.d.EspacioDeTrabajo.DirectorioDelPaso(c.ubicacion, paso.Nombre())
 	estandar := conElPaso(c.estandarCompartidas, paso.Nombre(), directorioDelPaso)
 	if err := s.d.Variables.DeclararVariablesDeUnPaso(
 		ctx, c.id, paso.Nombre(), ambito, c.fuenteDelPipeline, c.commitDelPipeline, estandar,
@@ -86,7 +87,7 @@ func (s *Servicio) reejecutarPaso(
 		return err
 	}
 
-	exitoso, err := s.ejecutarPaso(ctx, c.id, c.ambiente, pasoDeEjecucion, ambito, c.salida)
+	exitoso, err := s.ejecutarPaso(ctx, c.id, c.ubicacion, pasoDeEjecucion, ambito, c.salida)
 	ctxDelRegistro, cancelado := ctx, false
 	if err != nil {
 		if ctx.Err() == nil {

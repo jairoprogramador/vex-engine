@@ -120,19 +120,21 @@ type Comandos interface {
 	) (ResultadoDeUnComando, error)
 }
 
-// EspacioDeTrabajo rehace la parte del motor: el material declarado, copiado e interpolado, sin tocar nunca la
-// parte de la tecnología (DEC-09.5, DEC-06.19).
+// EspacioDeTrabajo rehace la parte del motor: el material declarado, copiado e interpolado, sin tocar nunca lo
+// que los comandos escriben fuera de los directorios de los pasos (DEC-09.5, DEC-06.19).
 type EspacioDeTrabajo interface {
+	// Ubicar da el lugar del espacio de trabajo de un ambiente: proyecto y pipeline salen de sus fuentes —la URL
+	// del remoto «origin» si la tienen, o el nombre de su directorio—, no de los metadatos de quien invoca.
+	// Siempre da un nombre válido o un error: nunca un nombre vacío.
+	Ubicar(fuenteDelProyecto, fuenteDelPipeline, ambiente string) (Ubicacion, error)
 	// RehacerParteDelMotor copia el material declarado de todos los pasos, entero, al empezar el intento. Si el
 	// ambiente no se puede alcanzar, el error envuelve ErrNoDisponible (EJ-5, DEC-06.18).
-	RehacerParteDelMotor(ctx context.Context, ambiente string, pasos []PasoDeEjecucion) error
-	// DirectorioDelAmbiente es la raíz de la parte del motor del espacio de trabajo del ambiente entero.
-	DirectorioDelAmbiente(ambiente string) string
-	// DirectorioDelPaso es donde corren los comandos de un paso, dentro de la parte del motor.
-	DirectorioDelPaso(ambiente, paso string) string
+	RehacerParteDelMotor(ctx context.Context, u Ubicacion, pasos []PasoDeEjecucion) error
+	// DirectorioDelPaso es donde corren los comandos de un paso.
+	DirectorioDelPaso(u Ubicacion, paso string) string
 	// InterpolarPlantillas reescribe, en su sitio, los ficheros que el paso marca como plantilla. Se llama
 	// justo antes de ejecutar sus comandos, para que puedan usar variables producidas por pasos anteriores.
-	InterpolarPlantillas(ctx context.Context, ambiente string, paso PasoDeEjecucion, interpolar Interpolador) error
+	InterpolarPlantillas(ctx context.Context, u Ubicacion, paso PasoDeEjecucion, interpolar Interpolador) error
 }
 
 // Interpolador sustituye cada ${var.<nombre>} por su valor. Lo da Resolución, a través de la aplicación.

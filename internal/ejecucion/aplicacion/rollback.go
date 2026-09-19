@@ -32,7 +32,11 @@ func (s *Servicio) HacerRollback(ctx context.Context, p publicado.PeticionDeRoll
 		return publicado.Resultado{}, traducir(err)
 	}
 
-	if err := s.d.EspacioDeTrabajo.RehacerParteDelMotor(ctx, destino.Ambiente(), pipeline.Pasos); err != nil {
+	ubicacion, err := s.d.EspacioDeTrabajo.Ubicar(destino.FuenteDelProyecto(), destino.FuenteDelPipeline(), destino.Ambiente())
+	if err != nil {
+		return publicado.Resultado{}, traducir(err)
+	}
+	if err := s.d.EspacioDeTrabajo.RehacerParteDelMotor(ctx, ubicacion, pipeline.Pasos); err != nil {
 		return publicado.Resultado{}, traducir(err)
 	}
 
@@ -57,7 +61,7 @@ func (s *Servicio) HacerRollback(ctx context.Context, p publicado.PeticionDeRoll
 	}
 
 	c := contextoDelIntento{
-		id: id, ambiente: destino.Ambiente(), fuenteDelPipeline: destino.FuenteDelPipeline(), commitDelPipeline: destino.CommitDelPipeline(),
+		id: id, ambiente: destino.Ambiente(), ubicacion: ubicacion, fuenteDelPipeline: destino.FuenteDelPipeline(), commitDelPipeline: destino.CommitDelPipeline(),
 		hashDelCodigo: material.Hash, pasosPorNombre: pasosPorNombre, salida: salida,
 		estandarCompartidas: estandarCompartidas(
 			p.Metadatos, destino.Ambiente(), material.Hash.String(), material.Commit, material.Directorio, s.d.NombreDeLaHerramienta,
