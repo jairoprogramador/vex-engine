@@ -37,8 +37,8 @@ var operaciones = []operacion{
 	{"liberar", false, sinRespuesta((*borde.Servicio).Liberar)},
 	{"diagnosticar", false, consulta((*borde.Servicio).PreguntarLaCausa)},
 	{"abandonar", false, sinRespuesta((*borde.Servicio).AbandonarIntento)},
-	{"intento", false, consulta((*borde.Servicio).Intento)},
-	{"intentos", false, consulta((*borde.Servicio).IntentosDeUnAmbiente)},
+	{"intento", false, consultaResumida((*borde.Servicio).Intento, resumir)},
+	{"intentos", false, consultaResumida((*borde.Servicio).IntentosDeUnAmbiente, resumirTodos)},
 	{"despliegues", false, consulta((*borde.Servicio).DesplieguesDeUnAmbiente)},
 }
 
@@ -71,6 +71,21 @@ func consulta[P, R any](op func(*borde.Servicio, context.Context, P) (R, error))
 		}
 		return op(s, ctx, p)
 	}
+}
+
+// consultaResumida es una consulta cuya respuesta se resume antes de imprimirse: el borde publica el detalle
+// completo, pero la línea de comandos solo muestra lo que resumir deja.
+func consultaResumida[P, R, V any](
+	op func(*borde.Servicio, context.Context, P) (R, error), resumir func(R) V,
+) atender {
+	return consulta(func(s *borde.Servicio, ctx context.Context, p P) (V, error) {
+		r, err := op(s, ctx, p)
+		if err != nil {
+			var vacio V
+			return vacio, err
+		}
+		return resumir(r), nil
+	})
 }
 
 // sinRespuesta atiende las operaciones que solo dicen si salieron bien: su respuesta es un objeto vacío, para
