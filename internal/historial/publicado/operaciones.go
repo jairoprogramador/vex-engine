@@ -14,6 +14,9 @@ type ParaEjecucion interface {
 	RegistrarFinal(ctx context.Context, intento, paso string, exitoso bool, contenido Contenido) error
 	// RegistrarNoReejecucion exige que la evidencia apunte a un final exitoso.
 	RegistrarNoReejecucion(ctx context.Context, intento, paso string, evidencia Evidencia, contenido Contenido) error
+	// RegistrarSalida guarda lo que escribió un comando de un paso al terminar, aparte de los registros del
+	// intento. Se registra también la de un comando que falló.
+	RegistrarSalida(ctx context.Context, intento, paso, comando string, exitoso bool, texto string) error
 	// CerrarIntento registra el desenlace y, si el intento llega a despliegue, lo crea y lo anuncia. El
 	// destino de un rollback será su padre. Repetir el mismo cierre no escribe otro: completa lo que faltara.
 	CerrarIntento(ctx context.Context, intento string, estado Estado, destino string) (Despliegue, bool, error)
@@ -70,6 +73,11 @@ type ParaBorde interface {
 	Intento(ctx context.Context, id string) (Intento, error)
 	IntentosDeUnAmbiente(ctx context.Context, ambiente string) ([]Intento, error)
 	DesplieguesDeUnAmbiente(ctx context.Context, ambiente string) ([]Despliegue, error)
+	// SalidasDeUnIntento son las de sus comandos, en el orden en que terminaron. Si el intento no existe,
+	// devuelve ErrNoExiste.
+	SalidasDeUnIntento(ctx context.Context, intento string, filtro FiltroDeSalidas) ([]Salida, error)
+	// UltimoIntento es el último que se abrió, en cualquier ambiente. No hay ninguno: false.
+	UltimoIntento(ctx context.Context) (Intento, bool, error)
 }
 
 // EscuchaDespliegueRegistrado es quien escucha el evento. Lo registra la raíz de composición: el Historial no

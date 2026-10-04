@@ -60,8 +60,6 @@ func TestHistorial_EnvuelveLosErroresDelHistorial(t *testing.T) {
 	require.NoError(t, err)
 	ambiente, err := diagnosticodominio.NuevaAmbiente("prod")
 	require.NoError(t, err)
-	hash, err := diagnosticodominio.NuevoHashDelCodigo("h1")
-	require.NoError(t, err)
 
 	_, err = h.Intento(ctx, idIntento)
 	require.ErrorIs(t, err, errFalla)
@@ -76,9 +74,6 @@ func TestHistorial_EnvuelveLosErroresDelHistorial(t *testing.T) {
 	require.ErrorIs(t, err, errFalla)
 
 	_, _, err = h.UltimoDespliegueAnteriorA(ctx, ambiente, time.Now())
-	require.ErrorIs(t, err, errFalla)
-
-	_, _, err = h.UltimoDespliegueConHashDelCodigo(ctx, ambiente, hash)
 	require.ErrorIs(t, err, errFalla)
 
 	_, _, err = h.EjesDelIntento(ctx, idIntento)

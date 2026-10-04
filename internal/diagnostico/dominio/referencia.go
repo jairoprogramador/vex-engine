@@ -7,7 +7,6 @@ type RazonDeReferencia string
 
 const (
 	MismoAmbiente       RazonDeReferencia = "mismo_ambiente"
-	AmbienteAnterior    RazonDeReferencia = "ambiente_anterior"
 	ElegidaPorElUsuario RazonDeReferencia = "elegida_por_el_usuario"
 )
 

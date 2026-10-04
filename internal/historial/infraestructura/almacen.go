@@ -26,7 +26,7 @@ type Almacen interface {
 }
 
 // Secuencia se nombra por su familia y, si la familia tiene varias, por su nombre: «intentos» e id,
-// «despliegues» y ambiente. «lanzamientos» es una sola, sin nombre.
+// «despliegues» y ambiente, «salidas» e intento. «lanzamientos» es una sola, sin nombre.
 type Secuencia struct {
 	Familia string
 	Nombre  string
@@ -46,6 +46,7 @@ const (
 	familiaOcupaciones  = "ocupaciones"
 	familiaReservas     = "reservas"
 	familiaLanzamientos = "lanzamientos"
+	familiaSalidas      = "salidas"
 )
 
 // segmento convierte un nombre en un segmento de ruta seguro en cualquier sistema: letras y dígitos ASCII,

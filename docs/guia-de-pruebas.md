@@ -58,9 +58,9 @@ La opción tiene prioridad sobre la variable.
 | Canal | Contenido |
 |---|---|
 | **stdout** | Solo la respuesta, en JSON. Las operaciones que no devuelven nada responden `{}` |
-| **stderr** | Lo que imprimen los comandos de los pasos, **en vivo y tal cual**, y los mensajes de error |
+| **stderr** | Los mensajes de error. Lo que imprimen los comandos de los pasos no se muestra: se consulta con `logs` |
 
-Para separarlos: `vexd intentar … >respuesta.json 2>comandos.log`.
+Lo que imprimieron los comandos queda en el historial: `vexd logs` lo muestra (ver más abajo).
 
 ### Códigos de salida
 
@@ -230,9 +230,10 @@ a lanzar en cuanto un despliegue queda listo.
 
 \* Uno de los dos, nunca los dos.
 
-**Respuesta**: `Forma` es `con_atribucion`, `sin_referencia` o `no_se_atribuye`. Con atribución, `Atribucion` lista
+**Respuesta**: `Forma` es `con_atribucion`, `sin_referencia` o `no_se_atribuye`. Con `sin_referencia`, `Mensaje`
+dice que no hay historial previo al intento que se diagnostica. Con atribución, `Atribucion` lista
 los ejes que cambiaron (`codigo`, `instrucciones`, `variables`) y `Sustento` el detalle: en qué pasos, y con qué
-despliegue se comparó (`Comparaciones`, con la `Razon`: `mismo_ambiente`, `ambiente_anterior` o
+despliegue se comparó (`Comparaciones`, con la `Razon`: `mismo_ambiente` o
 `elegida_por_el_usuario`). Nunca lleva valores de variables, autores ni commits.
 
 ### `abandonar` — dar por perdido un intento
@@ -257,6 +258,32 @@ Solo lectura, y **nunca devuelven el valor de una variable**.
 | `despliegues` | `Version`, `Ambiente` | La lista de despliegues: `Id`, `Ambiente`, `Intento`, `Padre` (vacío en el primero), `Instante` |
 
 El contenido de los registros (`Contenido.Datos`) viaja opaco, en base64.
+
+### `logs` — la salida de los comandos de un intento
+
+Solo lectura. Lo que imprimió cada comando se guarda en el historial al terminar el comando, también si falló.
+
+| Campo | Obligatorio | Qué es |
+|---|---|---|
+| `Version` | sí | `"1"` |
+| `Intento` | no | El intento a consultar. Sin él, el último que se abrió en cualquier ambiente |
+| `Resultado` | no | `"exitoso"` o `"fallido"`: solo los comandos que salieron así. Sin él, todos |
+
+La respuesta trae `IntentoId` y, en `Salidas`, los comandos de cada paso que corrió, en el orden de los pasos:
+`comando`, `salida` (sin el salto de línea final) y `resultado` (`"exitoso"` o `"fallido"`). Un intento que llegó
+hasta `test` solo trae `test`.
+
+```json
+{
+  "IntentoId": "01a106d1-94e1-727c-a252-4efac5ab306c",
+  "Salidas": {
+    "test": [
+      {"comando": "comando-test-01", "salida": "hola vex-demo", "resultado": "exitoso"},
+      {"comando": "comando-test-02", "salida": "etiqueta=v1.0.0", "resultado": "exitoso"}
+    ]
+  }
+}
+```
 
 ## Armar tu propio pipeline de prueba
 
@@ -410,7 +437,7 @@ tocar los repos.
 | `el ambiente "prod" tiene en curso el intento …` | Hay un intento sin desenlace: espera, o `abandonar` |
 | El intento no ejecuta nada | Nada cambió respecto al anterior; edita algo y haz commit |
 | Cambié un fichero del pipeline y no se nota | Falta el commit (salvo con `CopiaDeTrabajo`) |
-| `Estado: fallido` sin más | Mira stderr: es la salida del comando que falló |
+| `Estado: fallido` sin más | Mira `logs` con `"Resultado": "fallido"`: es la salida del comando que falló |
 
 Las pruebas automáticas de la misma línea de comandos están en `cmd/vexd/main_test.go`: son un buen modelo de
 peticiones válidas.

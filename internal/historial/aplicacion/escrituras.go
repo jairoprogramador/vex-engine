@@ -87,6 +87,28 @@ func (s *Servicio) RegistrarVariable(
 	})
 }
 
+// RegistrarSalida guarda la salida de un comando en la secuencia de salidas del intento, aparte de sus
+// registros. El intento tiene que existir: una salida sin intento no se podría consultar.
+func (s *Servicio) RegistrarSalida(
+	ctx context.Context, intento, paso, comando string, exitoso bool, texto string,
+) error {
+	salida, err := dominio.NuevaSalida(dominio.NombrePaso(paso), comando, exitoso, texto, s.d.Reloj.Ahora())
+	if err != nil {
+		return traducir(err)
+	}
+	id := dominio.IdIntento(intento)
+	return traducir(conReintento(func() error {
+		if _, err := s.leerIntento(ctx, id); err != nil {
+			return err
+		}
+		previas, err := s.d.Salidas.DeUnIntento(ctx, id)
+		if err != nil {
+			return err
+		}
+		return s.d.Salidas.Anadir(ctx, id, len(previas), salida)
+	}))
+}
+
 // GuardarValor es de la relación reservada.
 func (s *Servicio) GuardarValor(ctx context.Context, intento, paso, nombre, valor string) error {
 	return s.enIntento(ctx, intento, func(i *dominio.Intento, instante time.Time) error {

@@ -38,6 +38,7 @@ func nuevoHistorialReal(t *testing.T) (*historialaplicacion.Servicio, context.Co
 		Ocupaciones:  historialinfraestructura.NuevasOcupaciones(almacen),
 		Lanzamientos: historialinfraestructura.NuevosLanzamientos(almacen),
 		Reservas:     historialinfraestructura.NuevasReservas(almacen),
+		Salidas:      historialinfraestructura.NuevasSalidas(almacen),
 		Reloj:        &relojQueAvanza{ahora: time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)},
 		Identidades:  historialinfraestructura.IdentidadesUUID{},
 	})

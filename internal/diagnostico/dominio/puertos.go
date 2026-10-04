@@ -18,12 +18,10 @@ func (e EstadoDeIntento) SinDesenlace() bool { return e == "" }
 
 // IntentoDeDiagnostico es un intento en lo que este contexto necesita de él.
 type IntentoDeDiagnostico struct {
-	Id               IdIntento
-	Ambiente         Ambiente
-	Instante         time.Time
-	Estado           EstadoDeIntento
-	HashDelCodigo    HashDelCodigo
-	OrdenDeAmbientes []Ambiente
+	Id       IdIntento
+	Ambiente Ambiente
+	Instante time.Time
+	Estado   EstadoDeIntento
 }
 
 // Historial es lo que la aplicación necesita del Historial, en el lenguaje de este dominio. Todo el I/O
@@ -37,8 +35,6 @@ type Historial interface {
 	Despliegue(ctx context.Context, id IdDespliegue) (DespliegueDeDiagnostico, error)
 	// UltimoDespliegueAnteriorA es la referencia por defecto del mismo ambiente (DEC-06.6).
 	UltimoDespliegueAnteriorA(ctx context.Context, ambiente Ambiente, antesDe time.Time) (DespliegueDeDiagnostico, bool, error)
-	// UltimoDespliegueConHashDelCodigo es la referencia por defecto del ambiente anterior (DEC-06.8).
-	UltimoDespliegueConHashDelCodigo(ctx context.Context, ambiente Ambiente, hash HashDelCodigo) (DespliegueDeDiagnostico, bool, error)
 	// EjesDelIntento y Referencia son la factoría del ACL (DEC-06.5, DEC-06.13): siguen la evidencia y
 	// separan declaradas de producidas.
 	EjesDelIntento(ctx context.Context, intento IdIntento) ([]EjesDeUnPaso, []ProducidasDeUnPaso, error)

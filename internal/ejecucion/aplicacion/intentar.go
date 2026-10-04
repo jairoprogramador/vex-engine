@@ -12,7 +12,7 @@ import (
 // pide el pipeline comprobado y el material — de hoy, de un commit o de una copia de trabajo, que nunca llega a
 // despliegue (DEC-10.7); pone el material del pipeline en el espacio de trabajo (EJ-5 si no se puede); y
 // recorre sus pasos con el bucle explícito.
-func (s *Servicio) Intentar(ctx context.Context, p publicado.PeticionDeIntento, salida publicado.Salida) (resultado publicado.Resultado, err error) {
+func (s *Servicio) Intentar(ctx context.Context, p publicado.PeticionDeIntento) (resultado publicado.Resultado, err error) {
 	esCopiaDeTrabajo := p.CopiaDeTrabajo != ""
 
 	material, err := s.traerMaterialDelProyecto(ctx, p)
@@ -64,7 +64,7 @@ func (s *Servicio) Intentar(ctx context.Context, p publicado.PeticionDeIntento, 
 
 	c := contextoDelIntento{
 		id: id, ambiente: p.Ambiente, ubicacion: ubicacion, fuenteDelPipeline: p.FuenteDelPipeline, commitDelPipeline: pipeline.Commit,
-		hashDelCodigo: material.Hash, pasosPorNombre: pasosPorNombre, salida: salida,
+		hashDelCodigo: material.Hash, pasosPorNombre: pasosPorNombre,
 		estandarCompartidas: estandarCompartidas(
 			p.Metadatos, p.Ambiente, material.Hash.String(), material.Commit, material.Directorio, s.d.NombreDeLaHerramienta,
 		),

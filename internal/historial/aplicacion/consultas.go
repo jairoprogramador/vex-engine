@@ -144,6 +144,47 @@ func (s *Servicio) IntentosDeUnAmbiente(ctx context.Context, ambiente string) ([
 	return resultado, nil
 }
 
+// SalidasDeUnIntento, en el orden en que terminaron los comandos.
+func (s *Servicio) SalidasDeUnIntento(
+	ctx context.Context, id string, filtro publicado.FiltroDeSalidas,
+) ([]publicado.Salida, error) {
+	intento, err := s.d.Intentos.Intento(ctx, dominio.IdIntento(id))
+	if err != nil {
+		return nil, traducir(err)
+	}
+	if _, ok := intento.Apertura(); !ok {
+		return nil, traducir(noExiste(nil, "el intento %s", id))
+	}
+	salidas, err := s.d.Salidas.DeUnIntento(ctx, dominio.IdIntento(id))
+	if err != nil {
+		return nil, traducir(err)
+	}
+	var resultado []publicado.Salida
+	for _, salida := range salidas {
+		if filtro.Admite(salida.Exitoso) {
+			resultado = append(resultado, salidaAPublicado(salida))
+		}
+	}
+	return resultado, nil
+}
+
+// UltimoIntento es el de mayor identidad: las identidades nacen ordenadas por el instante, así que es el último
+// que se abrió en cualquier ambiente.
+func (s *Servicio) UltimoIntento(ctx context.Context) (publicado.Intento, bool, error) {
+	intentos, err := s.d.Intentos.Recorrer(ctx)
+	if err != nil {
+		return publicado.Intento{}, false, traducir(err)
+	}
+	var ultimo publicado.Intento
+	encontrado := false
+	for _, intento := range intentos {
+		if uno, ok := intentoAPublicado(intento); ok && uno.Id > ultimo.Id {
+			ultimo, encontrado = uno, true
+		}
+	}
+	return ultimo, encontrado, nil
+}
+
 func (s *Servicio) DesplieguesDeUnAmbiente(ctx context.Context, ambiente string) ([]publicado.Despliegue, error) {
 	despliegues, err := s.d.Despliegues.DeUnAmbiente(ctx, dominio.Ambiente(ambiente))
 	if err != nil {

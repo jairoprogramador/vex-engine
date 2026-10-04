@@ -16,9 +16,16 @@ type Respuesta struct {
 	forma      FormaDeRespuesta
 	atribucion Atribucion
 	sustento   Sustento
+	mensaje    string
 }
 
+// MensajeSinHistorialPrevio es lo que se le dice al usuario en ES-6.
+const MensajeSinHistorialPrevio = "no hay historial previo para poder diagnosticar"
+
 func (r Respuesta) Forma() FormaDeRespuesta { return r.forma }
+
+// Mensaje es el texto para el usuario cuando la forma lo requiere (ES-6); vacío en las demás.
+func (r Respuesta) Mensaje() string { return r.mensaje }
 
 // NuevaRespuestaConAtribucion es ES-1..ES-5: la atribución puede tener de 0 a 3 candidatos — 0 es ES-5, un
 // hecho, no un error.
@@ -26,8 +33,10 @@ func NuevaRespuestaConAtribucion(atribucion Atribucion, sustento Sustento) Respu
 	return Respuesta{forma: ConAtribucion, atribucion: atribucion, sustento: sustento}
 }
 
-// RespuestaSinReferencia es ES-6: no existe ningún despliegue contra el que comparar.
-func RespuestaSinReferencia() Respuesta { return Respuesta{forma: SinReferencia} }
+// RespuestaSinReferencia es ES-6: no existe ningún despliegue anterior al intento contra el que comparar.
+func RespuestaSinReferencia() Respuesta {
+	return Respuesta{forma: SinReferencia, mensaje: MensajeSinHistorialPrevio}
+}
 
 // RespuestaNoSeAtribuye es ES-7: el intento está cancelado o sin desenlace.
 func RespuestaNoSeAtribuye() Respuesta { return Respuesta{forma: NoSeAtribuye} }

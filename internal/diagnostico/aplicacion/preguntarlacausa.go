@@ -12,9 +12,9 @@ import (
 // «Servicio de aplicación: preguntar la causa»):
 //  1. determina el intento que falla;
 //  2. si está cancelado o sin desenlace, no se atribuye (ES-7) — sin tocar el ACL;
-//  3. elige las referencias; si no hay ninguna, sin referencia (ES-6);
-//  4. pide los ejes de cada paso, del que falla y de cada referencia, a través del ACL;
-//  5. compara cada referencia y arma la cantidad de intentos de la del mismo ambiente (ES-8);
+//  3. elige la referencia; si no hay ninguna anterior al intento, sin referencia y con su mensaje (ES-6);
+//  4. pide los ejes de cada paso, del que falla y de la referencia, a través del ACL;
+//  5. compara la referencia y arma la cantidad de intentos si es la del mismo ambiente (ES-8);
 //  6. elimina y arma el sustento.
 func (s *Servicio) PreguntarLaCausa(ctx context.Context, p publicado.PeticionDeDiagnostico) (publicado.Respuesta, error) {
 	intentoId, err := s.resolverIntentoQueFalla(ctx, p)
@@ -34,7 +34,7 @@ func (s *Servicio) PreguntarLaCausa(ctx context.Context, p publicado.PeticionDeD
 	if err != nil {
 		return publicado.Respuesta{}, traducir(err)
 	}
-	candidatas := dominio.ElegirReferencias(candidatos)
+	candidatas := dominio.ElegirReferencias(candidatos, intento.Id)
 	if len(candidatas) == 0 {
 		return respuestaAPublicado(dominio.RespuestaSinReferencia()), nil
 	}
@@ -105,7 +105,7 @@ func (s *Servicio) resolverIntentoQueFalla(ctx context.Context, p publicado.Peti
 }
 
 // resolverCandidatos arma lo que ElegirReferencias necesita: si el usuario eligió una, solo esa; si no,
-// las dos por defecto, cada una si existe (DEC-06.6, DEC-06.8).
+// el último despliegue del mismo ambiente anterior al intento, si existe (DEC-06.6).
 func (s *Servicio) resolverCandidatos(
 	ctx context.Context, p publicado.PeticionDeDiagnostico, intento dominio.IntentoDeDiagnostico,
 ) (dominio.CandidatosParaElegirReferencias, error) {
@@ -121,25 +121,12 @@ func (s *Servicio) resolverCandidatos(
 		return dominio.CandidatosParaElegirReferencias{ElegidaPorElUsuario: &elegida}, nil
 	}
 
-	var candidatos dominio.CandidatosParaElegirReferencias
-
 	mismoAmbiente, hay, err := s.d.Historial.UltimoDespliegueAnteriorA(ctx, intento.Ambiente, intento.Instante)
 	if err != nil {
 		return dominio.CandidatosParaElegirReferencias{}, err
 	}
-	if hay {
-		candidatos.UltimoDelMismoAmbiente = &mismoAmbiente
+	if !hay {
+		return dominio.CandidatosParaElegirReferencias{}, nil
 	}
-
-	if ambienteAnterior, hay := dominio.EncontrarAmbienteAnterior(intento.OrdenDeAmbientes, intento.Ambiente); hay {
-		delAmbienteAnterior, hay, err := s.d.Historial.UltimoDespliegueConHashDelCodigo(ctx, ambienteAnterior, intento.HashDelCodigo)
-		if err != nil {
-			return dominio.CandidatosParaElegirReferencias{}, err
-		}
-		if hay {
-			candidatos.UltimoDelAmbienteAnteriorConMismoCodigo = &delAmbienteAnterior
-		}
-	}
-
-	return candidatos, nil
+	return dominio.CandidatosParaElegirReferencias{UltimoDelMismoAmbiente: &mismoAmbiente}, nil
 }

@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
 
 	ejecucionpublicado "github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
 	simulacionpublicado "github.com/jairoprogramador/vex-engine/internal/simulacion/publicado"
@@ -102,20 +101,4 @@ func codigoDelEstado(estado string) int {
 	default:
 		return salidaFallo
 	}
-}
-
-// salidaEnVivo entrega lo que imprimen los comandos a un escritor, tal cual y sin guardarlo (DEC-12.5). Un
-// comando escribe su salida y su error desde hilos distintos, así que serializa.
-type salidaEnVivo struct {
-	mu sync.Mutex
-	w  io.Writer
-}
-
-var _ ejecucionpublicado.Salida = (*salidaEnVivo)(nil)
-
-func (s *salidaEnVivo) Escribir(_ string, datos []byte) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, err := s.w.Write(datos)
-	return err
 }

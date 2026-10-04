@@ -39,6 +39,14 @@ type Reservas interface {
 	Anadir(ctx context.Context, reservas *ReservasDeUnAmbiente) error
 }
 
+// Salidas guarda lo que escribió cada comando de un intento, en el orden en que terminaron. Un intento sin
+// salidas devuelve una lista vacía. Añadir escribe una salida después de las previas que se leyeron, y
+// devuelve ErrConflicto si alguien añadió otra desde entonces.
+type Salidas interface {
+	DeUnIntento(ctx context.Context, intento IdIntento) ([]Salida, error)
+	Anadir(ctx context.Context, intento IdIntento, previas int, salida Salida) error
+}
+
 // Reloj da el instante de cada registro.
 type Reloj interface {
 	Ahora() time.Time

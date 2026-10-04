@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jairoprogramador/vex-engine/internal/ejecucion/dominio"
-	"github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
 )
 
 // Los dobles de este fichero son los puertos que el propio dominio de Ejecución declara (dominio.Pipelines,
@@ -115,6 +114,12 @@ var _ dominio.Variables = (*variablesFalsas)(nil)
 
 type registroDeHistorial struct{ tipo, paso string }
 
+type salidaRegistrada struct {
+	paso, comando string
+	exitoso       bool
+	texto         string
+}
+
 // historialFalso guarda en memoria lo que se le registra, para que las pruebas comprueben el orden de las
 // escrituras y qué se cerró, sin depender del Historial real.
 type historialFalso struct {
@@ -128,6 +133,7 @@ type historialFalso struct {
 	ultimaVezPorPaso map[string]dominio.UltimaVezDeUnPaso
 	fallarRegistrar  map[string]bool
 	registros        []registroDeHistorial
+	salidas          []salidaRegistrada
 
 	cerrado           bool
 	desenlaceCerrado  dominio.Desenlace
@@ -176,6 +182,13 @@ func (h *historialFalso) RegistrarFinal(_ context.Context, _, paso string, exito
 		tipo = "final-fallido"
 	}
 	h.registros = append(h.registros, registroDeHistorial{tipo, paso})
+	return nil
+}
+
+func (h *historialFalso) RegistrarSalida(_ context.Context, _, paso, comando string, exitoso bool, texto string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.salidas = append(h.salidas, salidaRegistrada{paso, comando, exitoso, texto})
 	return nil
 }
 
@@ -269,17 +282,3 @@ func (e *espacioDeTrabajoFalso) InterpolarPlantillas(context.Context, dominio.Ub
 }
 
 var _ dominio.EspacioDeTrabajo = (*espacioDeTrabajoFalso)(nil)
-
-type salidaFalsa struct {
-	mu       sync.Mutex
-	recibido []string
-}
-
-func (s *salidaFalsa) Escribir(paso string, datos []byte) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.recibido = append(s.recibido, paso+":"+string(datos))
-	return nil
-}
-
-var _ publicado.Salida = (*salidaFalsa)(nil)

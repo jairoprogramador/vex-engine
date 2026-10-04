@@ -70,6 +70,15 @@ type ocupacionJSON struct {
 	Instante time.Time `json:"instante"`
 }
 
+type salidaJSON struct {
+	Formato  int       `json:"formato"`
+	Paso     string    `json:"paso"`
+	Comando  string    `json:"comando"`
+	Exitoso  bool      `json:"exitoso"`
+	Salida   []byte    `json:"salida,omitempty"`
+	Instante time.Time `json:"instante"`
+}
+
 type lanzamientoJSON struct {
 	Formato    int            `json:"formato"`
 	Id         string         `json:"id"`
@@ -246,6 +255,24 @@ func decodificarReserva(datos []byte) (dominio.Reserva, error) {
 		return dominio.Reserva{}, err
 	}
 	return dominio.Reserva{Reservado: j.Reservado, Instante: j.Instante}, nil
+}
+
+func codificarSalida(s dominio.Salida) ([]byte, error) {
+	return json.Marshal(salidaJSON{
+		Formato: formatoDeRegistro, Paso: string(s.Paso), Comando: s.Comando, Exitoso: s.Exitoso,
+		Salida: []byte(s.Texto), Instante: s.Instante,
+	})
+}
+
+func decodificarSalida(datos []byte) (dominio.Salida, error) {
+	var j salidaJSON
+	if err := decodificar(datos, &j, &j.Formato); err != nil {
+		return dominio.Salida{}, err
+	}
+	return dominio.Salida{
+		Paso: dominio.NombrePaso(j.Paso), Comando: j.Comando, Exitoso: j.Exitoso,
+		Texto: string(j.Salida), Instante: j.Instante,
+	}, nil
 }
 
 func decodificar(datos []byte, destino any, formato *int) error {

@@ -1,19 +1,21 @@
 package aplicacion
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jairoprogramador/vex-engine/internal/ejecucion/dominio"
-	"github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
 )
 
 // ejecutarPaso interpola las plantillas del paso —justo antes de correr, para que puedan usar lo que produjeron
 // pasos anteriores—, interpola y ejecuta sus comandos en orden, y entrega a Resolución lo que producen. Se
 // detiene en el primer comando que no sale exitoso: exitoso=false y err=nil. Un error de verdad (interpolar,
-// ejecutar, registrar) siempre es err != nil.
+// ejecutar, registrar) siempre es err != nil. La salida de cada comando se entrega al Historial al terminar,
+// salga como salga.
 func (s *Servicio) ejecutarPaso(
-	ctx context.Context, intento string, ubicacion dominio.Ubicacion, paso dominio.PasoDeEjecucion, ambito dominio.Ambito, salida publicado.Salida,
+	ctx context.Context, intento string, ubicacion dominio.Ubicacion, paso dominio.PasoDeEjecucion, ambito dominio.Ambito,
 ) (bool, error) {
 	interpolar := func(texto string) (string, error) {
 		return s.d.Variables.Interpolar(ctx, intento, paso.Nombre(), ambito, texto)
@@ -23,7 +25,6 @@ func (s *Servicio) ejecutarPaso(
 	}
 
 	directorio := s.d.EspacioDeTrabajo.DirectorioDelPaso(ubicacion, paso.Nombre())
-	escritor := &escritorDeSalida{salida: salida, paso: paso.Nombre()}
 
 	for _, comando := range paso.Comandos {
 		lineaInterpolada, err := interpolar(comando.Linea())
@@ -31,9 +32,16 @@ func (s *Servicio) ejecutarPaso(
 			return false, fmt.Errorf("ejecución: interpolar el comando %q del paso %q: %w", comando.Nombre(), paso.Nombre(), err)
 		}
 
-		resultado, err := s.d.Comandos.Ejecutar(ctx, directorio, lineaInterpolada, comando, escritor)
+		var salida bytes.Buffer
+		resultado, err := s.d.Comandos.Ejecutar(ctx, directorio, lineaInterpolada, comando, &salida)
 		if err != nil {
-			return false, fmt.Errorf("ejecución: el comando %q del paso %q: %w", comando.Nombre(), paso.Nombre(), err)
+			err = fmt.Errorf("ejecución: el comando %q del paso %q: %w", comando.Nombre(), paso.Nombre(), err)
+		}
+		if errSalida := s.registrarSalida(ctx, intento, paso.Nombre(), comando.Nombre(), err == nil && resultado.Exitoso, salida.String()); errSalida != nil {
+			return false, errors.Join(err, errSalida)
+		}
+		if err != nil {
+			return false, err
 		}
 		if !resultado.Exitoso {
 			return false, nil
@@ -63,16 +71,8 @@ func (s *Servicio) registrarLoProducido(
 	return nil
 }
 
-// escritorDeSalida adapta la salida por paso (lo que recibe la operación pública) a io.Writer, que es lo que
-// pide el puerto dominio.Comandos.
-type escritorDeSalida struct {
-	salida publicado.Salida
-	paso   string
-}
-
-func (e *escritorDeSalida) Write(datos []byte) (int, error) {
-	if err := e.salida.Escribir(e.paso, datos); err != nil {
-		return 0, err
-	}
-	return len(datos), nil
+// registrarSalida entrega la salida de un comando al Historial. Sin depender del ctx: si lo que terminó el
+// comando fue la cancelación, su salida es justo la que más interesa conservar.
+func (s *Servicio) registrarSalida(ctx context.Context, intento, paso, comando string, exitoso bool, texto string) error {
+	return s.d.Historial.RegistrarSalida(context.WithoutCancel(ctx), intento, paso, comando, exitoso, texto)
 }

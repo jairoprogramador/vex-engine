@@ -84,6 +84,9 @@ type Historial interface {
 	RegistrarComienzo(ctx context.Context, intento, paso string, recursos RecursosDeUnPaso) error
 	RegistrarFinal(ctx context.Context, intento, paso string, exitoso bool, recursos RecursosDeUnPaso) error
 	RegistrarNoReejecucion(ctx context.Context, intento, paso string, evidencia Evidencia, recursos RecursosDeUnPaso) error
+	// RegistrarSalida guarda lo que escribió un comando de un paso al terminar, y si salió bien. Se guarda
+	// también la de un comando que falló o que se canceló.
+	RegistrarSalida(ctx context.Context, intento, paso, comando string, exitoso bool, texto string) error
 	// CerrarIntento registra el desenlace y, si el intento llega a despliegue, lo crea. destino es el
 	// despliegue padre de un rollback, y vacío si no lo es.
 	CerrarIntento(ctx context.Context, intento string, desenlace Desenlace, destino string) (despliegue string, huboDespliegue bool, err error)

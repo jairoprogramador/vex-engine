@@ -123,7 +123,6 @@ type historialFalso struct {
 	despliegueDeLanzamiento map[string]dominio.IdDespliegue
 	despliegues             map[string]dominio.DespliegueDeDiagnostico
 	ultimoDelMismoAmbiente  map[string]dominio.DespliegueDeDiagnostico
-	ultimoConHash           map[string]dominio.DespliegueDeDiagnostico
 	recursosDelIntento      map[string]recursosDePrueba
 	referencias             map[string]referenciaDePrueba
 	cantidadDeIntentos      int
@@ -139,7 +138,6 @@ func nuevoHistorialFalso() *historialFalso {
 		despliegueDeLanzamiento: map[string]dominio.IdDespliegue{},
 		despliegues:             map[string]dominio.DespliegueDeDiagnostico{},
 		ultimoDelMismoAmbiente:  map[string]dominio.DespliegueDeDiagnostico{},
-		ultimoConHash:           map[string]dominio.DespliegueDeDiagnostico{},
 		recursosDelIntento:      map[string]recursosDePrueba{},
 		referencias:             map[string]referenciaDePrueba{},
 	}
@@ -182,13 +180,6 @@ func (h *historialFalso) UltimoDespliegueAnteriorA(
 	_ context.Context, amb dominio.Ambiente, _ time.Time,
 ) (dominio.DespliegueDeDiagnostico, bool, error) {
 	d, ok := h.ultimoDelMismoAmbiente[amb.String()]
-	return d, ok, nil
-}
-
-func (h *historialFalso) UltimoDespliegueConHashDelCodigo(
-	_ context.Context, amb dominio.Ambiente, hash dominio.HashDelCodigo,
-) (dominio.DespliegueDeDiagnostico, bool, error) {
-	d, ok := h.ultimoConHash[amb.String()+"|"+hash.String()]
 	return d, ok, nil
 }
 

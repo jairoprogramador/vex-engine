@@ -36,28 +36,6 @@ func decodificarRecursosDePaso(c historialpublicado.Contenido) (hashDelCodigo, h
 	return cr.HashDelCodigo, cr.HashDeInstrucciones, nil
 }
 
-// contextoAperturaDeEjecucion es la forma de internal/ejecucion/infraestructura/contenido.go
-// (contenidoApertura). Solo se lee OrdenDeAmbientes: los otros campos (fuentes y commits) no le
-// pertenecen a este contexto.
-const contextoAperturaDeEjecucion = "ejecucion/apertura-v1"
-
-type contenidoAperturaDeEjecucion struct {
-	OrdenDeAmbientes []string `json:"orden_de_ambientes"`
-}
-
-func decodificarOrdenDeAmbientes(c historialpublicado.Contenido) ([]string, error) {
-	if c.Contexto != contextoAperturaDeEjecucion {
-		return nil, fmt.Errorf(
-			"diagnóstico: contenido de contexto %q, se esperaba %q", c.Contexto, contextoAperturaDeEjecucion,
-		)
-	}
-	var ca contenidoAperturaDeEjecucion
-	if err := json.Unmarshal(c.Datos, &ca); err != nil {
-		return nil, fmt.Errorf("diagnóstico: decodificar el orden de ambientes: %w", err)
-	}
-	return ca.OrdenDeAmbientes, nil
-}
-
 // contextoVariableDeResolucion es la forma de internal/resolucion/infraestructura/contenido.go
 // (contenidoVariable). El ámbito no le hace falta a este ACL: la visibilidad de una variable declarada ya
 // la decide qué registro se leyó (DEC-06.12), y Historial solo guarda la última de cada nombre por paso e

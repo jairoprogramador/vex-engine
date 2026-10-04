@@ -11,7 +11,7 @@ import (
 // HacerRollback es EJ-2: como Intentar, pero con el material y las declaraciones del commit del despliegue
 // destino (DEC-03.9), con todos los pasos del pipeline, y cerrando con el destino, que será el padre del
 // despliegue nuevo.
-func (s *Servicio) HacerRollback(ctx context.Context, p publicado.PeticionDeRollback, salida publicado.Salida) (resultado publicado.Resultado, err error) {
+func (s *Servicio) HacerRollback(ctx context.Context, p publicado.PeticionDeRollback) (resultado publicado.Resultado, err error) {
 	destino, err := s.d.Historial.DespliegueParaRollback(ctx, p.Despliegue)
 	if err != nil {
 		return publicado.Resultado{}, traducir(err)
@@ -62,7 +62,7 @@ func (s *Servicio) HacerRollback(ctx context.Context, p publicado.PeticionDeRoll
 
 	c := contextoDelIntento{
 		id: id, ambiente: destino.Ambiente(), ubicacion: ubicacion, fuenteDelPipeline: destino.FuenteDelPipeline(), commitDelPipeline: destino.CommitDelPipeline(),
-		hashDelCodigo: material.Hash, pasosPorNombre: pasosPorNombre, salida: salida,
+		hashDelCodigo: material.Hash, pasosPorNombre: pasosPorNombre,
 		estandarCompartidas: estandarCompartidas(
 			p.Metadatos, destino.Ambiente(), material.Hash.String(), material.Commit, material.Directorio, s.d.NombreDeLaHerramienta,
 		),

@@ -84,22 +84,6 @@ func (h *Historial) UltimoDespliegueAnteriorA(
 	return dominio.DespliegueDeDiagnostico{}, false, nil
 }
 
-func (h *Historial) UltimoDespliegueConHashDelCodigo(
-	ctx context.Context, ambiente dominio.Ambiente, hash dominio.HashDelCodigo,
-) (dominio.DespliegueDeDiagnostico, bool, error) {
-	d, hay, err := h.registros.UltimoDespliegueConHashDelCodigo(ctx, ambiente.String(), hash.String())
-	if err != nil {
-		return dominio.DespliegueDeDiagnostico{}, false, fmt.Errorf(
-			"diagnóstico: el último despliegue de %q con el hash %s: %w", ambiente, hash, err,
-		)
-	}
-	if !hay {
-		return dominio.DespliegueDeDiagnostico{}, false, nil
-	}
-	resultado, err := despliegueDeDominio(d)
-	return resultado, true, err
-}
-
 func (h *Historial) CantidadDeIntentos(
 	ctx context.Context, despliegue dominio.IdDespliegue, intento dominio.IdIntento,
 ) (int, error) {
@@ -119,25 +103,8 @@ func intentoDeDominio(i historialpublicado.Intento) (dominio.IntentoDeDiagnostic
 	if err != nil {
 		return dominio.IntentoDeDiagnostico{}, err
 	}
-	hash, err := dominio.NuevoHashDelCodigo(i.Apertura.HashDelCodigo)
-	if err != nil {
-		return dominio.IntentoDeDiagnostico{}, err
-	}
-	orden, err := decodificarOrdenDeAmbientes(i.Apertura.Contenido)
-	if err != nil {
-		return dominio.IntentoDeDiagnostico{}, err
-	}
-	ordenDeAmbientes := make([]dominio.Ambiente, 0, len(orden))
-	for _, a := range orden {
-		amb, err := dominio.NuevaAmbiente(a)
-		if err != nil {
-			return dominio.IntentoDeDiagnostico{}, err
-		}
-		ordenDeAmbientes = append(ordenDeAmbientes, amb)
-	}
 	return dominio.IntentoDeDiagnostico{
-		Id: id, Ambiente: ambiente, Instante: i.Instante,
-		Estado: dominio.EstadoDeIntento(i.Estado), HashDelCodigo: hash, OrdenDeAmbientes: ordenDeAmbientes,
+		Id: id, Ambiente: ambiente, Instante: i.Instante, Estado: dominio.EstadoDeIntento(i.Estado),
 	}, nil
 }
 

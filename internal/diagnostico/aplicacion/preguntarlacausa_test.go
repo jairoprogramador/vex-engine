@@ -18,7 +18,7 @@ func TestPreguntarLaCausa_ES1_AyerFuncionoHoyFalla(t *testing.T) {
 
 	h.intentos["i-falla"] = dominio.IntentoDeDiagnostico{
 		Id: idIntento(t, "i-falla"), Ambiente: ambiente(t, "prod"), Instante: t1,
-		Estado: dominio.Fallido, HashDelCodigo: hashDelCodigo(t, "c2"),
+		Estado: dominio.Fallido,
 	}
 	h.ultimoDelMismoAmbiente["prod"] = dominio.DespliegueDeDiagnostico{
 		Id: idDespliegue(t, "d-ref"), Ambiente: ambiente(t, "prod"), Intento: idIntento(t, "i-ref"), Instante: t0,
@@ -39,73 +39,6 @@ func TestPreguntarLaCausa_ES1_AyerFuncionoHoyFalla(t *testing.T) {
 	require.ElementsMatch(t, []publicado.Eje{publicado.Codigo, publicado.Variables}, r.Atribucion)
 }
 
-func TestPreguntarLaCausa_ES2_FuncionoEnStagingFallaEnProduccion(t *testing.T) {
-	h := nuevoHistorialFalso()
-	t0 := time.Now().Add(-time.Hour)
-	t1 := time.Now()
-
-	h.intentos["i-falla"] = dominio.IntentoDeDiagnostico{
-		Id: idIntento(t, "i-falla"), Ambiente: ambiente(t, "prod"), Instante: t1,
-		Estado: dominio.Fallido, HashDelCodigo: hashDelCodigo(t, "c1"),
-		OrdenDeAmbientes: []dominio.Ambiente{ambiente(t, "stag"), ambiente(t, "prod")},
-	}
-	h.ultimoConHash["stag|c1"] = dominio.DespliegueDeDiagnostico{
-		Id: idDespliegue(t, "d-stag"), Ambiente: ambiente(t, "stag"), Intento: idIntento(t, "i-stag"), Instante: t0,
-	}
-	h.recursosDelIntento["i-falla"] = recursosDePrueba{
-		ejes: []dominio.EjesDeUnPaso{ejesDeUnPaso(t, "deploy", "c1", "i1", map[string]string{"v": "h3"}, false)},
-	}
-	h.referencias["d-stag"] = referenciaDePrueba{
-		referencia: dominio.NuevaReferencia(
-			idDespliegue(t, "d-stag"), ambiente(t, "stag"), t0, dominio.AmbienteAnterior,
-			[]dominio.EjesDeUnPaso{ejesDeUnPaso(t, "deploy", "c1", "i1", map[string]string{"v": "h2"}, false)}, nil,
-		),
-	}
-
-	r, err := nuevoServicio(h).PreguntarLaCausa(context.Background(), publicado.PeticionDeDiagnostico{Intento: "i-falla"})
-	require.NoError(t, err)
-	require.Equal(t, publicado.ConAtribucion, r.Forma)
-	require.Equal(t, []publicado.Eje{publicado.Variables}, r.Atribucion)
-}
-
-func TestPreguntarLaCausa_ES1MasES2_CasoNormal(t *testing.T) {
-	h := nuevoHistorialFalso()
-	t0 := time.Now().Add(-2 * time.Hour)
-	t1 := time.Now()
-
-	h.intentos["i-falla"] = dominio.IntentoDeDiagnostico{
-		Id: idIntento(t, "i-falla"), Ambiente: ambiente(t, "prod"), Instante: t1,
-		Estado: dominio.Fallido, HashDelCodigo: hashDelCodigo(t, "c1"),
-		OrdenDeAmbientes: []dominio.Ambiente{ambiente(t, "stag"), ambiente(t, "prod")},
-	}
-	h.ultimoDelMismoAmbiente["prod"] = dominio.DespliegueDeDiagnostico{
-		Id: idDespliegue(t, "d-prod"), Ambiente: ambiente(t, "prod"), Intento: idIntento(t, "i-prod"), Instante: t0,
-	}
-	h.ultimoConHash["stag|c1"] = dominio.DespliegueDeDiagnostico{
-		Id: idDespliegue(t, "d-stag"), Ambiente: ambiente(t, "stag"), Intento: idIntento(t, "i-stag"), Instante: t0,
-	}
-	h.recursosDelIntento["i-falla"] = recursosDePrueba{
-		ejes: []dominio.EjesDeUnPaso{ejesDeUnPaso(t, "deploy", "c1", "i1", map[string]string{"v": "h3"}, false)},
-	}
-	h.referencias["d-prod"] = referenciaDePrueba{
-		referencia: dominio.NuevaReferencia(
-			idDespliegue(t, "d-prod"), ambiente(t, "prod"), t0, dominio.MismoAmbiente,
-			[]dominio.EjesDeUnPaso{ejesDeUnPaso(t, "deploy", "c0", "i1", map[string]string{"v": "h1"}, false)}, nil,
-		),
-	}
-	h.referencias["d-stag"] = referenciaDePrueba{
-		referencia: dominio.NuevaReferencia(
-			idDespliegue(t, "d-stag"), ambiente(t, "stag"), t0, dominio.AmbienteAnterior,
-			[]dominio.EjesDeUnPaso{ejesDeUnPaso(t, "deploy", "c1", "i1", map[string]string{"v": "h2"}, false)}, nil,
-		),
-	}
-
-	r, err := nuevoServicio(h).PreguntarLaCausa(context.Background(), publicado.PeticionDeDiagnostico{Intento: "i-falla"})
-	require.NoError(t, err)
-	require.Equal(t, publicado.ConAtribucion, r.Forma)
-	require.Equal(t, []publicado.Eje{publicado.Variables}, r.Atribucion, "el caso normal deja un solo candidato: las variables")
-}
-
 func TestPreguntarLaCausa_ES3_FallaAnteElCliente(t *testing.T) {
 	h := nuevoHistorialFalso()
 	t0 := time.Now().Add(-time.Hour)
@@ -119,7 +52,7 @@ func TestPreguntarLaCausa_ES3_FallaAnteElCliente(t *testing.T) {
 	// falla, y el core lo toma como premisa aunque el intento haya quedado exitoso.
 	h.intentos["i-launched"] = dominio.IntentoDeDiagnostico{
 		Id: idIntento(t, "i-launched"), Ambiente: ambiente(t, "prod"), Instante: t1,
-		Estado: dominio.Exitoso, HashDelCodigo: hashDelCodigo(t, "c2"),
+		Estado: dominio.Exitoso,
 	}
 	h.ultimoDelMismoAmbiente["prod"] = dominio.DespliegueDeDiagnostico{
 		Id: idDespliegue(t, "d-ref"), Ambiente: ambiente(t, "prod"), Intento: idIntento(t, "i-ref"), Instante: t0,
@@ -146,7 +79,7 @@ func TestPreguntarLaCausa_ES4_UnPasoNoSeReejecuto(t *testing.T) {
 
 	h.intentos["i-falla"] = dominio.IntentoDeDiagnostico{
 		Id: idIntento(t, "i-falla"), Ambiente: ambiente(t, "prod"), Instante: t1,
-		Estado: dominio.Fallido, HashDelCodigo: hashDelCodigo(t, "c1"),
+		Estado: dominio.Fallido,
 	}
 	h.ultimoDelMismoAmbiente["prod"] = dominio.DespliegueDeDiagnostico{
 		Id: idDespliegue(t, "d-ref"), Ambiente: ambiente(t, "prod"), Intento: idIntento(t, "i-ref"), Instante: t0,
@@ -177,7 +110,7 @@ func TestPreguntarLaCausa_ES5_NadaCambio(t *testing.T) {
 
 	h.intentos["i-falla"] = dominio.IntentoDeDiagnostico{
 		Id: idIntento(t, "i-falla"), Ambiente: ambiente(t, "prod"), Instante: t1,
-		Estado: dominio.Fallido, HashDelCodigo: hashDelCodigo(t, "c1"),
+		Estado: dominio.Fallido,
 	}
 	h.ultimoDelMismoAmbiente["prod"] = dominio.DespliegueDeDiagnostico{
 		Id: idDespliegue(t, "d-ref"), Ambiente: ambiente(t, "prod"), Intento: idIntento(t, "i-ref"), Instante: t0,
@@ -208,14 +141,33 @@ func TestPreguntarLaCausa_ES6_SinReferencia(t *testing.T) {
 	h := nuevoHistorialFalso()
 	h.intentos["i-falla"] = dominio.IntentoDeDiagnostico{
 		Id: idIntento(t, "i-falla"), Ambiente: ambiente(t, "prod"), Instante: time.Now(),
-		Estado: dominio.Fallido, HashDelCodigo: hashDelCodigo(t, "c1"),
+		Estado: dominio.Fallido,
 	}
 
 	r, err := nuevoServicio(h).PreguntarLaCausa(context.Background(), publicado.PeticionDeDiagnostico{Intento: "i-falla"})
 	require.NoError(t, err)
 	require.Equal(t, publicado.SinReferencia, r.Forma)
+	require.Equal(t, "no hay historial previo para poder diagnosticar", r.Mensaje)
 	require.False(t, h.llamadoEjesDelIntento)
 	require.False(t, h.llamadoReferencia)
+}
+
+func TestPreguntarLaCausa_ES6_LaReferenciaEsElMismoIntento(t *testing.T) {
+	h := nuevoHistorialFalso()
+	h.intentos["i-falla"] = dominio.IntentoDeDiagnostico{
+		Id: idIntento(t, "i-falla"), Ambiente: ambiente(t, "prod"), Instante: time.Now(), Estado: dominio.Fallido,
+	}
+	h.despliegues["d-propio"] = dominio.DespliegueDeDiagnostico{
+		Id: idDespliegue(t, "d-propio"), Ambiente: ambiente(t, "prod"), Intento: idIntento(t, "i-falla"),
+	}
+
+	r, err := nuevoServicio(h).PreguntarLaCausa(
+		context.Background(), publicado.PeticionDeDiagnostico{Intento: "i-falla", Referencia: "d-propio"},
+	)
+	require.NoError(t, err)
+	require.Equal(t, publicado.SinReferencia, r.Forma)
+	require.Equal(t, "no hay historial previo para poder diagnosticar", r.Mensaje)
+	require.False(t, h.llamadoReferencia, "no se compara un intento consigo mismo")
 }
 
 func TestPreguntarLaCausa_ES7_CanceladoOSinDesenlace(t *testing.T) {
@@ -246,14 +198,10 @@ func TestPreguntarLaCausa_ES8_CantidadDeIntentos(t *testing.T) {
 
 	h.intentos["i-falla"] = dominio.IntentoDeDiagnostico{
 		Id: idIntento(t, "i-falla"), Ambiente: ambiente(t, "prod"), Instante: t1,
-		Estado: dominio.Fallido, HashDelCodigo: hashDelCodigo(t, "c1"),
-		OrdenDeAmbientes: []dominio.Ambiente{ambiente(t, "stag"), ambiente(t, "prod")},
+		Estado: dominio.Fallido,
 	}
 	h.ultimoDelMismoAmbiente["prod"] = dominio.DespliegueDeDiagnostico{
 		Id: idDespliegue(t, "d-prod"), Ambiente: ambiente(t, "prod"), Intento: idIntento(t, "i-prod"), Instante: t0,
-	}
-	h.ultimoConHash["stag|c1"] = dominio.DespliegueDeDiagnostico{
-		Id: idDespliegue(t, "d-stag"), Ambiente: ambiente(t, "stag"), Intento: idIntento(t, "i-stag"), Instante: t0,
 	}
 	h.cantidadDeIntentos = 3
 	h.recursosDelIntento["i-falla"] = recursosDePrueba{
@@ -265,24 +213,13 @@ func TestPreguntarLaCausa_ES8_CantidadDeIntentos(t *testing.T) {
 			[]dominio.EjesDeUnPaso{ejesDeUnPaso(t, "deploy", "c1", "i1", nil, false)}, nil,
 		),
 	}
-	h.referencias["d-stag"] = referenciaDePrueba{
-		referencia: dominio.NuevaReferencia(
-			idDespliegue(t, "d-stag"), ambiente(t, "stag"), t0, dominio.AmbienteAnterior,
-			[]dominio.EjesDeUnPaso{ejesDeUnPaso(t, "deploy", "c1", "i1", nil, false)}, nil,
-		),
-	}
 
 	r, err := nuevoServicio(h).PreguntarLaCausa(context.Background(), publicado.PeticionDeDiagnostico{Intento: "i-falla"})
 	require.NoError(t, err)
-	require.Len(t, r.Sustento.Comparaciones, 2)
-	for _, c := range r.Sustento.Comparaciones {
-		if c.Razon == publicado.MismoAmbiente {
-			require.True(t, c.HayCantidadDeIntentos)
-			require.Equal(t, 3, c.CantidadDeIntentos)
-		} else {
-			require.False(t, c.HayCantidadDeIntentos, "la del ambiente anterior no cuenta intentos")
-		}
-	}
+	require.Len(t, r.Sustento.Comparaciones, 1)
+	require.Equal(t, publicado.MismoAmbiente, r.Sustento.Comparaciones[0].Razon)
+	require.True(t, r.Sustento.Comparaciones[0].HayCantidadDeIntentos)
+	require.Equal(t, 3, r.Sustento.Comparaciones[0].CantidadDeIntentos)
 }
 
 func TestPreguntarLaCausa_SinIntentoNiLanzamiento_TomaElUltimoDelAmbiente(t *testing.T) {
@@ -290,7 +227,7 @@ func TestPreguntarLaCausa_SinIntentoNiLanzamiento_TomaElUltimoDelAmbiente(t *tes
 	h.ultimoIntentoDeAmbiente["prod"] = idIntento(t, "i-falla")
 	h.intentos["i-falla"] = dominio.IntentoDeDiagnostico{
 		Id: idIntento(t, "i-falla"), Ambiente: ambiente(t, "prod"), Instante: time.Now(),
-		Estado: dominio.Fallido, HashDelCodigo: hashDelCodigo(t, "c1"),
+		Estado: dominio.Fallido,
 	}
 
 	r, err := nuevoServicio(h).PreguntarLaCausa(context.Background(), publicado.PeticionDeDiagnostico{Ambiente: "prod"})

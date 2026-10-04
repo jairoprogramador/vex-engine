@@ -19,8 +19,9 @@ import (
 // llegó y con qué: el borde no decide nada, así que eso es todo lo que hay que mirar.
 type contextosFalsos struct {
 	llamadas []string
-	salida   ejecucionpublicado.Salida
 	recibido map[string]any
+	// ultimoIntento es el que dice el historial que se abrió último; vacío si no hay ninguno.
+	ultimoIntento string
 }
 
 func (c *contextosFalsos) anotar(operacion string, datos any) {
@@ -32,18 +33,16 @@ func (c *contextosFalsos) anotar(operacion string, datos any) {
 }
 
 func (c *contextosFalsos) Intentar(
-	_ context.Context, p ejecucionpublicado.PeticionDeIntento, salida ejecucionpublicado.Salida,
+	_ context.Context, p ejecucionpublicado.PeticionDeIntento,
 ) (ejecucionpublicado.Resultado, error) {
 	c.anotar("intentar", p)
-	c.salida = salida
 	return ejecucionpublicado.Resultado{}, nil
 }
 
 func (c *contextosFalsos) HacerRollback(
-	_ context.Context, p ejecucionpublicado.PeticionDeRollback, salida ejecucionpublicado.Salida,
+	_ context.Context, p ejecucionpublicado.PeticionDeRollback,
 ) (ejecucionpublicado.Resultado, error) {
 	c.anotar("rollback", p)
-	c.salida = salida
 	return ejecucionpublicado.Resultado{}, nil
 }
 
@@ -100,6 +99,26 @@ func (c *contextosFalsos) DesplieguesDeUnAmbiente(
 	return nil, nil
 }
 
+// consultaDeLogs es lo que le llega al historial al consultar las salidas de un intento.
+type consultaDeLogs struct {
+	Intento string
+	Filtro  historialpublicado.FiltroDeSalidas
+}
+
+func (c *contextosFalsos) SalidasDeUnIntento(
+	_ context.Context, intento string, filtro historialpublicado.FiltroDeSalidas,
+) ([]historialpublicado.Salida, error) {
+	c.anotar("logs", consultaDeLogs{Intento: intento, Filtro: filtro})
+	return nil, nil
+}
+
+func (c *contextosFalsos) UltimoIntento(context.Context) (historialpublicado.Intento, bool, error) {
+	if c.ultimoIntento == "" {
+		return historialpublicado.Intento{}, false, nil
+	}
+	return historialpublicado.Intento{Id: c.ultimoIntento}, true, nil
+}
+
 func servicioConContextosFalsos() (*borde.Servicio, *contextosFalsos) {
 	falsos := &contextosFalsos{}
 	return borde.NuevoServicio(borde.Dependencias{
@@ -120,12 +139,12 @@ func todasLasOperaciones() []operacion {
 	return []operacion{
 		{"intentar", "intentar", ejecucionpublicado.PeticionDeIntento{Version: "1", Ambiente: "prod"},
 			func(s *borde.Servicio, v string) error {
-				_, err := s.Intentar(ctx, ejecucionpublicado.PeticionDeIntento{Version: v, Ambiente: "prod"}, nil)
+				_, err := s.Intentar(ctx, ejecucionpublicado.PeticionDeIntento{Version: v, Ambiente: "prod"})
 				return err
 			}},
 		{"hacer rollback", "rollback", ejecucionpublicado.PeticionDeRollback{Version: "1", Despliegue: "dep-1"},
 			func(s *borde.Servicio, v string) error {
-				_, err := s.HacerRollback(ctx, ejecucionpublicado.PeticionDeRollback{Version: v, Despliegue: "dep-1"}, nil)
+				_, err := s.HacerRollback(ctx, ejecucionpublicado.PeticionDeRollback{Version: v, Despliegue: "dep-1"})
 				return err
 			}},
 		{"simular", "simular", simulacionpublicado.PeticionDeSimulacion{Version: "1", Fuente: "p", Commit: "c"},
@@ -167,6 +186,11 @@ func todasLasOperaciones() []operacion {
 				_, err := s.IntentosDeUnAmbiente(ctx, borde.PeticionDeIntentosDeUnAmbiente{Version: v, Ambiente: "prod"})
 				return err
 			}},
+		{"consultar los logs de un intento", "logs", consultaDeLogs{Intento: "int-1", Filtro: historialpublicado.SoloLasFallidas},
+			func(s *borde.Servicio, v string) error {
+				_, err := s.Logs(ctx, borde.PeticionDeLogs{Version: v, Intento: "int-1", Resultado: "fallido"})
+				return err
+			}},
 		{"consultar los despliegues de un ambiente", "despliegues", "prod",
 			func(s *borde.Servicio, v string) error {
 				_, err := s.DesplieguesDeUnAmbiente(ctx, borde.PeticionDeDesplieguesDeUnAmbiente{Version: v, Ambiente: "prod"})
@@ -204,19 +228,51 @@ func TestServicio_CadaOperacionLlegaASuContextoDeEntradaConSusDatos(t *testing.T
 	}
 }
 
-// La salida de los comandos se entrega tal cual, la misma que dio quien invoca (DEC-12.5).
-func TestServicio_LaSalidaDeLosComandosLlegaTalCualAEjecucion(t *testing.T) {
+// Logs sin intento consulta el último que se abrió, y con él consulta el que se pide.
+func TestServicio_LogsSinIntentoConsultaElUltimoQueSeAbrio(t *testing.T) {
 	servicio, falsos := servicioConContextosFalsos()
-	salida := &salidaDePrueba{}
+	falsos.ultimoIntento = "int-9"
 
-	_, err := servicio.Intentar(context.Background(), ejecucionpublicado.PeticionDeIntento{Version: "1"}, salida)
-	require.NoError(t, err)
-	require.Same(t, salida, falsos.salida)
+	respuesta, err := servicio.Logs(context.Background(), borde.PeticionDeLogs{Version: "1"})
 
-	falsos.salida = nil
-	_, err = servicio.HacerRollback(context.Background(), ejecucionpublicado.PeticionDeRollback{Version: "1"}, salida)
 	require.NoError(t, err)
-	require.Same(t, salida, falsos.salida)
+	require.Equal(t, "int-9", respuesta.Intento, "la respuesta dice cuál intento es")
+	require.Equal(t, consultaDeLogs{Intento: "int-9", Filtro: historialpublicado.TodasLasSalidas}, falsos.recibido["logs"])
+}
+
+func TestServicio_LogsSinNingunIntentoDiceQueNoExiste(t *testing.T) {
+	servicio, _ := servicioConContextosFalsos()
+
+	_, err := servicio.Logs(context.Background(), borde.PeticionDeLogs{Version: "1"})
+
+	require.ErrorIs(t, err, historialpublicado.ErrNoExiste)
+}
+
+func TestServicio_LogsTraduceElResultadoAlFiltro(t *testing.T) {
+	filtros := map[string]historialpublicado.FiltroDeSalidas{
+		"":        historialpublicado.TodasLasSalidas,
+		"exitoso": historialpublicado.SoloLasExitosas,
+		"fallido": historialpublicado.SoloLasFallidas,
+	}
+	for resultado, filtro := range filtros {
+		t.Run("resultado "+resultado, func(t *testing.T) {
+			servicio, falsos := servicioConContextosFalsos()
+
+			_, err := servicio.Logs(context.Background(), borde.PeticionDeLogs{Version: "1", Intento: "int-1", Resultado: resultado})
+
+			require.NoError(t, err)
+			require.Equal(t, consultaDeLogs{Intento: "int-1", Filtro: filtro}, falsos.recibido["logs"])
+		})
+	}
+}
+
+func TestServicio_LogsRechazaUnResultadoDesconocidoSinConsultar(t *testing.T) {
+	servicio, falsos := servicioConContextosFalsos()
+
+	_, err := servicio.Logs(context.Background(), borde.PeticionDeLogs{Version: "1", Intento: "int-1", Resultado: "roto"})
+
+	require.ErrorIs(t, err, borde.ErrPeticionInvalida)
+	require.Empty(t, falsos.llamadas)
 }
 
 // Consultar el historial no devuelve ningún valor (DEC-04.7): de un intento que produjo una variable, lo que
@@ -224,7 +280,7 @@ func TestServicio_LaSalidaDeLosComandosLlegaTalCualAEjecucion(t *testing.T) {
 func TestE2E_ConsultarElHistorialNoDevuelveNingunValor(t *testing.T) {
 	s := montarSistema(t)
 	ctx := context.Background()
-	resultado, err := s.borde.Intentar(ctx, s.peticion(t), &salidaDePrueba{})
+	resultado, err := s.borde.Intentar(ctx, s.peticion(t))
 	require.NoError(t, err)
 	require.NotEmpty(t, resultado.Despliegue)
 
@@ -275,7 +331,7 @@ func TestE2E_AbandonarUnIntentoPorElBordeLiberaElAmbiente(t *testing.T) {
 
 	require.NoError(t, s.borde.AbandonarIntento(ctx, borde.PeticionDeAbandono{Version: "1", Intento: id}))
 
-	resultado, err := s.borde.Intentar(ctx, s.peticion(t), &salidaDePrueba{})
+	resultado, err := s.borde.Intentar(ctx, s.peticion(t))
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
 }

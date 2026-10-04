@@ -97,6 +97,36 @@ type Intento struct {
 // SinDesenlace: ningún registro dice cómo terminó. No es un estado.
 func (i Intento) SinDesenlace() bool { return i.Estado == "" }
 
+// Salida es lo que escribió un comando de un paso al terminar, y si salió bien. No se confunde con los
+// registros de un paso: se guarda aparte, para poder consultarla por intento.
+type Salida struct {
+	Paso     string
+	Comando  string
+	Exitoso  bool
+	Texto    string
+	Instante time.Time
+}
+
+// FiltroDeSalidas dice qué salidas de un intento se piden. El cero es todas.
+type FiltroDeSalidas int
+
+const (
+	TodasLasSalidas FiltroDeSalidas = iota
+	SoloLasExitosas
+	SoloLasFallidas
+)
+
+// Admite dice si una salida con ese resultado entra en lo que el filtro pide.
+func (f FiltroDeSalidas) Admite(exitoso bool) bool {
+	switch f {
+	case SoloLasExitosas:
+		return exitoso
+	case SoloLasFallidas:
+		return !exitoso
+	}
+	return true
+}
+
 // Despliegue es un intento exitoso de todos los pasos de un pipeline.
 type Despliegue struct {
 	Id       string

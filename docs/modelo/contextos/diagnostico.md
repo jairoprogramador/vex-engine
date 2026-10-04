@@ -23,9 +23,9 @@ un valor.
 
 - **Lo que falla es siempre un intento**: uno fallido, o el de un despliegue que quien pregunta dice
   que falla. **La referencia es siempre un despliegue** (`DEC-06.7`).
-- **Por defecto hay dos referencias**: el último despliegue anterior en el mismo ambiente, y el último
-  despliegue del ambiente anterior en el orden **con el mismo hash del código**. Si el segundo no
-  existe, el core lo dice. El usuario puede elegir otra referencia (`DEC-06.6`, `DEC-06.8`).
+- **Por defecto hay una referencia**: el último despliegue anterior en el mismo ambiente. El usuario
+  puede elegir otra referencia (`DEC-06.6`). Si no hay ninguna anterior al intento, o la referencia es
+  un despliegue del propio intento, el core dice que no hay historial previo (`DEC-06.21`).
 - **La respuesta combina las comparaciones**: un eje que descarta cualquiera de ellas queda descartado
   (`DEC-06.11`).
 - **Los ejes se comparan paso a paso, con los recursos con que se hizo de verdad cada paso**
@@ -42,12 +42,12 @@ un valor.
 | # | Escenario | Quién pregunta | Qué se compara | Qué entrega |
 |---|---|---|---|---|
 | **ES-1** | *Ayer funcionó, hoy falla* | programador | el intento que falla contra el último despliegue anterior a él en **el mismo ambiente** | qué ejes cambiaron y cuáles no. Si las instrucciones no cambiaron, quedan dos candidatos, código y variables |
-| **ES-2** | *Funcionó en staging, falla en producción* | programador | el intento que falla en producción contra el último despliegue de **staging** con el mismo hash del código | si también coinciden las instrucciones de cada paso, el código y las instrucciones quedan descartados. Queda **un** candidato: las variables. Las de ámbito compartido son las mismas en los dos ambientes, así que las que pueden diferir son las del ámbito de cada ambiente |
+| **ES-2** | *Funcionó en staging, falla en producción* | programador | el intento que falla en producción contra un despliegue de **staging** que el usuario elige como referencia (ya no es referencia por defecto, `DEC-06.21`) | si también coinciden las instrucciones de cada paso, el código y las instrucciones quedan descartados. Queda **un** candidato: las variables. Las de ámbito compartido son las mismas en los dos ambientes, así que las que pueden diferir son las del ámbito de cada ambiente |
 | **ES-1 + ES-2** | *El caso normal* | programador | las dos a la vez | ES-1 deja el código y las variables; ES-2 descarta el código. **Respuesta: las variables** |
 | **ES-3** | *Falla ante el cliente* | dueño del negocio | entra por un lanzamiento, que lleva a su despliegue; el intento de ese despliegue es el que falla, y sigue como ES-1 y ES-2 | lo mismo que el caso al que lleva |
 | **ES-4** | *Un paso no se re-ejecutó* | dentro de cualquier escenario | para ese paso, los recursos del registro al que apunta su evidencia, que puede venir de otro ambiente si el paso no se re-ejecuta entre ambientes | la comparación contra los recursos con los que ese paso se hizo de verdad |
 | **ES-5** | *Nada cambió en ningún eje* | programador | como ES-1 y ES-2 | *«ninguno de los tres ejes cambió»*: la causa no está en ellos. Es un hecho, no un fallo del core. Si cambió alguna variable producida, aparece en el sustento |
-| **ES-6** | *No hay contra qué comparar* | cualquiera | no existe ningún despliegue de referencia | *«no hay referencia»*, sin atribución |
+| **ES-6** | *No hay contra qué comparar* | cualquiera | no existe ningún despliegue anterior al intento, o la referencia es un despliegue del propio intento | *«no hay historial previo al intento actual que se pretende diagnosticar»*, sin atribución |
 | **ES-7** | *Intento sin desenlace o cancelado* | cualquiera | — | no se atribuye causa: una cancelación no es un fallo de nadie, y de un intento sin desenlace no se sabe cómo terminó |
 | **ES-8** | *¿Cuántas veces se intentó?* | programador | el intento que falla y la referencia del mismo ambiente | la cantidad de intentos desde ese despliegue hasta el que falla, como número |
 
@@ -71,7 +71,6 @@ en vez de adivinarse (Customer–Supplier, `context-map.md` fila #1).
 | Necesita | Para |
 |---|---|
 | los despliegues de cada ambiente, en orden temporal | encontrar las referencias por defecto |
-| el último despliegue de un ambiente con un hash del código dado | la referencia del ambiente anterior (`DEC-06.8`) |
 | de cada intento y cada despliegue, por paso: el hash del código y el de las instrucciones del paso | los ejes código e instrucciones. El hash del pipeline no lo usa, porque mezcla los tres ejes (`DEC-06.9`) |
 | de cada variable, por paso: su hash, comparable entre ambientes del mismo proyecto, y su origen, declarada o producida | el eje variables, sin ver el valor, y las producidas para el sustento (`DEC-06.10`) |
 | de cada paso que no se re-ejecutó, el registro al que apunta su evidencia | ES-4 |
@@ -79,7 +78,6 @@ en vez de adivinarse (Customer–Supplier, `context-map.md` fila #1).
 | el estado de cada intento, o que está sin desenlace | ES-7 |
 | la cantidad de intentos desde un despliegue hasta un intento posterior | ES-8 |
 | de cada lanzamiento, su despliegue | ES-3 |
-| el orden de los ambientes con que se desplegó | encontrar el ambiente anterior |
 
 ---
 
@@ -91,7 +89,7 @@ en vez de adivinarse (Customer–Supplier, `context-map.md` fila #1).
 |---|---|
 | **eje** | código · instrucciones · variables. Lista cerrada: no hay un cuarto (`DEC-01.2`) |
 | **ejes de un paso** | para un paso, lo que identifica cada eje con los recursos con que se hizo de verdad: el hash del código, el de sus instrucciones y el de cada variable declarada que ve. **Solo hashes** |
-| **referencia** | un despliegue, los ejes de cada uno de sus pasos y por qué se eligió: *mismo ambiente*, *ambiente anterior con el mismo código* o *elegida por el usuario* |
+| **referencia** | un despliegue, los ejes de cada uno de sus pasos y por qué se eligió: *mismo ambiente* o *elegida por el usuario* |
 | **comparación** | el intento que falla contra una referencia: el estado de cada eje en cada paso, *cambió* o *no cambió* |
 | **atribución** | el conjunto de ejes candidatos. **Sin orden**: ningún candidato va delante de otro |
 | **sustento** | lo que se sabe de cada cambio (sección anterior) |
@@ -101,7 +99,7 @@ en vez de adivinarse (Customer–Supplier, `context-map.md` fila #1).
 
 | Servicio | Qué hace |
 |---|---|
-| **elegir las referencias** | dado el intento que falla, devuelve las referencias por defecto (`DEC-06.6`, `DEC-06.8`), o la que eligió el usuario |
+| **elegir las referencias** | dado el intento que falla, devuelve la referencia por defecto (`DEC-06.6`), o la que eligió el usuario; ninguna si es un despliegue del propio intento (`DEC-06.21`) |
 | **eliminación** | dadas una o dos comparaciones, devuelve la atribución: un eje queda descartado si alguna comparación lo descarta (`DEC-06.11`) |
 
 ### Entidades, agregados y repositorios
@@ -146,7 +144,8 @@ Diagnóstico le pide al Historial*, dicho en el lenguaje del core.
 1. Determina el intento que falla: el que se indica, o el de un lanzamiento. Si no se indica ninguno, el
    último intento del ambiente (`DEC-06.16`).
 2. Si ese intento está cancelado o sin desenlace, responde **no se atribuye**.
-3. Elige las referencias. Si no hay ninguna, responde **sin referencia**.
+3. Elige la referencia. Si no hay ninguna anterior al intento, responde **sin referencia**, con el mensaje
+   *«no hay historial previo al intento actual que se pretende diagnosticar»*.
 4. Pide los ejes de cada paso, a través del ACL.
 5. Compara, elimina y arma el sustento.
 6. Devuelve la **respuesta**.

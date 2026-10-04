@@ -16,7 +16,6 @@ type RazonDeReferencia string
 
 const (
 	MismoAmbiente       RazonDeReferencia = "mismo_ambiente"
-	AmbienteAnterior    RazonDeReferencia = "ambiente_anterior"
 	ElegidaPorElUsuario RazonDeReferencia = "elegida_por_el_usuario"
 )
 
@@ -64,9 +63,11 @@ const (
 )
 
 // Respuesta es una de tres formas. Atribucion y Sustento solo están poblados cuando Forma es ConAtribucion
-// — una atribución vacía (Atribucion == nil) es ES-5, un hecho, no un error.
+// — una atribución vacía (Atribucion == nil) es ES-5, un hecho, no un error. Mensaje solo está poblado
+// cuando Forma es SinReferencia (ES-6).
 type Respuesta struct {
 	Forma      FormaDeRespuesta
 	Atribucion []Eje
 	Sustento   Sustento
+	Mensaje    string
 }

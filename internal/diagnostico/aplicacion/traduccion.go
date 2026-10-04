@@ -8,7 +8,7 @@ import (
 )
 
 func respuestaAPublicado(r dominio.Respuesta) publicado.Respuesta {
-	resultado := publicado.Respuesta{Forma: publicado.FormaDeRespuesta(r.Forma())}
+	resultado := publicado.Respuesta{Forma: publicado.FormaDeRespuesta(r.Forma()), Mensaje: r.Mensaje()}
 	atribucion, sustento, ok := r.AtribucionConSustento()
 	if !ok {
 		return resultado

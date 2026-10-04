@@ -19,7 +19,7 @@ func TestIntentar_SiElEspacioDeTrabajoNoEstaDisponibleElIntentoNoEmpieza(t *test
 	d.espacioDeTrabajo.errRehacer = fmt.Errorf("disco lleno: %w", dominio.ErrNoDisponible)
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), &salidaFalsa{})
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
 
 	require.Error(t, err)
 	require.Empty(t, d.historial.aperturas, "EJ-5: el intento no debe llegar a abrirse si el espacio de trabajo no está disponible")
@@ -34,7 +34,7 @@ func TestIntentar_UnaCopiaDeTrabajoAbreSinCommits(t *testing.T) {
 	peticion := peticionDePrueba()
 	peticion.CopiaDeTrabajo = "/tmp/wd"
 
-	resultado, err := servicio.Intentar(context.Background(), peticion, &salidaFalsa{})
+	resultado, err := servicio.Intentar(context.Background(), peticion)
 
 	require.NoError(t, err)
 	require.Len(t, d.historial.aperturas, 1)
@@ -48,21 +48,37 @@ func TestIntentar_ElSegundoIntentoEnElMismoAmbienteSeRechaza(t *testing.T) {
 	d.historial.errAbrir = errors.New("ambiente ocupado")
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), &salidaFalsa{})
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
 
 	require.Error(t, err)
 }
 
-func TestIntentar_LaSalidaLlegaPorCadaPasoMientrasCorre(t *testing.T) {
-	deps, _ := nuevasDependenciasDePrueba(t, "01-pruebas")
+func TestIntentar_LaSalidaDeCadaComandoVaAlHistorial(t *testing.T) {
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
 	servicio := aplicacion.NuevoServicio(deps)
-	salida := &salidaFalsa{}
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), salida)
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
 
 	require.NoError(t, err)
-	require.NotEmpty(t, salida.recibido)
-	require.Contains(t, salida.recibido[0], "01-pruebas:")
+	require.NotEmpty(t, d.historial.salidas)
+	primera := d.historial.salidas[0]
+	require.Equal(t, "01-pruebas", primera.paso)
+	require.NotEmpty(t, primera.comando)
+	require.True(t, primera.exitoso)
+	require.Contains(t, primera.texto, "salida de ")
+}
+
+func TestIntentar_LaSalidaDeUnComandoFallidoTambienVaAlHistorial(t *testing.T) {
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
+	d.comandos.resultado = dominio.ResultadoDeUnComando{Exitoso: false}
+	servicio := aplicacion.NuevoServicio(deps)
+
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
+
+	require.NoError(t, err)
+	require.Len(t, d.historial.salidas, 1, "se detiene en el primer comando que falla")
+	require.False(t, d.historial.salidas[0].exitoso)
+	require.Contains(t, d.historial.salidas[0].texto, "salida de ")
 }
 
 func TestIntentar_ElResultadoTraeElDetalleQueDaElHistorial(t *testing.T) {
@@ -73,7 +89,7 @@ func TestIntentar_ElResultadoTraeElDetalleQueDaElHistorial(t *testing.T) {
 	}
 	servicio := aplicacion.NuevoServicio(deps)
 
-	resultado, err := servicio.Intentar(context.Background(), peticionDePrueba(), &salidaFalsa{})
+	resultado, err := servicio.Intentar(context.Background(), peticionDePrueba())
 
 	require.NoError(t, err)
 	require.Equal(t, "4s", resultado.Detalle.Tiempo)

@@ -44,6 +44,7 @@ func componer(r rutas) (*borde.Servicio, error) {
 		Ocupaciones:  historialinfraestructura.NuevasOcupaciones(almacen),
 		Lanzamientos: historialinfraestructura.NuevosLanzamientos(almacen),
 		Reservas:     historialinfraestructura.NuevasReservas(almacen),
+		Salidas:      historialinfraestructura.NuevasSalidas(almacen),
 		Reloj:        historialinfraestructura.RelojDelSistema{},
 		Identidades:  historialinfraestructura.IdentidadesUUID{},
 	})

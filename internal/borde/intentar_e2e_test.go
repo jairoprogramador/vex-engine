@@ -1,7 +1,6 @@
 package borde_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -58,6 +57,7 @@ func montarSistema(t *testing.T) *sistema {
 		Ocupaciones:  historialinfraestructura.NuevasOcupaciones(almacen),
 		Lanzamientos: historialinfraestructura.NuevosLanzamientos(almacen),
 		Reservas:     historialinfraestructura.NuevasReservas(almacen),
+		Salidas:      historialinfraestructura.NuevasSalidas(almacen),
 		Reloj:        historialinfraestructura.RelojDelSistema{},
 		Identidades:  historialinfraestructura.IdentidadesUUID{},
 	})
@@ -181,32 +181,11 @@ func commitId(t *testing.T) int {
 	return contadorDeCommits
 }
 
-// salidaDePrueba recoge en orden todo lo que llega por paso, para comprobar el streaming en vivo (DEC-12.5).
-type salidaDePrueba struct {
-	mu       sync.Mutex
-	recibido bytes.Buffer
-}
-
-func (s *salidaDePrueba) Escribir(paso string, datos []byte) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.recibido.WriteString(paso + ":")
-	s.recibido.Write(datos)
-	return nil
-}
-
-func (s *salidaDePrueba) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.recibido.String()
-}
-
 func TestE2E_UnPrimerIntentoLlegaADespliegue(t *testing.T) {
 	s := montarSistema(t)
-	salida := &salidaDePrueba{}
 	pasos := pasosDelEjemplo(t)
 
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), salida)
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t))
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
@@ -216,24 +195,32 @@ func TestE2E_UnPrimerIntentoLlegaADespliegue(t *testing.T) {
 	for _, paso := range resultado.Detalle.Pasos {
 		require.Equal(t, "ejecutado", paso.Estado, "en el primer intento nada se puede precargar: %s", paso.Nombre)
 	}
+
+	salidas, err := s.historial.SalidasDeUnIntento(context.Background(), resultado.Intento, historialpublicado.TodasLasSalidas)
+	require.NoError(t, err)
+	pasosConSalida := map[string]bool{}
+	for _, salida := range salidas {
+		pasosConSalida[salida.Paso] = true
+		require.True(t, salida.Exitoso, "%s/%s", salida.Paso, salida.Comando)
+		require.NotContains(t, salida.Texto, "${var.", "las variables y las plantillas se interpolaron")
+	}
 	for _, paso := range pasos {
 		if len(paso.Comandos) > 0 {
-			require.Contains(t, salida.String(), paso.Nombre+":", "la salida de sus comandos llegó en vivo")
+			require.True(t, pasosConSalida[paso.Nombre], "la salida de los comandos del paso %s quedó en el historial", paso.Nombre)
 		}
 	}
-	require.NotContains(t, salida.String(), "${var.", "las variables y las plantillas se interpolaron")
 }
 
 // Sin cambios, un segundo intento precarga todos los pasos, sea cual sea la regla de cada uno — también los que
 // miran las variables, aunque el directorio del material (project_workdir) sea otro en cada intento.
 func TestE2E_UnSegundoIntentoSinCambiosNoReejecutaNada(t *testing.T) {
 	s := montarSistema(t)
-	primero, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	primero, err := s.borde.Intentar(context.Background(), s.peticion(t))
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", primero.Estado)
 	pasos := pasosDelEjemplo(t)
 
-	segundo, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	segundo, err := s.borde.Intentar(context.Background(), s.peticion(t))
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", segundo.Estado)
@@ -245,7 +232,7 @@ func TestE2E_UnSegundoIntentoSinCambiosNoReejecutaNada(t *testing.T) {
 
 func TestE2E_CambiarUnaPlantillaReejecutaSoloEsePaso(t *testing.T) {
 	s := montarSistema(t)
-	_, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	_, err := s.borde.Intentar(context.Background(), s.peticion(t))
 	require.NoError(t, err)
 
 	// El paso a cambiar es uno con plantilla y con reglas que miran las instrucciones: cambiarla tiene
@@ -269,7 +256,7 @@ func TestE2E_CambiarUnaPlantillaReejecutaSoloEsePaso(t *testing.T) {
 	escribirFichero(t, s.repoPipeline, plantilla, string(actual)+"\nlínea añadida por la prueba\n")
 	commitear(t, repo)
 
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t))
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
@@ -284,7 +271,7 @@ func TestE2E_CambiarUnaPlantillaReejecutaSoloEsePaso(t *testing.T) {
 // paso usa la suya (${var.test}, ${var.acr}…) y todos usan además ${var.shared}.
 func TestE2E_CambiarUnaVariableDelPipelineReejecutaSoloAlPasoQueLaUsa(t *testing.T) {
 	s := montarSistema(t)
-	_, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	_, err := s.borde.Intentar(context.Background(), s.peticion(t))
 	require.NoError(t, err)
 
 	repo, err := git.PlainOpen(s.repoPipeline)
@@ -292,7 +279,7 @@ func TestE2E_CambiarUnaVariableDelPipelineReejecutaSoloAlPasoQueLaUsa(t *testing
 	escribirFichero(t, s.repoPipeline, "variables/prod/test.yaml", "- name: test\n  value: \"otro-valor\"\n")
 	commitear(t, repo)
 
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t))
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
@@ -308,7 +295,7 @@ func TestE2E_CambiarUnaVariableDelPipelineReejecutaSoloAlPasoQueLaUsa(t *testing
 // Una variable compartida reejecuta a los pasos que la usan; aquí la usan todos.
 func TestE2E_CambiarUnaVariableCompartidaReejecutaATodosLosQueLaUsan(t *testing.T) {
 	s := montarSistema(t)
-	_, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	_, err := s.borde.Intentar(context.Background(), s.peticion(t))
 	require.NoError(t, err)
 
 	repo, err := git.PlainOpen(s.repoPipeline)
@@ -316,7 +303,7 @@ func TestE2E_CambiarUnaVariableCompartidaReejecutaATodosLosQueLaUsan(t *testing.
 	escribirFichero(t, s.repoPipeline, "variables/vars.yaml", "- name: shared\n  value: \"otro-valor\"\n")
 	commitear(t, repo)
 
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t))
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
@@ -329,7 +316,7 @@ func TestE2E_CambiarUnaVariableCompartidaReejecutaATodosLosQueLaUsan(t *testing.
 // Declarar una variable que ningún paso usa no reejecuta nada.
 func TestE2E_UnaVariableNuevaQueNingunPasoUsaNoReejecutaNada(t *testing.T) {
 	s := montarSistema(t)
-	_, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	_, err := s.borde.Intentar(context.Background(), s.peticion(t))
 	require.NoError(t, err)
 
 	repo, err := git.PlainOpen(s.repoPipeline)
@@ -337,7 +324,7 @@ func TestE2E_UnaVariableNuevaQueNingunPasoUsaNoReejecutaNada(t *testing.T) {
 	escribirFichero(t, s.repoPipeline, "variables/prod/sin_uso.yaml", "- name: sin_uso\n  value: \"x\"\n")
 	commitear(t, repo)
 
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t))
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
@@ -352,7 +339,7 @@ func TestE2E_UnIntentoConCopiaDeTrabajoNuncaLlegaADespliegue(t *testing.T) {
 	peticion := s.peticion(t)
 	peticion.CopiaDeTrabajo = s.repoProyecto
 
-	resultado, err := s.borde.Intentar(context.Background(), peticion, &salidaDePrueba{})
+	resultado, err := s.borde.Intentar(context.Background(), peticion)
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
@@ -368,22 +355,27 @@ func TestE2E_UnSegundoIntentoEnElMismoAmbienteSeRechaza(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = s.borde.Intentar(ctx, s.peticion(t), &salidaDePrueba{})
+	_, err = s.borde.Intentar(ctx, s.peticion(t))
 
 	require.Error(t, err)
 	var ocupado *historialpublicado.AmbienteOcupadoError
 	require.True(t, errors.As(err, &ocupado), "se esperaba un *AmbienteOcupadoError, se obtuvo: %v", err)
 }
 
-// Lo que un comando imprime pasa por la salida en vivo y no queda en ningún registro: lo que se busca en ellos
-// es lo que de verdad se imprimió, línea a línea, no un texto escrito a mano.
+// Lo que un comando imprime se guarda aparte y no queda en ningún registro del intento: lo que se busca en
+// ellos es lo que de verdad se imprimió, línea a línea, no un texto escrito a mano.
 func TestE2E_LoQueImprimeUnComandoNoQuedaEnNingunRegistro(t *testing.T) {
 	s := montarSistema(t)
-	salida := &salidaDePrueba{}
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), salida)
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t))
 	require.NoError(t, err)
+	salidas, err := s.historial.SalidasDeUnIntento(context.Background(), resultado.Intento, historialpublicado.TodasLasSalidas)
+	require.NoError(t, err)
+	var texto strings.Builder
+	for _, salida := range salidas {
+		texto.WriteString(salida.Texto)
+	}
 
-	impresas := lineasSignificativas(salida.String())
+	impresas := lineasSignificativas(texto.String())
 	require.NotEmpty(t, impresas, "la prueba solo vale si los comandos imprimieron algo")
 	intento, err := s.historial.Intento(context.Background(), resultado.Intento)
 	require.NoError(t, err)
@@ -396,15 +388,12 @@ func TestE2E_LoQueImprimeUnComandoNoQuedaEnNingunRegistro(t *testing.T) {
 	}
 }
 
-// lineasSignificativas son las líneas de la salida, sin el "paso:" con que la marca salidaDePrueba, y lo bastante
-// largas para que encontrarlas en un registro no sea casualidad.
+// lineasSignificativas son las líneas de la salida lo bastante largas para que encontrarlas en un registro no
+// sea casualidad.
 func lineasSignificativas(salida string) []string {
 	const largoMinimo = 8
 	var lineas []string
 	for _, linea := range strings.Split(salida, "\n") {
-		if _, texto, ok := strings.Cut(linea, ":"); ok {
-			linea = texto
-		}
 		if linea = strings.TrimSpace(linea); len(linea) >= largoMinimo {
 			lineas = append(lineas, linea)
 		}

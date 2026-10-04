@@ -29,7 +29,7 @@ Se escribe a partir de sus clientes, igual que Diagnóstico empezó por sus esce
 
 | Quién | Qué escribe |
 |---|---|
-| **Ejecución** | que se abre un intento: ambiente, solicitante, los pasos del pipeline con su ámbito y hasta cuál se pide, y como contenido el commit de cada fuente (o que es una copia de trabajo, sin commit), los hashes y el orden de los ambientes · por cada paso que se ejecuta, un registro al empezar y otro al terminar, exitoso o fallido; por cada paso que no se re-ejecuta, un registro con su evidencia (`DEC-09.7`); como contenido, la razón, el hash de sus instrucciones y su declaración congelada · que se cierra el intento, con su estado y, si es un rollback, su destino |
+| **Ejecución** | que se abre un intento: ambiente, solicitante, los pasos del pipeline con su ámbito y hasta cuál se pide, y como contenido el commit de cada fuente (o que es una copia de trabajo, sin commit), los hashes y el orden de los ambientes · por cada paso que se ejecuta, un registro al empezar y otro al terminar, exitoso o fallido; por cada comando que termina, su salida y si salió bien, aparte de los registros del intento · por cada paso que no se re-ejecuta, un registro con su evidencia (`DEC-09.7`); como contenido, la razón, el hash de sus instrucciones y su declaración congelada · que se cierra el intento, con su estado y, si es un rollback, su destino |
 | **Resolución** | el hash de cada variable, bajo paso e intento · el valor ofuscado, por la relación reservada (`DEC-04.7`) |
 | **Lanzamiento** | un lanzamiento, con su versión y su nombre como contenido · una reserva o una liberación de un ambiente |
 | **Borde** | que un intento sin desenlace se da por abandonado (`DEC-07.8`) |
@@ -42,7 +42,7 @@ Se escribe a partir de sus clientes, igual que Diagnóstico empezó por sus esce
 | **Ejecución** | la última vez de un paso en su ámbito · un despliegue anterior y su intento, para un rollback |
 | **Resolución** | el hash y el valor de la última vez de cada variable (el valor, por la relación reservada) |
 | **Lanzamiento** | que se registró un despliegue (evento) · el último despliegue y la última reserva de un ambiente |
-| **Borde** | el historial, sin valores, para el CLI y el portal |
+| **Borde** | el historial, sin valores, para el CLI y el portal · la salida de los comandos de un intento, con un filtro por resultado, y cuál fue el último intento |
 
 ---
 
@@ -91,7 +91,8 @@ Lanzamiento.
 
 ### Repositorios
 
-Uno por agregado: **intentos**, **despliegues**, **lanzamientos** y **reservas**. Solo **añaden** y
+Uno por agregado: **intentos**, **despliegues**, **lanzamientos** y **reservas**, y uno de **salidas**, que
+guarda la de cada comando de un intento en su propia secuencia y no cambia lo que el intento dice de sí mismo. Solo **añaden** y
 **recorren** (`DEC-07.5`). Por debajo, todos escriben en el mismo sitio, detrás de la interfaz del
 Historial, y *sincronizar* vive ahí (`DEC-06.18`).
 
@@ -106,9 +107,9 @@ seguir escribiendo (IT-07 `DEC-07.8`).
 
 | Hacia | Qué |
 |---|---|
-| **Ejecución** | abrir un intento, que se rechaza si el ambiente está ocupado · registrar un paso · cerrar un intento · la última vez de un paso en su ámbito · un despliegue y su intento |
+| **Ejecución** | abrir un intento, que se rechaza si el ambiente está ocupado · registrar un paso · registrar la salida de un comando · cerrar un intento · la última vez de un paso en su ámbito · un despliegue y su intento |
 | **Resolución** | registrar el hash de una variable · la última vez de una variable · **por la relación reservada**: el valor ofuscado |
 | **Lanzamiento** | registrar un lanzamiento · registrar una reserva · el último despliegue y la última reserva de un ambiente · el evento *despliegue registrado* |
 | **Diagnóstico** | las consultas de su tabla de requisitos |
-| **Borde** | consultar el historial, **sin valores** (`DEC-04.7`) · dar por abandonado un intento (`DEC-07.8`) |
+| **Borde** | consultar el historial, **sin valores** (`DEC-04.7`) · las salidas de un intento y el último intento · dar por abandonado un intento (`DEC-07.8`) |
 

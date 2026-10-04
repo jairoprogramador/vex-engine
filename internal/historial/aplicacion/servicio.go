@@ -15,6 +15,7 @@ type Dependencias struct {
 	Ocupaciones  dominio.Ocupaciones
 	Lanzamientos dominio.Lanzamientos
 	Reservas     dominio.Reservas
+	Salidas      dominio.Salidas
 	Reloj        dominio.Reloj
 	Identidades  dominio.Identidades
 }

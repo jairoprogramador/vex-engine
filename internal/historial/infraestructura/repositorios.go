@@ -7,7 +7,7 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/historial/dominio"
 )
 
-// Los cinco repositorios sobre un Almacen. Todos escriben en el mismo sitio, detrás de la interfaz del
+// Los seis repositorios sobre un Almacen. Todos escriben en el mismo sitio, detrás de la interfaz del
 // Historial (IT-06 DEC-06.18). Cada agregado es una secuencia, y Anadir escribe sus registros nuevos a partir
 // de los que se leyeron: si alguien añadió otro antes, el almacén devuelve dominio.ErrConflicto.
 
@@ -21,12 +21,15 @@ type LanzamientosEnAlmacen struct{ almacen Almacen }
 
 type ReservasEnAlmacen struct{ almacen Almacen }
 
+type SalidasEnAlmacen struct{ almacen Almacen }
+
 var (
 	_ dominio.Intentos     = IntentosEnAlmacen{}
 	_ dominio.Despliegues  = DesplieguesEnAlmacen{}
 	_ dominio.Ocupaciones  = OcupacionesEnAlmacen{}
 	_ dominio.Lanzamientos = LanzamientosEnAlmacen{}
 	_ dominio.Reservas     = ReservasEnAlmacen{}
+	_ dominio.Salidas      = SalidasEnAlmacen{}
 )
 
 func NuevosIntentos(a Almacen) IntentosEnAlmacen         { return IntentosEnAlmacen{almacen: a} }
@@ -34,6 +37,7 @@ func NuevosDespliegues(a Almacen) DesplieguesEnAlmacen   { return DesplieguesEnA
 func NuevasOcupaciones(a Almacen) OcupacionesEnAlmacen   { return OcupacionesEnAlmacen{almacen: a} }
 func NuevosLanzamientos(a Almacen) LanzamientosEnAlmacen { return LanzamientosEnAlmacen{almacen: a} }
 func NuevasReservas(a Almacen) ReservasEnAlmacen         { return ReservasEnAlmacen{almacen: a} }
+func NuevasSalidas(a Almacen) SalidasEnAlmacen           { return SalidasEnAlmacen{almacen: a} }
 
 func (r IntentosEnAlmacen) Intento(ctx context.Context, id dominio.IdIntento) (*dominio.Intento, error) {
 	registros, err := leer(ctx, r.almacen, Secuencia{Familia: familiaIntentos, Nombre: string(id)},
@@ -156,6 +160,17 @@ func (r ReservasEnAlmacen) DeUnAmbiente(
 func (r ReservasEnAlmacen) Anadir(ctx context.Context, reservas *dominio.ReservasDeUnAmbiente) error {
 	return anadir(ctx, r.almacen, Secuencia{Familia: familiaReservas, Nombre: string(reservas.Ambiente())},
 		reservas.Leidos(), reservas.Nuevas(), codificarReserva)
+}
+
+func (r SalidasEnAlmacen) DeUnIntento(ctx context.Context, intento dominio.IdIntento) ([]dominio.Salida, error) {
+	return leer(ctx, r.almacen, Secuencia{Familia: familiaSalidas, Nombre: string(intento)}, decodificarSalida)
+}
+
+func (r SalidasEnAlmacen) Anadir(
+	ctx context.Context, intento dominio.IdIntento, previas int, salida dominio.Salida,
+) error {
+	return anadir(ctx, r.almacen, Secuencia{Familia: familiaSalidas, Nombre: string(intento)},
+		previas, []dominio.Salida{salida}, codificarSalida)
 }
 
 func leer[T any](

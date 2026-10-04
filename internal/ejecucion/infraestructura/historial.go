@@ -66,6 +66,15 @@ func (h *Historial) RegistrarFinal(
 	return nil
 }
 
+func (h *Historial) RegistrarSalida(
+	ctx context.Context, intento, paso, comando string, exitoso bool, texto string,
+) error {
+	if err := h.historial.RegistrarSalida(ctx, intento, paso, comando, exitoso, texto); err != nil {
+		return fmt.Errorf("ejecución: registrar la salida del comando %q del paso %q: %w", comando, paso, err)
+	}
+	return nil
+}
+
 func (h *Historial) RegistrarNoReejecucion(
 	ctx context.Context, intento, paso string, evidencia dominio.Evidencia, recursos dominio.RecursosDeUnPaso,
 ) error {

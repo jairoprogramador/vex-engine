@@ -22,7 +22,7 @@ var _ dominio.Comandos = Comandos{}
 
 func NuevosComandos() Comandos { return Comandos{} }
 
-// Ejecutar corre el comando y reenvía su salida en vivo a salida (DEC-12.5), a la vez que la acumula en un
+// Ejecutar corre el comando y reenvía su salida a salida, a la vez que la acumula en un
 // búfer transitorio — nunca expuesto fuera de esta función — para comprobar sus aserciones y capturar sus
 // variables de salida una vez termina. Si ctx se cancela, el proceso muere y el error se propaga: es la
 // aplicación quien lo traduce en una cancelación del intento (EJ-3), no este puerto.
@@ -37,8 +37,12 @@ func (Comandos) Ejecutar(
 	cmd.Dir = filepath.Join(directorio, filepath.FromSlash(comando.Directorio()))
 
 	var capturada bytes.Buffer
-	cmd.Stdout = io.MultiWriter(salida, &capturada)
-	cmd.Stderr = io.MultiWriter(salida, &capturada)
+	// Un solo escritor para los dos flujos: exec lo reconoce y los lleva por la misma tubería, así que no hay
+	// escrituras concurrentes sobre salida ni sobre capturada, y salida y error quedan en el orden en que se
+	// produjeron.
+	escritor := io.MultiWriter(salida, &capturada)
+	cmd.Stdout = escritor
+	cmd.Stderr = escritor
 
 	err := cmd.Run()
 	if ctx.Err() != nil {

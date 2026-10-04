@@ -90,14 +90,15 @@ invocación. Es infraestructura (`DEC-06.18`).
 | **historial** | Historial: abrir, registrar un paso, cerrar; la última vez de un paso; un despliegue y su intento |
 | **comandos** | ejecutar un comando en el espacio de trabajo de su ambiente y recoger su resultado |
 | **espacio de trabajo** | rehacer la parte del motor |
-| **salida** | quien pidió el intento: lo que imprimen los comandos, en vivo (IT-12 `DEC-12.5`) |
+| **salida** | el Historial: lo que imprimió cada comando, al terminar, para consultarlo con `logs` |
 
 ### La salida de los comandos
 
-Lo que imprimen los comandos **se entrega en vivo, tal cual, a quien pidió el intento, y no se guarda**
-(IT-12 `DEC-12.5`). No se tapan valores: la seguridad no es el objetivo del producto (`DEC-08.8`). La
-promesa de no exponer valores es sobre lo que **se guarda y se publica** (registros, consulta del
-historial y diagnóstico), y la salida no es ninguna de las dos cosas.
+Lo que imprimen los comandos **no se muestra a quien pidió el intento: se guarda en el Historial**, un
+registro por comando al terminar, con el paso, el nombre del comando, si salió bien y lo que escribió (salida
+y error juntos). Se guarda también la de un comando que falló o que se canceló. Los registros viven aparte de
+los del intento. No se tapan valores: la seguridad no es el objetivo del producto (`DEC-08.8`), y la promesa
+de no exponer valores es sobre registros, consulta de intentos y diagnóstico, no sobre `logs`.
 
 ### Servicio de aplicación: **intentar**
 
@@ -111,7 +112,7 @@ la decisión es de *decidir un paso*, y las reglas del desenlace son del **Inten
 ### Lo que publica
 
 Hacia el borde: **intentar hasta un paso en un ambiente** y **hacer rollback a un destino**
-(`DEC-05.6`). Las dos reciben **a dónde entregar la salida** de los comandos (IT-12 `DEC-12.5`).
+(`DEC-05.6`). La salida de los comandos no sale por aquí: va al Historial.
 
 ### Las tres cadenas de hoy
 

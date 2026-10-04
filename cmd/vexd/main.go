@@ -4,8 +4,9 @@
 // Uso: vexd <operación> --almacen <dir> [--espacio <dir>] [--material <dir>] [--entrada <fichero>]
 //
 // La petición es un JSON (por --entrada o por la entrada estándar) con los campos del lenguaje publicado. La
-// respuesta es un JSON en la salida estándar. Lo que imprimen los comandos de los pasos va, en vivo y tal
-// cual, a la salida de error (DEC-12.5). Un error se explica en la salida de error.
+// respuesta es un JSON en la salida estándar. Lo que imprimen los comandos de
+// los pasos no se muestra: se guarda en el historial y se consulta con logs. Un error se explica en la salida
+// de error.
 //
 // Códigos de salida: 0 bien · 1 la operación falló, o el intento terminó fallido · 2 la invocación o la
 // petición son inválidas · 130 cancelado por señal.
@@ -37,6 +38,7 @@ const (
 	nombreEspacio    = "VEX_ESPACIO"
 	nombreMaterial   = "VEX_MATERIAL"
 	estadoExitoso    = "exitoso"
+	estadoFallido    = "fallido"
 	estadoCancelado  = "cancelado"
 	entradaEstandar  = "-"
 	marcaDeOperacion = "vexd"
@@ -91,7 +93,7 @@ func ejecutar(ctx context.Context, args []string, entrada io.Reader, salida, err
 		return salidaInvalida
 	}
 
-	respuesta, err := op.atender(ctx, servicio, peticion, &salidaEnVivo{w: errores})
+	respuesta, err := op.atender(ctx, servicio, peticion)
 	if err != nil {
 		fmt.Fprintf(errores, "%s %s: %v\n", marcaDeOperacion, op.nombre, err)
 		return codigoDeError(err)
@@ -105,7 +107,7 @@ func ejecutar(ctx context.Context, args []string, entrada io.Reader, salida, err
 
 func codigoDeError(err error) int {
 	switch {
-	case errors.Is(err, errEntrada), errors.Is(err, borde.ErrVersionNoSoportada):
+	case errors.Is(err, errEntrada), errors.Is(err, borde.ErrVersionNoSoportada), errors.Is(err, borde.ErrPeticionInvalida):
 		return salidaInvalida
 	case errors.Is(err, context.Canceled):
 		return salidaCancelado
@@ -130,7 +132,7 @@ Opciones (cada operación acepta las que usa):
   --material <dir>   donde se pone el material de las fuentes; una copia desechable (o $%[5]s)
   --entrada <fichero> petición en JSON; sin ella, la entrada estándar
 
-Respuesta: JSON en la salida estándar. Salida de los comandos: salida de error, en vivo.
+Respuesta: JSON en la salida estándar. La salida de los comandos se consulta con logs.
 Lenguaje publicado: docs/modelo/lenguaje-publicado.md
 `, marcaDeOperacion, strings.Join(nombres, ", "), nombreAlmacen, nombreEspacio, nombreMaterial)
 }

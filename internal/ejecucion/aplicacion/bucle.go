@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/jairoprogramador/vex-engine/internal/ejecucion/dominio"
-	"github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
 )
 
 // contextoDelIntento agrupa lo que no cambia entre pasos, para no arrastrar media docena de parámetros sueltos
@@ -19,8 +18,6 @@ type contextoDelIntento struct {
 
 	pasosPorNombre      map[string]dominio.PasoDeEjecucion
 	estandarCompartidas map[string]string
-
-	salida publicado.Salida
 }
 
 // recorrer es el bucle explícito de EJ-1/EJ-2 (docs/modelo/contextos/ejecucion.md, «Servicio de aplicación:
@@ -87,7 +84,7 @@ func (s *Servicio) reejecutarPaso(
 		return err
 	}
 
-	exitoso, err := s.ejecutarPaso(ctx, c.id, c.ubicacion, pasoDeEjecucion, ambito, c.salida)
+	exitoso, err := s.ejecutarPaso(ctx, c.id, c.ubicacion, pasoDeEjecucion, ambito)
 	ctxDelRegistro, cancelado := ctx, false
 	if err != nil {
 		if ctx.Err() == nil {

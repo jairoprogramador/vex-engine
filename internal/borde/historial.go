@@ -2,6 +2,8 @@ package borde
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	historialpublicado "github.com/jairoprogramador/vex-engine/internal/historial/publicado"
 )
@@ -47,4 +49,53 @@ func (s *Servicio) DesplieguesDeUnAmbiente(
 		return nil, err
 	}
 	return s.d.Historial.DesplieguesDeUnAmbiente(ctx, p.Ambiente)
+}
+
+// ErrPeticionInvalida: la petición tiene la forma del lenguaje publicado pero un valor que no es de él.
+var ErrPeticionInvalida = errors.New("borde: petición inválida")
+
+// RespuestaDeLogs es la salida de los comandos de un intento: cuál es, que si no se pidió uno es el último.
+type RespuestaDeLogs struct {
+	Intento string
+	Salidas []historialpublicado.Salida
+}
+
+// Logs comprueba la versión de la petición (DEC-05.6) y consulta la salida de los comandos de un intento: el de
+// la petición, o el último que se abrió si no trae ninguno.
+func (s *Servicio) Logs(ctx context.Context, p PeticionDeLogs) (RespuestaDeLogs, error) {
+	if err := comprobarVersion(p.Version); err != nil {
+		return RespuestaDeLogs{}, err
+	}
+	filtro, err := filtroDeSalidas(p.Resultado)
+	if err != nil {
+		return RespuestaDeLogs{}, err
+	}
+	intento := p.Intento
+	if intento == "" {
+		ultimo, hay, err := s.d.Historial.UltimoIntento(ctx)
+		if err != nil {
+			return RespuestaDeLogs{}, err
+		}
+		if !hay {
+			return RespuestaDeLogs{}, fmt.Errorf("%w: el historial no tiene ningún intento", historialpublicado.ErrNoExiste)
+		}
+		intento = ultimo.Id
+	}
+	salidas, err := s.d.Historial.SalidasDeUnIntento(ctx, intento, filtro)
+	if err != nil {
+		return RespuestaDeLogs{}, err
+	}
+	return RespuestaDeLogs{Intento: intento, Salidas: salidas}, nil
+}
+
+func filtroDeSalidas(resultado string) (historialpublicado.FiltroDeSalidas, error) {
+	switch resultado {
+	case "":
+		return historialpublicado.TodasLasSalidas, nil
+	case "exitoso":
+		return historialpublicado.SoloLasExitosas, nil
+	case "fallido":
+		return historialpublicado.SoloLasFallidas, nil
+	}
+	return 0, fmt.Errorf("%w: Resultado %q (admitidos: \"exitoso\", \"fallido\" o vacío)", ErrPeticionInvalida, resultado)
 }

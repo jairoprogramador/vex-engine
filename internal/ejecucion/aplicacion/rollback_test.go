@@ -27,7 +27,7 @@ func TestHacerRollback_UsaElMaterialYElPipelineDelDestino(t *testing.T) {
 
 	resultado, err := servicio.HacerRollback(context.Background(), publicado.PeticionDeRollback{
 		Version: "1", Despliegue: "dep-1", Solicitante: "ana",
-	}, &salidaFalsa{})
+	})
 
 	require.NoError(t, err)
 	require.Equal(t, "dep-2", resultado.Despliegue)
@@ -51,7 +51,7 @@ func TestHacerRollback_CierraConElDestinoComoPadre(t *testing.T) {
 
 	_, err := servicio.HacerRollback(context.Background(), publicado.PeticionDeRollback{
 		Version: "1", Despliegue: "dep-1", Solicitante: "ana",
-	}, &salidaFalsa{})
+	})
 
 	require.NoError(t, err)
 	require.Equal(t, "dep-1", d.historial.destinoCerrado)
@@ -64,7 +64,7 @@ func TestHacerRollback_PropagaElErrorSiElDestinoNoSePuedeResolver(t *testing.T) 
 
 	_, err := servicio.HacerRollback(context.Background(), publicado.PeticionDeRollback{
 		Version: "1", Despliegue: "dep-1", Solicitante: "ana",
-	}, &salidaFalsa{})
+	})
 
 	require.Error(t, err)
 	require.Empty(t, d.historial.aperturas)

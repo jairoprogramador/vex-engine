@@ -32,11 +32,11 @@ invocación** con `internal/borde/`.
 vexd <operación> --almacen <dir> [--espacio <dir>] [--material <dir>] [--entrada <fichero>]
 ```
 
-| Operación | `intentar` `rollback` `simular` `lanzar` `reservar` `liberar` `diagnosticar` `abandonar` `intento` `intentos` `despliegues` |
+| Operación | `intentar` `rollback` `simular` `lanzar` `reservar` `liberar` `diagnosticar` `abandonar` `intento` `intentos` `despliegues` `logs` |
 |---|---|
 | **Petición** | un JSON, de `--entrada` o de la entrada estándar, con los campos del tipo de la tabla de abajo (los nombres de campo de Go, sin distinguir mayúsculas). Un campo que el tipo no tiene se rechaza |
 | **Respuesta** | un JSON en la salida estándar. Las que no devuelven nada responden `{}` |
-| **Salida de los comandos** | la salida de error, en vivo y tal cual (`DEC-12.5`) |
+| **Salida de los comandos** | no se muestra al intentar: se guarda en el Historial y se consulta con `logs` |
 | **Errores** | texto en la salida de error |
 | **`--almacen`** | el almacén del Historial, un directorio que **tiene que existir** (o `$VEX_ALMACEN`) |
 | **`--espacio`** | el espacio de trabajo de los ambientes; solo `intentar` y `rollback` (o `$VEX_ESPACIO`) |
@@ -63,12 +63,13 @@ petición son inválidas (incluida una versión no soportada) · `130` cancelado
 | **Consultar un intento** | `borde.PeticionDeConsultaDeIntento` | `historial.Intento` | Historial |
 | **Consultar los intentos** de un ambiente | `borde.PeticionDeIntentosDeUnAmbiente` | `[]historial.Intento` | Historial |
 | **Consultar los despliegues** de un ambiente | `borde.PeticionDeDesplieguesDeUnAmbiente` | `[]historial.Despliegue` | Historial |
+| **Consultar los logs** de un intento | `borde.PeticionDeLogs` | `{IntentoId, Salidas}` | Historial |
 
 ### Detalles por operación
 
-- **Intentar / Hacer rollback.** Reciben además una `Salida` a la que se entrega, **en vivo y tal cual**, lo que
-  imprimen los comandos de cada paso (`DEC-12.5`). No se guarda ni se tapa: no es un registro. La respuesta de la
-  operación es aparte. Un intento con copia de trabajo (`CopiaDeTrabajo`) nunca llega a despliegue. Un rollback
+- **Intentar / Hacer rollback.** Lo que imprimen los comandos de cada paso **no se muestra**: Ejecución lo
+  entrega al Historial al terminar cada comando, y se consulta con `logs`. La respuesta es solo el `Resultado`.
+  Un intento con copia de trabajo (`CopiaDeTrabajo`) nunca llega a despliegue. Un rollback
   toma el ambiente y las fuentes del propio despliegue destino.
 - **Simular.** Se pide como un intento: `Ambiente` (su valor, `sand`), `Solicitante` y `HastaPaso`, más fuente y
   commit, o una copia de trabajo (que tiene prioridad). El `Resultado` es el resumen de un intento sin `Id`
@@ -82,6 +83,31 @@ petición son inválidas (incluida una versión no soportada) · `130` cancelado
 - **Preguntar la causa.** Un intento **o** un lanzamiento (nunca los dos), en un ambiente, y opcionalmente una
   referencia elegida a mano. La respuesta es de una de tres formas: `con_atribucion`, `sin_referencia`,
   `no_se_atribuye`.
+- **Logs.** `Intento` es opcional: sin él, es el último que se abrió en cualquier ambiente. `Resultado` también:
+  `"exitoso"` o `"fallido"` filtra por cómo terminó cada comando, y vacío los muestra todos; otro valor es una
+  petición inválida (código `2`). La respuesta dice el intento (`IntentoId`, que es el último si no se pidió uno) y
+  agrupa por paso (`Salidas`), en el orden en que corrieron, los comandos de cada uno: `comando` (su nombre),
+  `salida` (lo que escribió, salida y error juntos, sin el salto de línea final) y `resultado` (`"exitoso"` o
+  `"fallido"`). Solo aparecen los pasos que ejecutaron comandos en ese intento: uno que llegó hasta `test` solo
+  trae `test`, y uno que llegó hasta `deploy` trae todos los pasos hasta `deploy` que corrieron. Un paso que se
+  precargó no tiene salidas en ese intento, y sin ninguna que mostrar, `Salidas` es `{}`:
+
+  ```json
+  {
+    "IntentoId": "01a106d1-94e1-727c-a252-4efac5ab306c",
+    "Salidas": {
+      "test": [
+        {"comando": "comando-test-01", "salida": "hola vex-demo", "resultado": "exitoso"},
+        {"comando": "comando-test-02", "salida": "etiqueta=v1.0.0", "resultado": "exitoso"}
+      ],
+      "supply": [
+        {"comando": "comando-supply-01", "salida": "hola vex-demo", "resultado": "exitoso"}
+      ]
+    }
+  }
+  ```
+
+  Un intento que no existe, o un historial sin intentos si no se pide uno, es un fallo (código `1`).
 - **Consultas del Historial.** Solo lectura. Lo que dicen los registros de cada contexto (`Contenido`) viaja
   opaco.
 

@@ -44,6 +44,7 @@ func nuevoHistorialReal(t *testing.T) (*historialaplicacion.Servicio, context.Co
 		Ocupaciones:  historialinfraestructura.NuevasOcupaciones(almacen),
 		Lanzamientos: historialinfraestructura.NuevosLanzamientos(almacen),
 		Reservas:     historialinfraestructura.NuevasReservas(almacen),
+		Salidas:      historialinfraestructura.NuevasSalidas(almacen),
 		Reloj:        &relojQueAvanza{ahora: time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)},
 		Identidades:  historialinfraestructura.IdentidadesUUID{},
 	})
@@ -93,11 +94,11 @@ func idIntentoDiag(t *testing.T, valor string) diagnosticodominio.IdIntento {
 	return i
 }
 
-// TestEjesDelIntento_HashesYOrdenDeAmbientesDeVerdad monta un intento completo con el ACL real de
+// TestEjesDelIntento_HashesDeVerdad monta un intento completo con el ACL real de
 // Ejecución (hashes de código e instrucciones) y de Resolución (una variable declarada), y comprueba que
 // el ACL de Diagnóstico los decodifica correctamente — la única prueba capaz de detectar que su copia
 // privada de esas formas se desincronizó de la de quien las escribe.
-func TestEjesDelIntento_HashesYOrdenDeAmbientesDeVerdad(t *testing.T) {
+func TestEjesDelIntento_HashesDeVerdad(t *testing.T) {
 	h, ctx := nuevoHistorialReal(t)
 	ejecucion := ejecucioninfraestructura.NuevoHistorial(h)
 	resolucion := resolucioninfraestructura.NuevoHistorial(h, h)
@@ -116,7 +117,7 @@ func TestEjesDelIntento_HashesYOrdenDeAmbientesDeVerdad(t *testing.T) {
 
 	intento, err := diagnostico.Intento(ctx, idIntentoDiag(t, id))
 	require.NoError(t, err)
-	require.Equal(t, []diagnosticodominio.Ambiente{ambienteDiag(t, "stag"), ambienteDiag(t, "prod")}, intento.OrdenDeAmbientes)
+	require.Equal(t, ambienteDiag(t, "prod"), intento.Ambiente)
 
 	ejes, producidas, err := diagnostico.EjesDelIntento(ctx, idIntentoDiag(t, id))
 	require.NoError(t, err)

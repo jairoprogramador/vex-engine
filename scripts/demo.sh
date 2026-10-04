@@ -12,7 +12,7 @@
 # Variables opcionales:
 #   DEMO_DIR    dónde se arma la demo (por defecto /tmp/demo-vex)
 #   OPERACION   operación de vexd (intentar, rollback, simular, lanzar…); si viene dada no se pregunta
-#   DESPLIEGUE, INTENTO, NOMBRE, REFERENCIA   datos de las operaciones que los piden; si vienen dados no se preguntan
+#   DESPLIEGUE, INTENTO, NOMBRE, REFERENCIA, RESULTADO   datos de las operaciones que los piden; si vienen dados no se preguntan
 #   AMBIENTE    ambiente que se intenta o simula; si viene dada no se pregunta (lista: environments.yaml del ejemplo)
 #   HASTA_PASO  paso hasta el que se ejecuta o simula; si viene dada no se pregunta (lista: steps/ del ejemplo)
 #
@@ -30,6 +30,7 @@ DESPLIEGUE="${DESPLIEGUE:-}"
 INTENTO="${INTENTO:-}"
 NOMBRE="${NOMBRE:-}"
 REFERENCIA="${REFERENCIA:-}"
+RESULTADO="${RESULTADO:-}"
 LIMPIO=""
 COMPILAR=""
 for arg in "$@"; do
@@ -118,7 +119,7 @@ done
 [ "${#pasos[@]}" -gt 0 ] || { echo "no hay pasos en $EJEMPLO/steps" >&2; exit 1; }
 
 # Operaciones de vexd (vexd sin argumentos las lista), con lo que hace cada una.
-operaciones=(intentar rollback simular lanzar reservar liberar diagnosticar abandonar intento intentos despliegues)
+operaciones=(intentar rollback simular lanzar reservar liberar diagnosticar abandonar intento intentos despliegues logs)
 DESCRIPCIONES=(
   "ejecutar el pipeline hasta un paso en un ambiente"
   "volver a un despliegue anterior"
@@ -131,6 +132,7 @@ DESCRIPCIONES=(
   "consultar un intento"
   "consultar los intentos de un ambiente"
   "consultar los despliegues de un ambiente"
+  "ver la salida de los comandos de un intento"
 )
 
 en_lista() { local x="$1" e; shift; for e in "$@"; do [ "$e" = "$x" ] && return 0; done; return 1; }
@@ -169,9 +171,11 @@ case "$OPERACION" in
   rollback)     pedir_texto DESPLIEGUE "Despliegue al que volver (id)" 1 ;;
   lanzar)       pedir_texto DESPLIEGUE "Despliegue a lanzar (id)" 1
                 pedir_texto NOMBRE "Nombre del lanzamiento (Enter: la versión)" 0 ;;
-  diagnosticar) pedir_texto INTENTO "Intento que falló (id)" 1
+  diagnosticar) pedir_texto INTENTO "Intento que falló (Enter: el último del ambiente)" 0
                 pedir_texto REFERENCIA "Despliegue de referencia (Enter: lo elige el motor)" 0 ;;
   abandonar|intento) pedir_texto INTENTO "Intento (id)" 1 ;;
+  logs)         pedir_texto INTENTO "Intento (Enter: el último)" 0
+                pedir_texto RESULTADO "Resultado (exitoso o fallido; Enter: todos)" 0 ;;
 esac
 if [ -z "$LIMPIO" ]; then
   pregunta_si_no "¿Empezar sin historial?" 0
@@ -290,10 +294,13 @@ case "$OPERACION" in
   reservar|liberar|intentos|despliegues)
     CAMPOS="\"Ambiente\": \"$AMBIENTE\"" ;;
   diagnosticar)
-    CAMPOS="\"Ambiente\": \"$AMBIENTE\", \"Intento\": \"$INTENTO\""
+    CAMPOS="\"Ambiente\": \"$AMBIENTE\""
+    if [ -n "$INTENTO" ]; then CAMPOS="$CAMPOS, \"Intento\": \"$INTENTO\""; fi
     if [ -n "$REFERENCIA" ]; then CAMPOS="$CAMPOS, \"Referencia\": \"$REFERENCIA\""; fi ;;
   abandonar|intento)
     CAMPOS="\"Intento\": \"$INTENTO\"" ;;
+  logs)
+    CAMPOS="\"Intento\": \"$INTENTO\", \"Resultado\": \"$RESULTADO\"" ;;
 esac
 PETICION="{
   \"Version\": \"1\",
@@ -303,7 +310,7 @@ printf '\n%svexd %s%s  %s(la petición JSON entra por la entrada estándar)%s\n'
 printf '%s%s%s\n' "$CIAN" "$PETICION" "$RESET"
 
 seccion "$MAGENTA" "RESPUESTA DEL MOTOR"
-printf '%sstderr: lo que imprimen los comandos · stdout: la respuesta%s\n\n' "$TENUE" "$RESET"
+printf '%sstdout: la respuesta · stderr: los errores%s\n\n' "$TENUE" "$RESET"
 set +e
 "$VEXD" "$OPERACION" \
   --almacen "$DEMO_DIR/almacen" \

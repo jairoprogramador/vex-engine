@@ -161,3 +161,25 @@ func TestRepositorios_DesplieguesOcupacionesLanzamientosYReservas(t *testing.T) 
 	require.True(t, ok)
 	require.Equal(t, dominio.Reserva{Reservado: true, Instante: en(4)}, ultima)
 }
+
+func TestSalidas_SeGuardanAparteYSeLeenEnOrden(t *testing.T) {
+	ctx := contexto()
+	almacen := NuevoAlmacenEnMemoria()
+	salidas := NuevasSalidas(almacen)
+	vacias, err := salidas.DeUnIntento(ctx, "i1")
+	require.NoError(t, err)
+	require.Empty(t, vacias)
+
+	primera := dominio.Salida{Paso: "supply", Comando: "construir", Exitoso: true, Texto: "ok\n\x00", Instante: en(1)}
+	segunda := dominio.Salida{Paso: "deploy", Comando: "publicar", Exitoso: false, Texto: "mal", Instante: en(2)}
+	require.NoError(t, salidas.Anadir(ctx, "i1", 0, primera))
+	require.NoError(t, salidas.Anadir(ctx, "i1", 1, segunda))
+
+	leidas, err := salidas.DeUnIntento(ctx, "i1")
+	require.NoError(t, err)
+	require.Equal(t, []dominio.Salida{primera, segunda}, leidas)
+	intentos, err := almacen.Nombres(ctx, familiaIntentos)
+	require.NoError(t, err)
+	require.Empty(t, intentos, "no toca la secuencia de los intentos")
+	require.ErrorIs(t, salidas.Anadir(ctx, "i1", 1, segunda), dominio.ErrConflicto, "escritura condicional")
+}

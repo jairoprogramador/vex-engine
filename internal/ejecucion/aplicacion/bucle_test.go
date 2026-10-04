@@ -56,7 +56,7 @@ func TestIntentar_UnFalloDeUnComandoCierraElIntentoComoFallido(t *testing.T) {
 	d.comandos.resultado = dominio.ResultadoDeUnComando{Exitoso: false}
 	servicio := aplicacion.NuevoServicio(deps)
 
-	resultado, err := servicio.Intentar(context.Background(), peticionDePrueba(), &salidaFalsa{})
+	resultado, err := servicio.Intentar(context.Background(), peticionDePrueba())
 
 	require.NoError(t, err)
 	require.Equal(t, "fallido", resultado.Estado)
@@ -72,7 +72,7 @@ func TestIntentar_LaCancelacionMidComandoGanaAlFalloQueEllaMismaProvoca(t *testi
 	d.comandos.err = context.Canceled
 	servicio := aplicacion.NuevoServicio(deps)
 
-	resultado, err := servicio.Intentar(ctx, peticionDePrueba(), &salidaFalsa{})
+	resultado, err := servicio.Intentar(ctx, peticionDePrueba())
 
 	require.NoError(t, err)
 	require.Equal(t, "cancelado", resultado.Estado)
@@ -86,7 +86,7 @@ func TestIntentar_UnHistorialQueNoAceptaUnRegistroSeDetieneSinCerrar(t *testing.
 	d.historial.fallarRegistrar["02-despliegue"] = true
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), &salidaFalsa{})
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
 
 	require.Error(t, err)
 	require.False(t, d.historial.cerrado, "EJ-4: el intento queda sin desenlace, nunca se cierra")
@@ -104,7 +104,7 @@ func TestIntentar_UnPasoConUltimaVezValidaYSinCambiosNoSeReejecuta(t *testing.T)
 	}
 	servicio := aplicacion.NuevoServicio(deps)
 
-	resultado, err := servicio.Intentar(context.Background(), peticionDePrueba(), &salidaFalsa{})
+	resultado, err := servicio.Intentar(context.Background(), peticionDePrueba())
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
@@ -120,7 +120,7 @@ func TestIntentar_UnPasoNoEmpiezaSinElRegistroDelAnteriorEscrito(t *testing.T) {
 	d.historial.fallarRegistrar["01-pruebas"] = true
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), &salidaFalsa{})
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
 
 	require.Error(t, err)
 	require.Empty(t, d.comandos.llamados, "el comienzo del primer paso no se escribió: no debería ni ejecutarse")

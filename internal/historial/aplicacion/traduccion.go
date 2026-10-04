@@ -115,3 +115,9 @@ func lanzamientoAPublicado(l dominio.Lanzamiento) publicado.Lanzamiento {
 		Instante: l.Instante(), Contenido: contenidoAPublicado(l.Contenido()),
 	}
 }
+
+func salidaAPublicado(s dominio.Salida) publicado.Salida {
+	return publicado.Salida{
+		Paso: string(s.Paso), Comando: s.Comando, Exitoso: s.Exitoso, Texto: s.Texto, Instante: s.Instante,
+	}
+}

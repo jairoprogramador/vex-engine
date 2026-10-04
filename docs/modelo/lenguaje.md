@@ -57,7 +57,7 @@ lo calcula.
 ## Diagnóstico · *core*
 
 Nombra la **causa** de un fallo comparando **el intento que falla** contra despliegues **del mismo
-ambiente y del ambiente anterior en el orden**, leídos del historial, y solo entrega hechos.
+ambiente**, leídos del historial, y solo entrega hechos.
 
 | Término | Qué nombra |
 |---|---|
@@ -188,9 +188,8 @@ desenlace: no se hace en el mundo nada que no pueda quedar escrito.
 - **«El último despliegue» es único**, y no por la forma de la historia, que se bifurca, sino porque
   **el tiempo es un orden total**: en un ambiente no hay dos despliegues a la vez.
 
-**La referencia de una comparación es un parámetro**, no una regla. Por defecto hay dos: el despliegue
-anterior en el mismo ambiente y el último del ambiente anterior en el orden con el mismo hash del
-código. El usuario puede elegir otra (IT-06 `DEC-06.6`, `DEC-06.8`).
+**La referencia de una comparación es un parámetro**, no una regla. Por defecto es el despliegue
+anterior en el mismo ambiente. El usuario puede elegir otra (IT-06 `DEC-06.6`, `DEC-06.21`).
 
 ---
 

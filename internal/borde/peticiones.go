@@ -46,3 +46,12 @@ type PeticionDeDesplieguesDeUnAmbiente struct {
 	Version  string
 	Ambiente string
 }
+
+// PeticionDeLogs es consultar la salida de los comandos de un intento. Sin Intento, es la del último que se
+// abrió en cualquier ambiente. Resultado filtra por cómo terminó cada comando: "exitoso", "fallido", o vacío
+// para todos.
+type PeticionDeLogs struct {
+	Version   string
+	Intento   string
+	Resultado string
+}

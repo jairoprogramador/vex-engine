@@ -10,14 +10,13 @@ type DespliegueDeDiagnostico struct {
 	Instante time.Time
 }
 
-// CandidatosParaElegirReferencias son los despliegues ya resueltos entre los que elegir referencias
-// (DEC-06.6, DEC-06.8): el que el usuario eligió, si eligió alguno, o los dos por defecto, cada uno si
-// existe. Resolverlos es I/O y le toca a la aplicación/infraestructura (DEC-06.14): este servicio solo
-// decide con lo que ya tiene delante.
+// CandidatosParaElegirReferencias son los despliegues ya resueltos entre los que elegir la referencia
+// (DEC-06.6): el que el usuario eligió, si eligió alguno, o el último del mismo ambiente, si existe.
+// Resolverlos es I/O y le toca a la aplicación/infraestructura (DEC-06.14): este servicio solo decide con
+// lo que ya tiene delante.
 type CandidatosParaElegirReferencias struct {
-	ElegidaPorElUsuario                     *DespliegueDeDiagnostico
-	UltimoDelMismoAmbiente                  *DespliegueDeDiagnostico
-	UltimoDelAmbienteAnteriorConMismoCodigo *DespliegueDeDiagnostico
+	ElegidaPorElUsuario    *DespliegueDeDiagnostico
+	UltimoDelMismoAmbiente *DespliegueDeDiagnostico
 }
 
 // CandidataDeReferencia es un despliegue candidato a referencia, con la razón por la que se eligió.
@@ -27,34 +26,22 @@ type CandidataDeReferencia struct {
 }
 
 // ElegirReferencias es el primer servicio de dominio (DEC-06.14): si el usuario eligió una, es la única
-// que se usa. Si no, se devuelven las que existan de las dos por defecto — cero, una o las dos.
-func ElegirReferencias(c CandidatosParaElegirReferencias) []CandidataDeReferencia {
-	if c.ElegidaPorElUsuario != nil {
-		return []CandidataDeReferencia{{Despliegue: *c.ElegidaPorElUsuario, Razon: ElegidaPorElUsuario}}
+// que se usa; si no, la del mismo ambiente. Un despliegue del propio intento que se diagnostica no es
+// historial previo: no se compara un intento consigo mismo, y se devuelve ninguna referencia.
+func ElegirReferencias(c CandidatosParaElegirReferencias, intento IdIntento) []CandidataDeReferencia {
+	switch {
+	case c.ElegidaPorElUsuario != nil:
+		return referenciaDistintaDe(intento, *c.ElegidaPorElUsuario, ElegidaPorElUsuario)
+	case c.UltimoDelMismoAmbiente != nil:
+		return referenciaDistintaDe(intento, *c.UltimoDelMismoAmbiente, MismoAmbiente)
+	default:
+		return nil
 	}
-	var candidatas []CandidataDeReferencia
-	if c.UltimoDelMismoAmbiente != nil {
-		candidatas = append(candidatas, CandidataDeReferencia{Despliegue: *c.UltimoDelMismoAmbiente, Razon: MismoAmbiente})
-	}
-	if c.UltimoDelAmbienteAnteriorConMismoCodigo != nil {
-		candidatas = append(
-			candidatas,
-			CandidataDeReferencia{Despliegue: *c.UltimoDelAmbienteAnteriorConMismoCodigo, Razon: AmbienteAnterior},
-		)
-	}
-	return candidatas
 }
 
-// EncontrarAmbienteAnterior es el que precede a actual en el orden declarado, si actual no es el primero
-// ni está fuera de ese orden.
-func EncontrarAmbienteAnterior(orden []Ambiente, actual Ambiente) (Ambiente, bool) {
-	for i, a := range orden {
-		if a == actual {
-			if i == 0 {
-				return Ambiente{}, false
-			}
-			return orden[i-1], true
-		}
+func referenciaDistintaDe(intento IdIntento, despliegue DespliegueDeDiagnostico, razon RazonDeReferencia) []CandidataDeReferencia {
+	if despliegue.Intento == intento {
+		return nil
 	}
-	return Ambiente{}, false
+	return []CandidataDeReferencia{{Despliegue: despliegue, Razon: razon}}
 }

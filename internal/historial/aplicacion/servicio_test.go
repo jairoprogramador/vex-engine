@@ -39,6 +39,7 @@ func historialSobre(almacen infraestructura.Almacen) *aplicacion.Servicio {
 		Ocupaciones:  infraestructura.NuevasOcupaciones(almacen),
 		Lanzamientos: infraestructura.NuevosLanzamientos(almacen),
 		Reservas:     infraestructura.NuevasReservas(almacen),
+		Salidas:      infraestructura.NuevasSalidas(almacen),
 		Reloj:        &relojQueAvanza{ahora: t0},
 		Identidades:  infraestructura.IdentidadesUUID{},
 	})

@@ -658,6 +658,23 @@ puntos, con autor y fecha*. La promesa de autoría de la cadena de garantías qu
 
 **Verificación.** Ningún sustento atribuye a una persona el cambio de una variable concreta.
 
+### DEC-06.21 — Por defecto se compara solo con el último despliegue del mismo ambiente; sin historial previo se dice *(revoca `DEC-06.8`)*
+
+**Decisión.** Sin referencia indicada, la única referencia es el último despliegue del mismo ambiente
+anterior al intento (`DEC-06.6`). Se retira la referencia por defecto del ambiente anterior con el
+mismo hash del código. Si no existe ningún despliegue anterior al intento, o la referencia (por defecto
+o elegida) es un despliegue del propio intento que se diagnostica, la respuesta es **sin referencia** y
+lleva el mensaje *«no hay historial previo al intento actual que se pretende diagnosticar»*.
+
+**Por qué.** Comparar un intento consigo mismo no dice nada, y quien pregunta necesita saber que falta
+historial, no recibir una respuesta vacía.
+
+**Consecuencias.** **Revoca `DEC-06.8`**: `RazonDeReferencia` pierde `ambiente_anterior`, y el puerto de
+Diagnóstico al Historial pierde la consulta por hash del código y el orden de ambientes del intento. La
+comparación con staging sigue posible eligiendo a mano su despliegue. `Respuesta` gana `Mensaje`.
+
+**Verificación.** `ElegirReferencias` no devuelve despliegues del propio intento; ES-6 lleva el mensaje.
+
 ---
 
 ## 5. Impacto en el modelo

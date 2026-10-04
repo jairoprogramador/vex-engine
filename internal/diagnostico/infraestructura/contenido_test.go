@@ -27,34 +27,6 @@ func TestDecodificarRecursosDePaso_ContextoEquivocado(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestDecodificarOrdenDeAmbientes(t *testing.T) {
-	c := historialpublicado.Contenido{
-		Contexto: contextoAperturaDeEjecucion,
-		Datos: []byte(
-			`{"fuente_del_proyecto":"x","commit_del_proyecto":"y","fuente_del_pipeline":"z",` +
-				`"commit_del_pipeline":"w","orden_de_ambientes":["sand","stag","prod"]}`,
-		),
-	}
-	orden, err := decodificarOrdenDeAmbientes(c)
-	require.NoError(t, err)
-	require.Equal(t, []string{"sand", "stag", "prod"}, orden)
-}
-
-func TestDecodificarOrdenDeAmbientes_SinElCampoDaVacio(t *testing.T) {
-	c := historialpublicado.Contenido{
-		Contexto: contextoAperturaDeEjecucion,
-		Datos:    []byte(`{"fuente_del_proyecto":"x","commit_del_proyecto":"y","fuente_del_pipeline":"z","commit_del_pipeline":"w"}`),
-	}
-	orden, err := decodificarOrdenDeAmbientes(c)
-	require.NoError(t, err)
-	require.Empty(t, orden)
-}
-
-func TestDecodificarOrdenDeAmbientes_ContextoEquivocado(t *testing.T) {
-	_, err := decodificarOrdenDeAmbientes(historialpublicado.Contenido{Contexto: "otro/contexto-v1"})
-	require.Error(t, err)
-}
-
 func TestDecodificarVariable(t *testing.T) {
 	c := historialpublicado.Contenido{
 		Contexto: contextoVariableDeResolucion,
