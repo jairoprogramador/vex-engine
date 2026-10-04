@@ -37,8 +37,10 @@ func (v *Variables) Interpolar(ctx context.Context, intento, paso string, ambito
 	return interpolado, nil
 }
 
-func (v *Variables) HashDeLasVariables(ctx context.Context, intento string, ambito dominio.Ambito) (dominio.HashDeVariables, error) {
-	hash, err := v.variables.HashDeLasVariables(ctx, intento, ambitoResolucion(ambito))
+func (v *Variables) HashDeLasVariables(
+	ctx context.Context, intento string, ambito dominio.Ambito, textos []string,
+) (dominio.HashDeVariables, error) {
+	hash, err := v.variables.HashDeLasVariables(ctx, intento, ambitoResolucion(ambito), textos)
 	if err != nil {
 		return dominio.HashDeVariables{}, fmt.Errorf("ejecución: el hash de las variables: %w", err)
 	}

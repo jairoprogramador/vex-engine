@@ -17,7 +17,7 @@ func (s *Servicio) decidirPaso(
 ) (dominio.Decision, dominio.RecursosDeUnPaso, error) {
 	hashDeInstrucciones := dominio.CalcularHashDeInstrucciones(paso.Comandos, paso.Material)
 
-	hashDeVariables, err := s.d.Variables.HashDeLasVariables(ctx, intento, ambito)
+	hashDeVariables, err := s.d.Variables.HashDeLasVariables(ctx, intento, ambito, dominio.TextosInterpolables(paso.Comandos, paso.Material))
 	if err != nil {
 		return dominio.Decision{}, dominio.RecursosDeUnPaso{}, fmt.Errorf("ejecución: decidir el paso %q: %w", paso.Nombre(), err)
 	}

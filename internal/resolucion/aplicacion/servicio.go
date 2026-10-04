@@ -58,9 +58,9 @@ func (p paraEjecucion) Interpolar(
 }
 
 func (p paraEjecucion) HashDeLasVariables(
-	ctx context.Context, intento string, ambito publicado.Ambito,
+	ctx context.Context, intento string, ambito publicado.Ambito, textos []string,
 ) (string, error) {
-	return p.s.hashDeLasVariables(ctx, intento, ambito)
+	return p.s.hashDeLasVariables(ctx, intento, ambito, textos)
 }
 
 func (p paraEjecucion) RegistrarProducido(

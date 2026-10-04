@@ -7,6 +7,17 @@ import (
 
 var patronDeVariable = regexp.MustCompile(`\$\{var\.([a-zA-Z0-9_]+)\}`)
 
+// NombresUsados son los nombres de las variables que los textos referencian con ${var.<nombre>}.
+func NombresUsados(textos []string) map[string]bool {
+	usados := map[string]bool{}
+	for _, texto := range textos {
+		for _, coincidencia := range patronDeVariable.FindAllStringSubmatch(texto, -1) {
+			usados[coincidencia[1]] = true
+		}
+	}
+	return usados
+}
+
 // VariableNoEncontradaError: el texto usa un nombre que no está entre las variables disponibles.
 type VariableNoEncontradaError struct{ Nombre string }
 

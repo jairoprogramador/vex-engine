@@ -68,9 +68,10 @@ type Variables interface {
 		ctx context.Context, intento, paso string, ambito Ambito, fuente, commit string, estandar map[string]string,
 	) error
 	Interpolar(ctx context.Context, intento, paso string, ambito Ambito, texto string) (string, error)
-	// HashDeLasVariables resume las variables que el paso consume, visibles desde ambito. La regla lo compara con
-	// el que se guardó la última vez que el paso se ejecutó.
-	HashDeLasVariables(ctx context.Context, intento string, ambito Ambito) (HashDeVariables, error)
+	// HashDeLasVariables resume las variables que el paso consume, visibles desde ambito: las que referencian
+	// textos (ver TextosInterpolables). La regla lo compara con el que se guardó la última vez que el paso se
+	// ejecutó.
+	HashDeLasVariables(ctx context.Context, intento string, ambito Ambito, textos []string) (HashDeVariables, error)
 	RegistrarProducido(ctx context.Context, intento, paso, nombre, valor string, ambito Ambito) error
 	NoReejecutado(ctx context.Context, intento, paso string, ambito Ambito) error
 }

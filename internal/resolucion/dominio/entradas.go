@@ -25,6 +25,6 @@ func HashDeLasEntradas(entradas []VariableEfectiva) HashDeEntradas {
 // HashDeEntradas es el resumen de las variables que un paso consume. Se calcula solo con HashDeLasEntradas.
 type HashDeEntradas struct{ valor string }
 
-const prefijoHashDeEntradas = "entradas-v1:"
+const prefijoHashDeEntradas = "entradas-v2:"
 
 func (h HashDeEntradas) String() string { return h.valor }

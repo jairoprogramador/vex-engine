@@ -1,3 +1,11 @@
 - name: comando-deploy-01
   description: despliegue exitoso
   cmd: echo 'despliegue exitoso'
+
+- name: comando-deploy-02
+  description: usa la variable configurada
+  cmd: echo var ${var.deploy}
+
+- name: comando-deploy-03
+  description: usa la variable compartida
+  cmd: echo var shared ${var.shared}

@@ -280,27 +280,16 @@ func TestE2E_CambiarUnaPlantillaReejecutaSoloEsePaso(t *testing.T) {
 	}
 }
 
-// Una variable definida en el pipeline que cambia reejecuta el paso que mira las variables, y a los que no las
-// miran no los toca.
-func TestE2E_CambiarUnaVariableDelPipelineReejecutaSoloAlPasoQueLaMira(t *testing.T) {
+// Cambiar el valor de una variable que solo usa un paso reejecuta ese paso y a ningún otro: en el fixture cada
+// paso usa la suya (${var.test}, ${var.acr}…) y todos usan además ${var.shared}.
+func TestE2E_CambiarUnaVariableDelPipelineReejecutaSoloAlPasoQueLaUsa(t *testing.T) {
 	s := montarSistema(t)
 	_, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
 	require.NoError(t, err)
 
-	pasos := pasosDelEjemplo(t)
-	var quienLaMira pasoDelEjemplo
-	for _, paso := range pasos {
-		if paso.mira("variables") {
-			quienLaMira = paso
-			break
-		}
-	}
-	require.NotEmpty(t, quienLaMira.Nombre, "el ejemplo necesita un paso que mire las variables")
-
 	repo, err := git.PlainOpen(s.repoPipeline)
 	require.NoError(t, err)
-	escribirFichero(t, s.repoPipeline, "variables/prod/"+quienLaMira.Nombre+".yaml",
-		"- name: variable_de_la_prueba\n  value: \"un-valor\"\n")
+	escribirFichero(t, s.repoPipeline, "variables/prod/test.yaml", "- name: test\n  value: \"otro-valor\"\n")
 	commitear(t, repo)
 
 	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
@@ -308,11 +297,53 @@ func TestE2E_CambiarUnaVariableDelPipelineReejecutaSoloAlPasoQueLaMira(t *testin
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
 	estados := estadosPorPaso(resultado.Detalle)
-	require.Equal(t, "ejecutado", estados[quienLaMira.Nombre], "ve una variable nueva del pipeline")
-	for _, paso := range pasos {
-		if !paso.mira("variables") {
-			require.Equal(t, "precargado", estados[paso.Nombre], "no mira las variables: %s", paso.Nombre)
+	require.Equal(t, "ejecutado", estados["test"], "usa la variable que cambió")
+	for _, paso := range pasosDelEjemplo(t) {
+		if paso.Nombre != "test" {
+			require.Equal(t, "precargado", estados[paso.Nombre], "no usa la variable que cambió: %s", paso.Nombre)
 		}
+	}
+}
+
+// Una variable compartida reejecuta a los pasos que la usan; aquí la usan todos.
+func TestE2E_CambiarUnaVariableCompartidaReejecutaATodosLosQueLaUsan(t *testing.T) {
+	s := montarSistema(t)
+	_, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	require.NoError(t, err)
+
+	repo, err := git.PlainOpen(s.repoPipeline)
+	require.NoError(t, err)
+	escribirFichero(t, s.repoPipeline, "variables/vars.yaml", "- name: shared\n  value: \"otro-valor\"\n")
+	commitear(t, repo)
+
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+
+	require.NoError(t, err)
+	require.Equal(t, "exitoso", resultado.Estado)
+	estados := estadosPorPaso(resultado.Detalle)
+	for _, paso := range pasosDelEjemplo(t) {
+		require.Equal(t, "ejecutado", estados[paso.Nombre], "usa ${var.shared}: %s", paso.Nombre)
+	}
+}
+
+// Declarar una variable que ningún paso usa no reejecuta nada.
+func TestE2E_UnaVariableNuevaQueNingunPasoUsaNoReejecutaNada(t *testing.T) {
+	s := montarSistema(t)
+	_, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+	require.NoError(t, err)
+
+	repo, err := git.PlainOpen(s.repoPipeline)
+	require.NoError(t, err)
+	escribirFichero(t, s.repoPipeline, "variables/prod/sin_uso.yaml", "- name: sin_uso\n  value: \"x\"\n")
+	commitear(t, repo)
+
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), &salidaDePrueba{})
+
+	require.NoError(t, err)
+	require.Equal(t, "exitoso", resultado.Estado)
+	estados := estadosPorPaso(resultado.Detalle)
+	for _, paso := range pasosDelEjemplo(t) {
+		require.Equal(t, "precargado", estados[paso.Nombre], "nadie usa la variable nueva: %s", paso.Nombre)
 	}
 }
 

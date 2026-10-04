@@ -11,3 +11,12 @@
     - name: etiqueta
       description: la etiqueta que se despliega
       probe: 'etiqueta=(\S+)'
+
+- name: comando-test-03
+  description: usa la variable configurada
+  cmd: echo var ${var.test}
+
+- name: comando-test-04
+  description: usa la variable compartida
+  cmd: echo var shared ${var.shared}
+

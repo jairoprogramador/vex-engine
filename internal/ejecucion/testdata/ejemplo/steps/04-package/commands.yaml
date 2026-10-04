@@ -1,3 +1,11 @@
-- name: usar-etiqueta
+- name: comando-package-01
   description: usa la variable producida por el paso anterior y la variable estándar del ambiente
   cmd: echo 'desplegando ${var.etiqueta} en el grupo de recurso ${var.azure_resource_group_name}'
+
+- name: comando-package-02
+  description: usa la variable configurada
+  cmd: echo var ${var.package}
+
+- name: comando-package-03
+  description: usa la variable compartida
+  cmd: echo var shared ${var.shared}

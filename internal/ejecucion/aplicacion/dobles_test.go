@@ -93,7 +93,7 @@ func (v *variablesFalsas) Interpolar(_ context.Context, _, _ string, _ dominio.A
 // que una prueba guarde otro en la última vez del paso.
 const hashDeVariablesDePrueba = "variables-de-prueba"
 
-func (v *variablesFalsas) HashDeLasVariables(_ context.Context, _ string, _ dominio.Ambito) (dominio.HashDeVariables, error) {
+func (v *variablesFalsas) HashDeLasVariables(_ context.Context, _ string, _ dominio.Ambito, _ []string) (dominio.HashDeVariables, error) {
 	return dominio.NuevoHashDeVariables(hashDeVariablesDePrueba), v.err
 }
 

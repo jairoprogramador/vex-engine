@@ -37,7 +37,7 @@ func (v *variablesFalsas) Interpolar(
 }
 
 func (v *variablesFalsas) HashDeLasVariables(
-	_ context.Context, _ string, _ resolucionpublicado.Ambito,
+	_ context.Context, _ string, _ resolucionpublicado.Ambito, _ []string,
 ) (string, error) {
 	return v.hash, v.err
 }
@@ -79,7 +79,7 @@ func TestAdaptadorDeVariables_PropagaElHashDeLasVariables(t *testing.T) {
 	falsas := &variablesFalsas{hash: "entradas-v1:abc"}
 	adaptador := infraestructura.NuevasVariables(falsas)
 
-	hash, err := adaptador.HashDeLasVariables(context.Background(), "int-1", dominio.AmbitoCompartido())
+	hash, err := adaptador.HashDeLasVariables(context.Background(), "int-1", dominio.AmbitoCompartido(), nil)
 	require.NoError(t, err)
 	require.Equal(t, dominio.NuevoHashDeVariables("entradas-v1:abc"), hash)
 }

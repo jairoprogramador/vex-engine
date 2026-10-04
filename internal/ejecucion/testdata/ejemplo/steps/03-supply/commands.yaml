@@ -12,3 +12,11 @@
     - name: azure_resource_group_name
       description: nombre de grupo de recurso
       probe: 'azure_resource_group_name=(\S+)'
+
+- name: comando-supply-03
+  description: usa la variable configurada
+  cmd: echo var ${var.supply}
+
+- name: comando-supply-04
+  description: usa la variable compartida
+  cmd: echo var shared ${var.shared}

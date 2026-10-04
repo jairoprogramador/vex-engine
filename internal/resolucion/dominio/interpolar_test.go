@@ -32,3 +32,9 @@ func TestInterpolarFallaConUnNombreQueNoEsta(t *testing.T) {
 	require.Equal(t, "no_existe", noEncontrada.Nombre)
 	require.ErrorIs(t, err, dominio.ErrRechazado)
 }
+
+func TestNombresUsados(t *testing.T) {
+	usados := dominio.NombresUsados([]string{"a ${var.uno} ${var.dos}", "${var.uno}", "sin variables", "${var.mal-nombre} ${otra.x}"})
+
+	require.Equal(t, map[string]bool{"uno": true, "dos": true}, usados)
+}
