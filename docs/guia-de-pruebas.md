@@ -167,21 +167,29 @@ No ejecuta comandos ni escribe en el historial. Sirve para saber si el pipeline 
 | Campo | Obligatorio | Significado |
 |---|---|---|
 | `Version` | sí | `"1"` |
+| `Ambiente` | sí | Valor del ambiente (`sand`), no su `name` (`sandbox`) |
+| `Solicitante` | sí | Quién pide la simulación |
+| `HastaPaso` | sí | Último paso que se simula |
 | `Fuente` | \* | Directorio del repo git del pipeline |
 | `Commit` | \* | Commit del pipeline. **Identificador completo de 40 caracteres**: aquí no vale vacío |
 | `CopiaDeTrabajo` | \* | Directorio con el pipeline sin commit. Tiene prioridad |
+| `Metadatos` | no | Igual que en `intentar` (`ProjectId`, `ProjectName`, …): dan valor a las variables estándar `project_*` |
 
 \* O `Fuente` con `Commit`, o `CopiaDeTrabajo`.
 
-**Respuesta**: `Comprobacion` (`Paso` verdadero o falso, y `Fallos`) y, si pasó, `Ambientes`, cada uno con sus
-pasos: `Interpolado` son las variables de salida que se fabricaron, y `Faltante` las que no se pudieron
-interpolar. Solo nombres, nunca valores. Aquí los ambientes salen por su `name` (`production`). La simulación no
-recibe `Metadatos`, así que `project_name` aparece como `Faltante` si un paso lo usa.
+**Respuesta**: el resumen de un intento sin `Id` (`Ambiente`, `Solicitante`, `HastaPaso`, `Estado`). Si `Estado` es
+`fallido` (y el código de salida es 1), trae `Causa`: `Fallos` de la comprobación, o `Faltante` con el `Paso` y las
+`Variables` que no se pudieron interpolar. Solo nombres, nunca valores. Un ambiente o un paso que el pipeline no
+tiene es una petición inválida (error, no resultado). La simulación declara las
+variables estándar como un intento: `project_*` salen de `Metadatos` (vacías si no se dan, igual que en un
+intento), `environment` y `step_name` son las reales, y `project_hash`, `project_version`, `project_workdir`,
+`tool_name` y `step_workdir` llevan un valor simulado (no hay material ni espacio de trabajo que leer, y la
+simulación nunca devuelve valores).
 
 ```bash
 SHA=$(git -C $D/pipeline rev-parse HEAD)
-echo "{\"Version\":\"1\",\"Fuente\":\"$D/pipeline\",\"Commit\":\"$SHA\"}" | $VEXD simular
-echo "{\"Version\":\"1\",\"CopiaDeTrabajo\":\"$D/pipeline\"}"            | $VEXD simular
+echo "{\"Version\":\"1\",\"Ambiente\":\"sand\",\"Solicitante\":\"jailux\",\"HastaPaso\":\"test\",\"Fuente\":\"$D/pipeline\",\"Commit\":\"$SHA\"}" | $VEXD simular
+echo "{\"Version\":\"1\",\"Ambiente\":\"sand\",\"Solicitante\":\"jailux\",\"HastaPaso\":\"test\",\"CopiaDeTrabajo\":\"$D/pipeline\"}"            | $VEXD simular
 ```
 
 ### `lanzar` — hacer visible un despliegue

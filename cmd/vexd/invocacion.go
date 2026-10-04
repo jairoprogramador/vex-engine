@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	ejecucionpublicado "github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
+	simulacionpublicado "github.com/jairoprogramador/vex-engine/internal/simulacion/publicado"
 )
 
 var errAyuda = errors.New("ayuda pedida")
@@ -78,14 +79,25 @@ func escribirRespuesta(w io.Writer, respuesta any) error {
 	return e.Encode(respuesta)
 }
 
-// codigoDeLaRespuesta traduce cómo terminó un intento en el código de salida: la operación se atendió bien,
-// pero el pipeline pudo fallar o cancelarse, y quien invoca desde un script lo necesita sin leer el JSON.
+// codigoDeLaRespuesta traduce cómo terminó un intento, o cómo terminaría uno simulado, en el código de salida:
+// la operación se atendió bien, pero el pipeline pudo fallar o cancelarse, y quien invoca desde un script lo
+// necesita sin leer el JSON.
 func codigoDeLaRespuesta(respuesta any) int {
-	r, ok := respuesta.(ejecucionpublicado.Resultado)
-	switch {
-	case !ok || r.Estado == estadoExitoso:
+	switch r := respuesta.(type) {
+	case ejecucionpublicado.Resultado:
+		return codigoDelEstado(string(r.Estado))
+	case simulacionpublicado.Resultado:
+		return codigoDelEstado(string(r.Estado))
+	default:
 		return salidaBien
-	case r.Estado == estadoCancelado:
+	}
+}
+
+func codigoDelEstado(estado string) int {
+	switch estado {
+	case estadoExitoso:
+		return salidaBien
+	case estadoCancelado:
 		return salidaCancelado
 	default:
 		return salidaFallo

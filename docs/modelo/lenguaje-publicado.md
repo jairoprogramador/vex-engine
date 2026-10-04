@@ -54,7 +54,7 @@ petición son inválidas (incluida una versión no soportada) · `130` cancelado
 |---|---|---|---|
 | **Intentar** hasta un paso en un ambiente | `ejecucion.PeticionDeIntento` | `Resultado` | Ejecución (EJ-1) |
 | **Hacer rollback** a un despliegue | `ejecucion.PeticionDeRollback` | `Resultado` | Ejecución (EJ-2) |
-| **Simular** un pipeline, sin efectos | `simulacion.PeticionDeSimulacion` | `Informe` | Simulación (SIM-1, SIM-2) |
+| **Simular** un pipeline, sin efectos | `simulacion.PeticionDeSimulacion` | `Resultado` | Simulación (SIM-1, SIM-2) |
 | **Lanzar** un despliegue | `borde.PeticionDeLanzamiento` | `lanzamiento.Lanzamiento` | Lanzamiento (LAN-2) |
 | **Reservar** un ambiente | `borde.PeticionDeReserva` | — | Lanzamiento (LAN-3) |
 | **Liberar** un ambiente | `borde.PeticionDeLiberacion` | — | Lanzamiento (LAN-3) |
@@ -70,8 +70,13 @@ petición son inválidas (incluida una versión no soportada) · `130` cancelado
   imprimen los comandos de cada paso (`DEC-12.5`). No se guarda ni se tapa: no es un registro. La respuesta de la
   operación es aparte. Un intento con copia de trabajo (`CopiaDeTrabajo`) nunca llega a despliegue. Un rollback
   toma el ambiente y las fuentes del propio despliegue destino.
-- **Simular.** Fuente y commit, o una copia de trabajo (que tiene prioridad). El `Informe` lleva nombres, nunca
-  valores: qué se interpoló y qué faltó, por paso y por ambiente.
+- **Simular.** Se pide como un intento: `Ambiente` (su valor, `sand`), `Solicitante` y `HastaPaso`, más fuente y
+  commit, o una copia de trabajo (que tiene prioridad). El `Resultado` es el resumen de un intento sin `Id`
+  (nada se guarda); si habría fallado, trae la `Causa` por nombre, nunca valores: los fallos de la comprobación
+  o las variables que faltan en el primer paso que falla. Declara las variables estándar como un intento: los
+  `Metadatos` de quien invoca, `environment` y `step_name` reales, y valores simulados para las que el motor
+  genera a partir del material. Un ambiente o paso que el pipeline no tiene es
+  `simulacion.ErrInvalido`, no un resultado fallido.
 - **Lanzar.** Es incondicional: la reserva de un ambiente solo bloquea el lanzamiento en nombre del actor
   ausente, nunca al dueño del negocio. Sin nombre, el nombre toma la versión.
 - **Preguntar la causa.** Un intento **o** un lanzamiento (nunca los dos), en un ambiente, y opcionalmente una

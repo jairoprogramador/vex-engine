@@ -19,6 +19,22 @@ type pipelinesFalsos struct {
 	err      error
 }
 
+// VariablesEstandar son las de Definición: las nueve compartidas y las dos de cada paso.
+func (p *pipelinesFalsos) VariablesEstandar() []dominio.VariableEstandar {
+	nombres := []string{
+		"project_id", "project_name", "project_organization", "project_team", "environment",
+		"project_hash", "project_version", "project_workdir", "tool_name",
+	}
+	estandar := make([]dominio.VariableEstandar, 0, len(nombres)+2)
+	for _, n := range nombres {
+		estandar = append(estandar, dominio.VariableEstandar{Nombre: n})
+	}
+	return append(estandar,
+		dominio.VariableEstandar{Nombre: "step_name", DelPaso: true},
+		dominio.VariableEstandar{Nombre: "step_workdir", DelPaso: true},
+	)
+}
+
 func (p *pipelinesFalsos) DeUnCommit(context.Context, string, string) (dominio.Pipeline, error) {
 	return p.pipeline, p.err
 }

@@ -3,35 +3,70 @@ package aplicacion
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	definicionpublicado "github.com/jairoprogramador/vex-engine/internal/definicion/publicado"
 	"github.com/jairoprogramador/vex-engine/internal/simulacion/dominio"
 	"github.com/jairoprogramador/vex-engine/internal/simulacion/publicado"
 )
 
-// Simular es SIM-1: trae el pipeline, de una copia de trabajo o de un commit (DEC-10.6), y lo comprueba — si
-// la comprobación falla, ese es el resultado entero (§1); si pasa, recorre todos los ambientes (§2) y entrega
-// el informe (§3).
-func (s *Servicio) Simular(ctx context.Context, p publicado.PeticionDeSimulacion) (publicado.Informe, error) {
+// Simular es SIM-1: simula un intento hasta un paso de un ambiente, sin efectos. Trae el pipeline, de una copia
+// de trabajo o de un commit (DEC-10.6), y lo comprueba — si la comprobación falla, esa es la causa (§1); si
+// pasa, valida lo pedido contra él y recorre el ambiente hasta el paso (§2). El resultado es el resumen de lo
+// que habría pasado (§3), con la causa si habría fallado.
+//
+// Pedir lo imposible — un ambiente o un paso que el pipeline no tiene — no es un intento que falla: es una
+// petición inválida, y se devuelve como error.
+func (s *Servicio) Simular(ctx context.Context, p publicado.PeticionDeSimulacion) (publicado.Resultado, error) {
+	if err := comprobarPeticion(p); err != nil {
+		return publicado.Resultado{}, err
+	}
+	resultado := publicado.Resultado{
+		Ambiente: p.Ambiente, Solicitante: p.Solicitante, HastaPaso: p.HastaPaso, Estado: publicado.EstadoExitoso,
+	}
+
 	pipeline, err := s.traerPipeline(ctx, p)
 	if err != nil {
 		var fallos *definicionpublicado.FallosDeComprobacion
 		if errors.As(err, &fallos) {
-			return publicado.Informe{
-				Comprobacion: publicado.ResultadoDeComprobacion{Paso: false, Fallos: traducirFallos(fallos.Fallos)},
-			}, nil
+			resultado.Estado = publicado.EstadoFallido
+			resultado.Causa = &publicado.Causa{Fallos: traducirFallos(fallos.Fallos)}
+			return resultado, nil
 		}
-		return publicado.Informe{}, err
+		return publicado.Resultado{}, err
 	}
 
-	ambientes, err := s.recorrerAmbientes(ctx, pipeline)
+	ambiente, err := pipeline.AmbientePorValor(p.Ambiente)
 	if err != nil {
-		return publicado.Informe{}, err
+		return publicado.Resultado{}, invalida(err)
 	}
-	return publicado.Informe{
-		Comprobacion: publicado.ResultadoDeComprobacion{Paso: true},
-		Ambientes:    ambientes,
-	}, nil
+	pasos, err := pipeline.PasosHasta(p.HastaPaso)
+	if err != nil {
+		return publicado.Resultado{}, invalida(err)
+	}
+
+	faltante, err := s.recorrerAmbiente(ctx, pipeline, ambiente, pasos, p.Metadatos)
+	if err != nil {
+		return publicado.Resultado{}, err
+	}
+	if faltante != nil {
+		resultado.Estado = publicado.EstadoFallido
+		resultado.Causa = &publicado.Causa{Faltante: []publicado.FaltanteDePaso{*faltante}}
+	}
+	return resultado, nil
+}
+
+func comprobarPeticion(p publicado.PeticionDeSimulacion) error {
+	for campo, valor := range map[string]string{"Ambiente": p.Ambiente, "Solicitante": p.Solicitante, "HastaPaso": p.HastaPaso} {
+		if valor == "" {
+			return fmt.Errorf("%w: falta %s", publicado.ErrInvalido, campo)
+		}
+	}
+	return nil
+}
+
+func invalida(err error) error {
+	return fmt.Errorf("%w: %w", publicado.ErrInvalido, err)
 }
 
 func (s *Servicio) traerPipeline(ctx context.Context, p publicado.PeticionDeSimulacion) (dominio.Pipeline, error) {

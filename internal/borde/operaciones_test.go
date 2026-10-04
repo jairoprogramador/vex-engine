@@ -49,9 +49,9 @@ func (c *contextosFalsos) HacerRollback(
 
 func (c *contextosFalsos) Simular(
 	_ context.Context, p simulacionpublicado.PeticionDeSimulacion,
-) (simulacionpublicado.Informe, error) {
+) (simulacionpublicado.Resultado, error) {
 	c.anotar("simular", p)
-	return simulacionpublicado.Informe{}, nil
+	return simulacionpublicado.Resultado{}, nil
 }
 
 func (c *contextosFalsos) Lanzar(

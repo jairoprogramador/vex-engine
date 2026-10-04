@@ -20,8 +20,8 @@ nada**. Lo único que finge son los comandos. La comprobación y la interpolaci�
 
 | # | Escenario | Qué pasa |
 |---|---|---|
-| **SIM-1** | *Simular un pipeline* | 1. Trae el pipeline, de una copia de trabajo o de un commit (`DEC-10.6`), y lo comprueba; si la comprobación falla, ese es el resultado. 2. **Para cada ambiente del pipeline**, recorre **todos** los pasos en orden: interpola de verdad, en una petición sin intento (`DEC-04.10`) y en un espacio temporal, y simula cada comando. Un comando simulado termina bien y devuelve una **salida simulada** para cada variable de salida, que cumple su expresión regular. 3. Entrega el **informe** |
-| **SIM-2** | *Algo no se resuelve* | Si en un paso de un ambiente una variable no se puede interpolar, el informe lo dice y la simulación sigue con el siguiente ambiente |
+| **SIM-1** | *Simular un pipeline* | 1. Trae el pipeline, de una copia de trabajo o de un commit (`DEC-10.6`), y lo comprueba; si la comprobación falla, esa es la causa. 2. Comprueba que el ambiente y el paso pedidos existen en el pipeline (si no, la petición es inválida) y recorre los pasos **hasta `HastaPaso`** en ese ambiente, en orden: interpola de verdad, en una petición sin intento (`DEC-04.10`) y en un espacio temporal, y simula cada comando. Un comando simulado termina bien y devuelve una **salida simulada** para cada variable de salida, que cumple su expresión regular. 3. Entrega el **resultado**: el resumen de un intento, sin `Id` |
+| **SIM-2** | *Algo no se resuelve* | Si en un paso de un ambiente una variable no se puede interpolar, el resultado es fallido, con esas variables y el paso como causa, y no se simula el resto de los pasos |
 
 ---
 
@@ -36,14 +36,14 @@ Vive durante la invocación, igual que el Intento en curso de Ejecución (`DEC-1
 | sin efectos | no ejecuta ningún comando, no escribe en el Historial y no toca el espacio de trabajo de ningún ambiente |
 | todo el recorrido | recorre todos los pasos de cada ambiente, sin decidir re-ejecuciones y sin leer el historial (`DEC-03.10`) |
 | salidas con forma | toda salida simulada cumple la expresión regular de su variable de salida |
-| sin valores | el informe dice qué se resolvió y qué no, **por nombre**, nunca con su valor |
+| sin valores | el resultado dice qué faltó y qué no, **por nombre**, nunca con su valor |
 
 ### Value objects
 
 | | Qué es |
 |---|---|
 | **salida simulada** | un valor que cumple la expresión regular de su variable de salida y que nadie produjo |
-| **informe** | por ambiente y por paso: si pasó la comprobación, qué se interpoló y qué faltó |
+| **resultado** | `Ambiente`, `Solicitante`, `HastaPaso` y `Estado` (`exitoso` o `fallido`); si fallido, la causa: los fallos de la comprobación o las variables que faltaron en un paso |
 
 ### Servicio de dominio
 

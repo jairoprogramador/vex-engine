@@ -13,8 +13,8 @@
 #   DEMO_DIR    dónde se arma la demo (por defecto /tmp/demo-vex)
 #   OPERACION   operación de vexd (intentar, rollback, simular, lanzar…); si viene dada no se pregunta
 #   DESPLIEGUE, INTENTO, NOMBRE, REFERENCIA   datos de las operaciones que los piden; si vienen dados no se preguntan
-#   AMBIENTE    ambiente que se intenta; si viene dada no se pregunta (lista: environments.yaml del ejemplo)
-#   HASTA_PASO  paso hasta el que se ejecuta; si viene dada no se pregunta (lista: steps/ del ejemplo)
+#   AMBIENTE    ambiente que se intenta o simula; si viene dada no se pregunta (lista: environments.yaml del ejemplo)
+#   HASTA_PASO  paso hasta el que se ejecuta o simula; si viene dada no se pregunta (lista: steps/ del ejemplo)
 #
 # Al terminar, deja escrito $DEMO_DIR/entorno.sh: haz `source $DEMO_DIR/entorno.sh` para tener las
 # variables y la función `vexd_demo` con las que seguir probando otras operaciones.
@@ -122,7 +122,7 @@ operaciones=(intentar rollback simular lanzar reservar liberar diagnosticar aban
 DESCRIPCIONES=(
   "ejecutar el pipeline hasta un paso en un ambiente"
   "volver a un despliegue anterior"
-  "recorrer el pipeline sin efectos"
+  "simular un intento hasta un paso, sin efectos"
   "hacer visible un despliegue"
   "reservar un ambiente (no se lanza solo)"
   "liberar un ambiente reservado"
@@ -155,14 +155,14 @@ if [ -z "$OPERACION" ]; then
 fi
 en_lista "$OPERACION" "${operaciones[@]}" || { echo "${ROJO}operación desconocida: $OPERACION (${operaciones[*]})${RESET}" >&2; exit 2; }
 
-if en_lista "$OPERACION" intentar lanzar reservar liberar diagnosticar intentos despliegues && [ -z "$AMBIENTE" ]; then
+if en_lista "$OPERACION" intentar simular lanzar reservar liberar diagnosticar intentos despliegues && [ -z "$AMBIENTE" ]; then
   ETIQUETAS=("${ETIQUETAS_AMBIENTES[@]}")
   elegir "Ambientes disponibles:" "${ambientes[@]}"
   AMBIENTE="$ELEGIDO"
 fi
-if [ "$OPERACION" = intentar ] && [ -z "$HASTA_PASO" ]; then
+if en_lista "$OPERACION" intentar simular && [ -z "$HASTA_PASO" ]; then
   ETIQUETAS=("${pasos[@]}")
-  elegir "Pasos disponibles (se ejecuta hasta el elegido):" "${pasos[@]}"
+  elegir "Pasos disponibles (se ejecuta o simula hasta el elegido):" "${pasos[@]}"
   HASTA_PASO="$ELEGIDO"
 fi
 case "$OPERACION" in
@@ -214,7 +214,7 @@ cuadro() {
 
 elegida operación "$OPERACION"
 elegida ambiente "$AMBIENTE"
-[ "$OPERACION" != intentar ] || elegida "hasta paso" "$HASTA_PASO"
+en_lista "$OPERACION" intentar simular && elegida "hasta paso" "$HASTA_PASO"
 elegida despliegue "$DESPLIEGUE"
 elegida intento "$INTENTO"
 elegida nombre "$NOMBRE"
@@ -281,7 +281,9 @@ case "$OPERACION" in
   rollback)
     CAMPOS="\"Despliegue\": \"$DESPLIEGUE\", \"Solicitante\": \"$SOLICITANTE\", \"Metadatos\": $METADATOS" ;;
   simular)
-    CAMPOS="\"CopiaDeTrabajo\": \"$DEMO_DIR/pipeline\"" ;;
+    CAMPOS="\"Ambiente\": \"$AMBIENTE\", \"Solicitante\": \"$SOLICITANTE\",
+  \"HastaPaso\": \"$HASTA_PASO\", \"CopiaDeTrabajo\": \"$DEMO_DIR/pipeline\",
+  \"Metadatos\": $METADATOS" ;;
   lanzar)
     CAMPOS="\"Ambiente\": \"$AMBIENTE\", \"Despliegue\": \"$DESPLIEGUE\""
     if [ -n "$NOMBRE" ]; then CAMPOS="$CAMPOS, \"Nombre\": \"$NOMBRE\""; fi ;;

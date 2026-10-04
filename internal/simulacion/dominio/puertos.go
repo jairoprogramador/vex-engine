@@ -7,6 +7,9 @@ import "context"
 type Pipelines interface {
 	DeUnCommit(ctx context.Context, fuente, commit string) (Pipeline, error)
 	DeUnaCopiaDeTrabajo(ctx context.Context, directorio string) (Pipeline, error)
+	// VariablesEstandar son las variables que un pipeline puede usar sin declararlas; Definición solo sabe su
+	// nombre, y quien aplica el pipeline les da valor.
+	VariablesEstandar() []VariableEstandar
 }
 
 // Variables es lo que necesita Simulación de Resolución de Variables: interpolar en una petición sin intento

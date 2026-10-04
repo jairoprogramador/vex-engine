@@ -35,6 +35,15 @@ func (p *Pipelines) DeUnaCopiaDeTrabajo(ctx context.Context, directorio string) 
 	return pipelineDeDominio(pipeline)
 }
 
+func (p *Pipelines) VariablesEstandar() []dominio.VariableEstandar {
+	estandar := p.pipelines.VariablesEstandar()
+	resultado := make([]dominio.VariableEstandar, 0, len(estandar))
+	for _, e := range estandar {
+		resultado = append(resultado, dominio.VariableEstandar{Nombre: e.Nombre, DelPaso: e.DelPaso})
+	}
+	return resultado
+}
+
 func pipelineDeDominio(p definicionpublicado.Pipeline) (dominio.Pipeline, error) {
 	ambientes := make([]dominio.Ambiente, 0, len(p.Ambientes))
 	for _, a := range p.Ambientes {
