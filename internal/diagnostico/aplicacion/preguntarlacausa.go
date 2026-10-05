@@ -2,7 +2,6 @@ package aplicacion
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/jairoprogramador/vex-engine/internal/diagnostico/dominio"
 	"github.com/jairoprogramador/vex-engine/internal/diagnostico/publicado"
@@ -10,16 +9,20 @@ import (
 
 // PreguntarLaCausa es la única operación publicada del core (docs/modelo/contextos/diagnostico.md,
 // «Servicio de aplicación: preguntar la causa»):
-//  1. determina el intento que falla;
+//  1. determina el intento que falla; si el ambiente aún no tiene ninguno, no hay historial con que diagnosticar
+//     y se responde sin referencia (ES-6), no con un error;
 //  2. si está cancelado o sin desenlace, no se atribuye (ES-7) — sin tocar el ACL;
 //  3. elige la referencia; si no hay ninguna anterior al intento, sin referencia y con su mensaje (ES-6);
 //  4. pide los ejes de cada paso, del que falla y de la referencia, a través del ACL;
 //  5. compara la referencia y arma la cantidad de intentos si es la del mismo ambiente (ES-8);
 //  6. elimina y arma el sustento.
 func (s *Servicio) PreguntarLaCausa(ctx context.Context, p publicado.PeticionDeDiagnostico) (publicado.Respuesta, error) {
-	intentoId, err := s.resolverIntentoQueFalla(ctx, p)
+	intentoId, hay, err := s.resolverIntentoQueFalla(ctx, p)
 	if err != nil {
 		return publicado.Respuesta{}, traducir(err)
+	}
+	if !hay {
+		return respuestaAPublicado(dominio.RespuestaSinReferencia()), nil
 	}
 	intento, err := s.d.Historial.Intento(ctx, intentoId)
 	if err != nil {
@@ -70,38 +73,34 @@ func (s *Servicio) PreguntarLaCausa(ctx context.Context, p publicado.PeticionDeD
 }
 
 // resolverIntentoQueFalla: el que se indica, o el de un lanzamiento, o el último del ambiente si no se
-// indica ninguno (DEC-06.16).
-func (s *Servicio) resolverIntentoQueFalla(ctx context.Context, p publicado.PeticionDeDiagnostico) (dominio.IdIntento, error) {
+// indica ninguno (DEC-06.16). hay es false solo si no se indicó ninguno y el ambiente no tiene intentos.
+func (s *Servicio) resolverIntentoQueFalla(
+	ctx context.Context, p publicado.PeticionDeDiagnostico,
+) (id dominio.IdIntento, hay bool, err error) {
 	switch {
 	case p.Intento != "":
-		return dominio.NuevoIdIntento(p.Intento)
+		id, err := dominio.NuevoIdIntento(p.Intento)
+		return id, err == nil, err
 	case p.Lanzamiento != "":
 		lanzamientoId, err := dominio.NuevoIdLanzamiento(p.Lanzamiento)
 		if err != nil {
-			return dominio.IdIntento{}, err
+			return dominio.IdIntento{}, false, err
 		}
 		despliegueId, err := s.d.Historial.DespliegueDeUnLanzamiento(ctx, lanzamientoId)
 		if err != nil {
-			return dominio.IdIntento{}, err
+			return dominio.IdIntento{}, false, err
 		}
 		despliegue, err := s.d.Historial.Despliegue(ctx, despliegueId)
 		if err != nil {
-			return dominio.IdIntento{}, err
+			return dominio.IdIntento{}, false, err
 		}
-		return despliegue.Intento, nil
+		return despliegue.Intento, true, nil
 	default:
 		ambiente, err := dominio.NuevaAmbiente(p.Ambiente)
 		if err != nil {
-			return dominio.IdIntento{}, err
+			return dominio.IdIntento{}, false, err
 		}
-		id, hay, err := s.d.Historial.UltimoIntentoDeUnAmbiente(ctx, ambiente)
-		if err != nil {
-			return dominio.IdIntento{}, err
-		}
-		if !hay {
-			return dominio.IdIntento{}, fmt.Errorf("%w: el ambiente %q no tiene ningún intento", dominio.ErrInvalido, ambiente)
-		}
-		return id, nil
+		return s.d.Historial.UltimoIntentoDeUnAmbiente(ctx, ambiente)
 	}
 }
 

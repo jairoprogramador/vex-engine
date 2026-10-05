@@ -112,3 +112,12 @@ func TestDiagnosticar_SinHistorialPrevioMuestraSoloElMensaje(t *testing.T) {
 	require.Equal(t, []string{"Mensaje"}, claves(vista))
 	require.NotEmpty(t, vista["Mensaje"])
 }
+
+func TestDiagnosticar_AmbienteSinIntentosMuestraSoloElMensajeSinFallar(t *testing.T) {
+	e := nuevoEntorno(t)
+
+	r := invocar(t, `{"Version":"1","Ambiente":"sand"}`, append([]string{"diagnosticar"}, e.banderas...)...)
+
+	require.Equal(t, salidaBien, r.codigo, r.errores)
+	require.JSONEq(t, `{"Mensaje":"`+mensajeSinHistorial+`"}`, r.salida)
+}

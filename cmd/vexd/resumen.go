@@ -24,11 +24,27 @@ func resumir(i historialpublicado.Intento) resumenDeIntento {
 	}
 }
 
-// resumirTodos devuelve siempre una lista, nunca nil, para que sin intentos se imprima [] y no null.
-func resumirTodos(intentos []historialpublicado.Intento) []resumenDeIntento {
+const mensajeSinIntentos = "no hay intentos para mostrar"
+
+// resumirTodos es la lista de resúmenes, o solo un mensaje si no hay ningún intento: que no haya no es un fallo.
+func resumirTodos(intentos []historialpublicado.Intento) any {
+	if len(intentos) == 0 {
+		return vistaSoloMensaje{Mensaje: mensajeSinIntentos}
+	}
 	resumenes := make([]resumenDeIntento, 0, len(intentos))
 	for _, i := range intentos {
 		resumenes = append(resumenes, resumir(i))
 	}
 	return resumenes
+}
+
+const mensajeSinDespliegues = "no hay despliegues para mostrar"
+
+// mostrarDespliegues es la lista de despliegues tal como la publica el borde, o solo un mensaje si no hay
+// ninguno: que no haya no es un fallo.
+func mostrarDespliegues(despliegues []historialpublicado.Despliegue) any {
+	if len(despliegues) == 0 {
+		return vistaSoloMensaje{Mensaje: mensajeSinDespliegues}
+	}
+	return despliegues
 }

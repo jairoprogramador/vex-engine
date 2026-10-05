@@ -8,6 +8,8 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/borde"
 )
 
+const mensajeLogsSinHistorial = "el historial no tiene ningún intento: no hay logs que mostrar"
+
 // logsDeUnIntento es lo que la línea de comandos muestra de la salida de los comandos de un intento: cuál es y,
 // de qué ambiente es y, por cada paso que corrió, lo que escribió cada comando. Es solo presentación: el Historial guarda, y el
 // borde publica, la salida completa.

@@ -14,6 +14,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // Prueba de la raíz de composición entera: la línea de comandos, el borde y los seis contextos con sus
@@ -49,10 +50,40 @@ func nuevoEntornoConPipeline(t *testing.T, cambiar func(dir string)) entorno {
 		banderas:     []string{"--almacen", almacen, "--espacio", espacio, "--material", material},
 		repoProyecto: nuevoRepo(t, func(dir string) { escribir(t, dir, "README.md", "proyecto") }),
 		repoPipeline: nuevoRepo(t, func(dir string) {
-			copiar(t, filepath.Join("..", "..", "internal", "ejecucion", "testdata", "ejemplo"), dir)
+			copiar(t, pipelineDeEjemplo, dir)
 			cambiar(dir)
 		}),
 	}
+}
+
+// pipelineDeEjemplo es el pipeline con el que se prueba; lo que las pruebas esperan de sus comandos sale de lo
+// que él declara, no de un número escrito aquí.
+var pipelineDeEjemplo = filepath.Join("..", "..", "internal", "ejecucion", "testdata", "ejemplo")
+
+// comandosDeclarados son los nombres de los comandos que el pipeline de ejemplo declara para un paso (su
+// carpeta en steps/), en el orden en que los declara.
+func comandosDeclarados(t *testing.T, carpetaDelPaso string) []string {
+	t.Helper()
+	contenido, err := os.ReadFile(filepath.Join(pipelineDeEjemplo, "steps", carpetaDelPaso, "commands.yaml"))
+	require.NoError(t, err)
+	var comandos []struct {
+		Name string `yaml:"name"`
+	}
+	require.NoError(t, yaml.Unmarshal(contenido, &comandos))
+	nombres := make([]string, 0, len(comandos))
+	for _, c := range comandos {
+		nombres = append(nombres, c.Name)
+	}
+	return nombres
+}
+
+// nombresDe son los nombres de los comandos, en el orden en que aparecen.
+func nombresDe(comandos []vistaDeLog) []string {
+	nombres := make([]string, 0, len(comandos))
+	for _, c := range comandos {
+		nombres = append(nombres, c.Comando)
+	}
+	return nombres
 }
 
 func (e entorno) intento() string {
@@ -130,7 +161,7 @@ func TestLogs_SinIntentoMuestraLosComandosDelUltimoConSuSalida(t *testing.T) {
 	logs := leerLogs(t, r)
 	require.Equal(t, vistaDeLog{"comando-test-01", "hola vex-demo", "exitoso"}, logs.Salidas["test"][0], "en el orden en que corrieron")
 	require.Equal(t, vistaDeLog{"comando-test-02", "etiqueta=v1.0.0", "exitoso"}, logs.Salidas["test"][1])
-	require.Len(t, logs.Salidas["test"], 4)
+	require.Equal(t, comandosDeclarados(t, "01-test"), nombresDe(logs.Salidas["test"]), "los que el paso declara")
 	require.Equal(t, vistaDeLog{"comando-deploy-01", "despliegue exitoso", "exitoso"}, logs.Salidas["deploy"][0])
 	require.NotContains(t, r.salida, "${var.", "las variables se interpolaron")
 	require.Less(t, strings.Index(r.salida, `"test"`), strings.Index(r.salida, `"acr"`), "los pasos, en el orden en que corrieron")
@@ -172,7 +203,7 @@ func TestLogs_SoloMuestraLosPasosHastaDondeLlegoElIntento(t *testing.T) {
 	logs := leerLogs(t, logs(t, e, `{"Version":"1"}`))
 
 	require.Len(t, logs.Salidas, 1)
-	require.Len(t, logs.Salidas["test"], 4)
+	require.Equal(t, comandosDeclarados(t, "01-test"), nombresDe(logs.Salidas["test"]), "los que el paso declara")
 }
 
 func TestLogs_UnIntentoQueNoExisteFalla(t *testing.T) {
@@ -184,13 +215,13 @@ func TestLogs_UnIntentoQueNoExisteFalla(t *testing.T) {
 	require.Empty(t, r.salida)
 }
 
-func TestLogs_SinNingunIntentoFalla(t *testing.T) {
+func TestLogs_SinNingunIntentoRespondeUnMensajeSinFallar(t *testing.T) {
 	e := nuevoEntorno(t)
 
 	r := logs(t, e, `{"Version":"1"}`)
 
-	require.Equal(t, salidaFallo, r.codigo)
-	require.Contains(t, r.errores, "ningún intento")
+	require.Equal(t, salidaBien, r.codigo, r.errores)
+	require.JSONEq(t, `{"Mensaje":`+quote(mensajeLogsSinHistorial)+`}`, r.salida)
 }
 
 func TestLogs_ElResultadoFiltraLosComandosExitososOFallidos(t *testing.T) {

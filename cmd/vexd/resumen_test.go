@@ -31,11 +31,20 @@ func TestResumir_TomaLoDeLaAperturaYElEstado(t *testing.T) {
 		string(salida))
 }
 
-func TestResumirTodos_SinIntentosEsUnaListaVacia(t *testing.T) {
+func TestResumirTodos_SinIntentosMuestraSoloUnMensaje(t *testing.T) {
 	salida, err := json.Marshal(resumirTodos(nil))
 
 	require.NoError(t, err)
-	require.JSONEq(t, `[]`, string(salida))
+	require.JSONEq(t, `{"Mensaje":"`+mensajeSinIntentos+`"}`, string(salida))
+}
+
+func TestIntentos_AmbienteSinIntentosMuestraUnMensajeSinFallar(t *testing.T) {
+	e := nuevoEntorno(t)
+
+	r := invocar(t, `{"Version":"1","Ambiente":"sand"}`, append([]string{"intentos"}, e.banderas...)...)
+
+	require.Equal(t, salidaBien, r.codigo, r.errores)
+	require.JSONEq(t, `{"Mensaje":"`+mensajeSinIntentos+`"}`, r.salida)
 }
 
 func TestIntentoEIntentos_MuestranSoloElResumen(t *testing.T) {
@@ -70,4 +79,20 @@ func claves(m map[string]any) []string {
 		resultado = append(resultado, k)
 	}
 	return resultado
+}
+
+func TestMostrarDespliegues_SinDesplieguesMuestraSoloUnMensaje(t *testing.T) {
+	salida, err := json.Marshal(mostrarDespliegues(nil))
+
+	require.NoError(t, err)
+	require.JSONEq(t, `{"Mensaje":"`+mensajeSinDespliegues+`"}`, string(salida))
+}
+
+func TestDespliegues_AmbienteSinDesplieguesMuestraUnMensajeSinFallar(t *testing.T) {
+	e := nuevoEntorno(t)
+
+	r := invocar(t, `{"Version":"1","Ambiente":"sand"}`, append([]string{"despliegues"}, e.banderas...)...)
+
+	require.Equal(t, salidaBien, r.codigo, r.errores)
+	require.JSONEq(t, `{"Mensaje":"`+mensajeSinDespliegues+`"}`, r.salida)
 }

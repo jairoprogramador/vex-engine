@@ -37,8 +37,8 @@ var operaciones = []operacion{
 	{"abandonar", false, sinRespuesta((*borde.Servicio).AbandonarIntento)},
 	{"intento", false, consultaResumida((*borde.Servicio).Intento, resumir)},
 	{"intentos", false, consultaResumida((*borde.Servicio).IntentosDeUnAmbiente, resumirTodos)},
-	{"despliegues", false, consulta((*borde.Servicio).DesplieguesDeUnAmbiente)},
-	{"logs", false, consultaResumida((*borde.Servicio).Logs, presentarLogs)},
+	{"despliegues", false, consultaResumida((*borde.Servicio).DesplieguesDeUnAmbiente, mostrarDespliegues)},
+	{"logs", false, atenderLogs()},
 }
 
 func buscar(nombre string) (operacion, bool) {
@@ -73,6 +73,19 @@ func consultaResumida[P, R, V any](
 		}
 		return resumir(r), nil
 	})
+}
+
+// atenderLogs atiende logs: un historial sin ningún intento no es un fallo, no hay logs que mostrar y así se
+// dice. Un historial que existe y no se puede leer sí lo es, y sigue su camino como error.
+func atenderLogs() atender {
+	logs := consultaResumida((*borde.Servicio).Logs, presentarLogs)
+	return func(ctx context.Context, s *borde.Servicio, peticion []byte) (any, error) {
+		respuesta, err := logs(ctx, s, peticion)
+		if errors.Is(err, borde.ErrHistorialSinIntentos) {
+			return vistaSoloMensaje{Mensaje: mensajeLogsSinHistorial}, nil
+		}
+		return respuesta, err
+	}
 }
 
 // sinRespuesta atiende las operaciones que solo dicen si salieron bien: su respuesta es un objeto vacío, para

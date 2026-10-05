@@ -306,16 +306,19 @@ PETICION="{
   \"Version\": \"1\",
   $CAMPOS
 }"
-printf '\n%svexd %s%s  %s(la petición JSON entra por la entrada estándar)%s\n' "$CIAN$NEGRITA" "$OPERACION" "$RESET" "$TENUE" "$RESET"
-printf '%s%s%s\n' "$CIAN" "$PETICION" "$RESET"
+COMANDO=("$VEXD" "$OPERACION"
+  --almacen "$DEMO_DIR/almacen"
+  --espacio "$DEMO_DIR/espacio"
+  --material "$DEMO_DIR/material")
+printf '\n%s(copia y pega en una terminal para enviar esta misma petición a vexd)%s\n' "$TENUE" "$RESET"
+# Una sola línea: sin terminador de heredoc que se rompa al copiar (espacios al final de línea).
+PETICION_EN_UNA_LINEA="$(tr '\n' ' ' <<<"$PETICION" | tr -s ' ')"
+printf '%s%s<<<'"'"'%s'"'"'%s\n' "$CIAN$NEGRITA" "$(printf '%q ' "${COMANDO[@]}")" "$PETICION_EN_UNA_LINEA" "$RESET"
 
 seccion "$MAGENTA" "RESPUESTA DEL MOTOR"
 printf '%sstdout: la respuesta · stderr: los errores%s\n\n' "$TENUE" "$RESET"
 set +e
-"$VEXD" "$OPERACION" \
-  --almacen "$DEMO_DIR/almacen" \
-  --espacio "$DEMO_DIR/espacio" \
-  --material "$DEMO_DIR/material" <<<"$PETICION"
+"${COMANDO[@]}" <<<"$PETICION"
 codigo=$?
 set -e
 

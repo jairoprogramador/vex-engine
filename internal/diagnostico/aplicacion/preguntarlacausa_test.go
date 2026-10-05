@@ -235,6 +235,16 @@ func TestPreguntarLaCausa_SinIntentoNiLanzamiento_TomaElUltimoDelAmbiente(t *tes
 	require.Equal(t, publicado.SinReferencia, r.Forma)
 }
 
+func TestPreguntarLaCausa_AmbienteSinIntentos_RespondeSinReferenciaSinError(t *testing.T) {
+	h := nuevoHistorialFalso()
+
+	r, err := nuevoServicio(h).PreguntarLaCausa(context.Background(), publicado.PeticionDeDiagnostico{Ambiente: "prod"})
+
+	require.NoError(t, err)
+	require.Equal(t, publicado.SinReferencia, r.Forma)
+	require.Equal(t, dominio.MensajeSinHistorialPrevio, r.Mensaje)
+}
+
 func TestPreguntarLaCausa_UnAmbienteVacioEsInvalido(t *testing.T) {
 	h := nuevoHistorialFalso()
 	_, err := nuevoServicio(h).PreguntarLaCausa(context.Background(), publicado.PeticionDeDiagnostico{})

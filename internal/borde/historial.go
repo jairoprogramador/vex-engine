@@ -54,6 +54,10 @@ func (s *Servicio) DesplieguesDeUnAmbiente(
 // ErrPeticionInvalida: la petición tiene la forma del lenguaje publicado pero un valor que no es de él.
 var ErrPeticionInvalida = errors.New("borde: petición inválida")
 
+// ErrHistorialSinIntentos: no hay ningún intento en el Historial, así que no hay logs que dar. Es un caso
+// esperado de un historial que aún no se usó, no un fallo; sigue siendo un ErrNoExiste para quien no lo distinga.
+var ErrHistorialSinIntentos = fmt.Errorf("%w: el historial no tiene ningún intento", historialpublicado.ErrNoExiste)
+
 // RespuestaDeLogs es la salida de los comandos de un intento: cuál es y de qué ambiente, que si no se pidió
 // uno es el último.
 type RespuestaDeLogs struct {
@@ -93,7 +97,7 @@ func (s *Servicio) intentoDeLosLogs(ctx context.Context, id string) (historialpu
 		return historialpublicado.Intento{}, err
 	}
 	if !hay {
-		return historialpublicado.Intento{}, fmt.Errorf("%w: el historial no tiene ningún intento", historialpublicado.ErrNoExiste)
+		return historialpublicado.Intento{}, ErrHistorialSinIntentos
 	}
 	return ultimo, nil
 }
