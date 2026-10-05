@@ -73,8 +73,10 @@ vex ◄─ {response} ──────────   vexd escribe UNA respuest
   un campo desconocido es `-32602`.
 - `entorno` (opcional) es un mapa de nombre → valor, un miembro de la petición fuera de `params` para no tocar
   los tipos del borde. Es la única extensión sobre JSON-RPC. Los nombres deben tener forma de variable de
-  entorno (`[A-Za-z_][A-Za-z0-9_]*`); si no, `-32602`. Mientras no esté implementado, un `entorno` no vacío se
-  rechaza con `-32602`: nunca se ignora en silencio.
+  entorno (`[A-Za-z_][A-Za-z0-9_]*`) y un valor no puede tener un NUL; si no, `-32602`, y el mensaje dice la
+  variable, nunca su valor. Un valor que no es una cadena no es una petición válida (`-32600`). Solo lo admiten las
+  operaciones que ejecutan comandos (`intentar` y `rollback`): en cualquier otra, un `entorno` con variables es
+  `-32602`, nunca se ignora en silencio.
 - `id` es obligatorio: sin `id` sería una notificación y no habría respuesta.
 
 ### Respuesta
@@ -259,8 +261,9 @@ alguna sea sensible es decisión de quien la pasa.
 ## Pendiente de verificar al implementar
 
 1. ~~**Eventos de progreso.**~~ Hecho: `Progreso` es un puerto del dominio de Ejecución, que `cmd/vexd` implementa.
-2. **Inyección de `entorno`.** Hoy el hijo hereda el entorno de `vexd` y no se le añade nada
-   (`ejecucion/infraestructura/comandos.go`); hay que ampliar el puerto de comandos.
+2. ~~**Inyección de `entorno`.**~~ Hecho: viaja con la petición (`ParaBorde.Intentar(ctx, p, entorno)`), se valida
+   en el dominio de Ejecución (`NuevoEntorno`) y el puerto `Comandos` lo recibe; el adaptador lo añade al entorno del
+   proceso de cada comando.
 3. **Almacén compartido entre contenedores.** Escritura atómica y decisión atómica de `ambiente_ocupado` con
    varios escritores; los bloqueos de fichero no son fiables en volúmenes de red.
 4. **Contrapresión.** Si `vex` no lee `stdout`, emitir progreso no debe bloquear al motor.

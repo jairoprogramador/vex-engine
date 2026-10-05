@@ -50,7 +50,7 @@ echo '{"jsonrpc":"2.0","id":"1","method":"despliegues","params":{"Version":"1","
 | `id` | Una cadena o un número. La respuesta lo devuelve igual |
 | `method` | La operación: `intentar`, `logs`, `describir`… (ver más abajo) |
 | `params` | Los campos de la operación, con su `Version`. Es lo que las tablas de abajo llaman «petición» |
-| `entorno` | Opcional. Variables de entorno para los comandos. **Todavía no se admite**: con valor se rechaza |
+| `entorno` | Opcional. Variables de entorno (nombre → valor, todo cadenas) para los comandos. Solo `intentar` y `rollback` |
 
 Una línea completa, sin saltos dentro. Pasa de 1 MiB y se rechaza. Una petición sin salto final también vale.
 
@@ -97,6 +97,23 @@ Mientras un intento corre, `vexd` cuenta cómo avanza con notificaciones, antes 
 Nunca llevan lo que imprimió un comando: cuando llega `comando_terminado`, su salida ya está en el historial y se
 lee con `logs`. Si quien invoca no lee la salida, el motor no se detiene: descarta eventos y lo dice en stderr. Para
 ver solo la respuesta: `… | tail -n 1`.
+
+### Variables de entorno para los comandos
+
+`intentar` y `rollback` aceptan `entorno`, **fuera de `params`**, y el motor se lo añade al entorno de cada comando
+del intento (las pedidas pisan las que `vexd` ya tenía):
+
+```bash
+echo '{"jsonrpc":"2.0","id":"1","method":"intentar","params":{ … },"entorno":{"REGISTRY_URL":"registry.local"}}' | $VEXD
+```
+
+- Los nombres son de variable de entorno: letras, números y `_`, sin empezar por un número. Si no, `-32602`, que dice
+  el nombre y nunca el valor. Un valor no puede tener un carácter NUL.
+- **No son variables del pipeline**: `${var.REGISTRY_URL}` no las ve; el comando las lee como `$REGISTRY_URL`.
+- **El motor no las guarda ni gestiona secretos** (es otro producto): no entran en el historial, en un hash, en el
+  avance ni en los errores. Si un comando las imprime, queda en su salida, que se lee con `logs`. Que una variable
+  sea sensible es cosa de quien la pasa.
+- Valen para todos los comandos del intento. Las demás operaciones no ejecutan comandos y rechazan `entorno`.
 
 ### Los errores
 

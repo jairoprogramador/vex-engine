@@ -71,7 +71,7 @@ func TestProgreso_UnIntentoExitosoCuentaCadaPasoYCadaComandoEnOrden(t *testing.T
 	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas", "02-despliegue")
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), nil)
 
 	require.NoError(t, err)
 	require.Equal(t, []string{
@@ -93,7 +93,7 @@ func TestProgreso_UnComandoQueFallaCuentaElFalloDelComandoYDelPaso(t *testing.T)
 	d.comandos.resultado = dominio.ResultadoDeUnComando{Exitoso: false}
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), nil)
 
 	require.NoError(t, err)
 	require.Equal(t, []string{
@@ -111,7 +111,7 @@ func TestProgreso_LaCancelacionSeCuentaYLosEventosLlegan(t *testing.T) {
 	d.comandos.err = context.Canceled
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(ctx, peticionDePrueba())
+	_, err := servicio.Intentar(ctx, peticionDePrueba(), nil)
 
 	require.NoError(t, err)
 	require.Equal(t, []string{
@@ -128,7 +128,7 @@ func TestProgreso_UnPasoQueNoSeReejecutaSoloCuentaQueTermino(t *testing.T) {
 	d.historial.ultimaVezPorPaso["01-pruebas"] = ultimaVezValidaDeUnPaso(t, d, "01-pruebas")
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), nil)
 
 	require.NoError(t, err)
 	require.Equal(t, []string{
@@ -147,7 +147,7 @@ func TestProgreso_ElComandoTerminadoSeCuentaCuandoSuSalidaYaEstaEnElHistorial(t 
 	}
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), nil)
 
 	require.NoError(t, err)
 	require.Equal(t, []int{1}, salidasAlAvisar, "quien lo ve puede pedir logs y encontrar ya esa salida")
@@ -165,7 +165,7 @@ func TestProgreso_SiElIntentoNoLlegaAEmpezarNoSeCuentaNada(t *testing.T) {
 			deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
 			preparar(d)
 
-			_, err := aplicacion.NuevoServicio(deps).Intentar(context.Background(), peticionDePrueba())
+			_, err := aplicacion.NuevoServicio(deps).Intentar(context.Background(), peticionDePrueba(), nil)
 
 			require.Error(t, err)
 			require.Empty(t, d.progreso.descritos(), "EJ-5: el intento no empieza")
@@ -180,7 +180,7 @@ func TestProgreso_UnRollbackTambienCuentaSuAvance(t *testing.T) {
 
 	_, err := servicio.HacerRollback(context.Background(), publicado.PeticionDeRollback{
 		Version: "1", Despliegue: "dep-1", Solicitante: "ana",
-	})
+	}, nil)
 
 	require.NoError(t, err)
 	descritos := d.progreso.descritos()
@@ -192,7 +192,7 @@ func TestProgreso_SinPuertoDeProgresoElIntentoFunciona(t *testing.T) {
 	deps, _ := nuevasDependenciasDePrueba(t, "01-pruebas")
 	deps.Progreso = nil
 
-	resultado, err := aplicacion.NuevoServicio(deps).Intentar(context.Background(), peticionDePrueba())
+	resultado, err := aplicacion.NuevoServicio(deps).Intentar(context.Background(), peticionDePrueba(), nil)
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado, "el progreso es una cortesía: no es obligatorio")

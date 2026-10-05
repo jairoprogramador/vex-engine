@@ -33,14 +33,14 @@ func (c *contextosFalsos) anotar(operacion string, datos any) {
 }
 
 func (c *contextosFalsos) Intentar(
-	_ context.Context, p ejecucionpublicado.PeticionDeIntento,
+	_ context.Context, p ejecucionpublicado.PeticionDeIntento, _ ejecucionpublicado.Entorno,
 ) (ejecucionpublicado.Resultado, error) {
 	c.anotar("intentar", p)
 	return ejecucionpublicado.Resultado{}, nil
 }
 
 func (c *contextosFalsos) HacerRollback(
-	_ context.Context, p ejecucionpublicado.PeticionDeRollback,
+	_ context.Context, p ejecucionpublicado.PeticionDeRollback, _ ejecucionpublicado.Entorno,
 ) (ejecucionpublicado.Resultado, error) {
 	c.anotar("rollback", p)
 	return ejecucionpublicado.Resultado{}, nil
@@ -139,12 +139,12 @@ func todasLasOperaciones() []operacion {
 	return []operacion{
 		{"intentar", "intentar", ejecucionpublicado.PeticionDeIntento{Version: "1", Ambiente: "prod"},
 			func(s *borde.Servicio, v string) error {
-				_, err := s.Intentar(ctx, ejecucionpublicado.PeticionDeIntento{Version: v, Ambiente: "prod"})
+				_, err := s.Intentar(ctx, ejecucionpublicado.PeticionDeIntento{Version: v, Ambiente: "prod"}, nil)
 				return err
 			}},
 		{"hacer rollback", "rollback", ejecucionpublicado.PeticionDeRollback{Version: "1", Despliegue: "dep-1"},
 			func(s *borde.Servicio, v string) error {
-				_, err := s.HacerRollback(ctx, ejecucionpublicado.PeticionDeRollback{Version: v, Despliegue: "dep-1"})
+				_, err := s.HacerRollback(ctx, ejecucionpublicado.PeticionDeRollback{Version: v, Despliegue: "dep-1"}, nil)
 				return err
 			}},
 		{"simular", "simular", simulacionpublicado.PeticionDeSimulacion{Version: "1", Fuente: "p", Commit: "c"},
@@ -285,7 +285,7 @@ func TestServicio_LogsRechazaUnResultadoDesconocidoSinConsultar(t *testing.T) {
 func TestE2E_ConsultarElHistorialNoDevuelveNingunValor(t *testing.T) {
 	s := montarSistema(t)
 	ctx := context.Background()
-	resultado, err := s.borde.Intentar(ctx, s.peticion(t))
+	resultado, err := s.borde.Intentar(ctx, s.peticion(t), nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, resultado.Despliegue)
 
@@ -336,7 +336,7 @@ func TestE2E_AbandonarUnIntentoPorElBordeLiberaElAmbiente(t *testing.T) {
 
 	require.NoError(t, s.borde.AbandonarIntento(ctx, borde.PeticionDeAbandono{Version: "1", Intento: id}))
 
-	resultado, err := s.borde.Intentar(ctx, s.peticion(t))
+	resultado, err := s.borde.Intentar(ctx, s.peticion(t), nil)
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
 }

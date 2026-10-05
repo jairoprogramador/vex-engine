@@ -13,7 +13,14 @@ import (
 // ocupado (DEC-07.8); solo entonces pone el material del pipeline en el espacio de trabajo, que borraría el de
 // otro intento si el ambiente estuviera ocupado (EJ-5 si no se puede: el intento se abandona y el ambiente
 // queda libre); y recorre sus pasos con el bucle explícito.
-func (s *Servicio) Intentar(ctx context.Context, p publicado.PeticionDeIntento) (resultado publicado.Resultado, err error) {
+func (s *Servicio) Intentar(
+	ctx context.Context, p publicado.PeticionDeIntento, variablesDeEntorno publicado.Entorno,
+) (resultado publicado.Resultado, err error) {
+	// Lo primero: un entorno que no vale se rechaza antes de abrir ni traer nada.
+	entorno, err := dominio.NuevoEntorno(variablesDeEntorno)
+	if err != nil {
+		return publicado.Resultado{}, traducir(err)
+	}
 	esCopiaDeTrabajo := p.CopiaDeTrabajo != ""
 
 	material, err := s.traerMaterialDelProyecto(ctx, p)
@@ -68,7 +75,7 @@ func (s *Servicio) Intentar(ctx context.Context, p publicado.PeticionDeIntento) 
 
 	c := contextoDelIntento{
 		id: id, ambiente: p.Ambiente, ubicacion: ubicacion, fuenteDelPipeline: p.FuenteDelPipeline, commitDelPipeline: pipeline.Commit,
-		hashDelCodigo: material.Hash, pasosPorNombre: pasosPorNombre,
+		hashDelCodigo: material.Hash, pasosPorNombre: pasosPorNombre, entorno: entorno,
 		estandarCompartidas: estandarCompartidas(
 			p.Metadatos, p.Ambiente, material.Hash.String(), material.Commit, material.Directorio, s.d.NombreDeLaHerramienta,
 		),

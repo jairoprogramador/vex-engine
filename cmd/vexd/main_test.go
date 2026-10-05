@@ -441,7 +441,7 @@ func TestPeticionesInvalidas(t *testing.T) {
 		"sin operación":         {`{"jsonrpc":"2.0","id":"1","params":{}}`, e.rutas, protocolo.CodigoPeticionInvalida, tipoPeticionInvalida, "method"},
 		"operación desconocida": {peticion("bailar", `{}`), e.rutas, protocolo.CodigoMetodoDesconocido, tipoOperacionDesconocida, "bailar"},
 		"campo desconocido":     {peticion("intentos", `{"Version":"1","Ambient":"prod"}`), e.rutas, protocolo.CodigoParametrosInvalidos, tipoParametrosInvalidos, "Ambient"},
-		"entorno sin soportar":  {`{"jsonrpc":"2.0","id":"1","method":"intentos","params":{},"entorno":{"A":"1"}}`, e.rutas, protocolo.CodigoParametrosInvalidos, tipoParametrosInvalidos, "entorno"},
+		"entorno sin comandos":  {`{"jsonrpc":"2.0","id":"1","method":"intentos","params":{},"entorno":{"A":"1"}}`, e.rutas, protocolo.CodigoParametrosInvalidos, tipoParametrosInvalidos, "no ejecuta comandos"},
 		"sin almacén":           {peticion("intentos", `{"Version":"1","Ambiente":"prod"}`), sinAlmacen, codigoConfiguracionInvalida, tipoConfiguracionInvalida, nombreAlmacen},
 		"intentar sin espacio":  {peticion("intentar", `{}`), sinEspacio, codigoConfiguracionInvalida, tipoConfiguracionInvalida, nombreEspacio},
 		"almacén inexistente":   {peticion("intentos", `{"Version":"1","Ambiente":"prod"}`), almacenInexistente, codigoConfiguracionInvalida, tipoConfiguracionInvalida, nombreAlmacen},

@@ -244,6 +244,7 @@ type comandosFalsos struct {
 	resultado dominio.ResultadoDeUnComando
 	err       error
 	llamados  []string
+	entornos  []dominio.Entorno // el que recibió cada llamada
 
 	// alEjecutar, si no es nil, se llama antes de devolver — la prueba de EJ-3 lo usa para cancelar el ctx a
 	// mitad de un comando, como haría una cancelación de verdad.
@@ -251,10 +252,11 @@ type comandosFalsos struct {
 }
 
 func (c *comandosFalsos) Ejecutar(
-	_ context.Context, _, lineaInterpolada string, _ dominio.ComandoDeclarado, salida io.Writer,
+	_ context.Context, _, lineaInterpolada string, _ dominio.ComandoDeclarado, entorno dominio.Entorno, salida io.Writer,
 ) (dominio.ResultadoDeUnComando, error) {
 	c.mu.Lock()
 	c.llamados = append(c.llamados, lineaInterpolada)
+	c.entornos = append(c.entornos, entorno)
 	c.mu.Unlock()
 	if salida != nil {
 		_, _ = salida.Write([]byte("salida de " + lineaInterpolada))

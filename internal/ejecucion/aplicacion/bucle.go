@@ -18,6 +18,8 @@ type contextoDelIntento struct {
 
 	pasosPorNombre      map[string]dominio.PasoDeEjecucion
 	estandarCompartidas map[string]string
+	// entorno son las variables de entorno que se pidieron para los comandos de este intento.
+	entorno dominio.Entorno
 }
 
 // recorrer es el bucle explícito de EJ-1/EJ-2 (docs/modelo/contextos/ejecucion.md, «Servicio de aplicación:
@@ -86,7 +88,7 @@ func (s *Servicio) reejecutarPaso(
 	}
 	s.emitir(ctx, dominio.EventoDeProgreso{Tipo: dominio.PasoIniciado, Intento: c.id, Paso: paso.Nombre()})
 
-	exitoso, err := s.ejecutarPaso(ctx, c.id, c.ubicacion, pasoDeEjecucion, ambito)
+	exitoso, err := s.ejecutarPaso(ctx, c.id, c.ubicacion, pasoDeEjecucion, ambito, c.entorno)
 	ctxDelRegistro, cancelado := ctx, false
 	if err != nil {
 		if ctx.Err() == nil {

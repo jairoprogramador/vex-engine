@@ -38,7 +38,7 @@ func (r rutas) validar(op operacion) error {
 	if r.almacen == "" {
 		return fmt.Errorf("%w: falta %s: dónde está el historial", errConfiguracion, nombreAlmacen)
 	}
-	if op.usaEspacio && r.espacio == "" {
+	if op.ejecutaComandos && r.espacio == "" {
 		return fmt.Errorf("%w: falta %s: dónde trabajan los pasos de cada ambiente", errConfiguracion, nombreEspacio)
 	}
 	return nil

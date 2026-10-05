@@ -8,13 +8,15 @@ import (
 	"sort"
 
 	"github.com/jairoprogramador/vex-engine/internal/borde"
+	ejecucionpublicado "github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
 )
 
 const nombreDescribir = "describir"
 
 // atender lee los parámetros de una operación, la envía al borde y devuelve su respuesta. El servicio es nil en
-// las operaciones que no usan el motor.
-type atender func(ctx context.Context, s *borde.Servicio, params []byte) (any, error)
+// las operaciones que no usan el motor. entorno son las variables de entorno de la petición: solo las
+// operaciones que ejecutan comandos las usan, y las demás las rechaza el servidor antes de llegar aquí.
+type atender func(ctx context.Context, s *borde.Servicio, params []byte, entorno map[string]string) (any, error)
 
 // operacion es una operación del lenguaje publicado (docs/modelo/lenguaje-publicado.md) con el nombre con que se
 // pide: el method de la petición.
@@ -23,22 +25,23 @@ type operacion struct {
 	// usaMotor: la operación necesita el almacén y los contextos compuestos. describir no: sirve para saber si
 	// este motor y quien invoca se entienden antes de pedirle nada.
 	usaMotor bool
-	// usaEspacio: la operación ejecuta comandos, así que necesita el espacio de trabajo de los ambientes.
-	usaEspacio bool
-	atender    atender
+	// ejecutaComandos: la operación ejecuta comandos, así que necesita el espacio de trabajo de los ambientes
+	// (VEX_ESPACIO) y admite variables de entorno para ellos.
+	ejecutaComandos bool
+	atender         atender
 }
 
 func delMotor(nombre string, atender atender) operacion {
 	return operacion{nombre: nombre, usaMotor: true, atender: atender}
 }
 
-func delMotorConEspacio(nombre string, atender atender) operacion {
-	return operacion{nombre: nombre, usaMotor: true, usaEspacio: true, atender: atender}
+func ejecutandoComandos(nombre string, atender atender) operacion {
+	return operacion{nombre: nombre, usaMotor: true, ejecutaComandos: true, atender: atender}
 }
 
 var operaciones = registrar(
-	delMotorConEspacio("intentar", consulta((*borde.Servicio).Intentar)),
-	delMotorConEspacio("rollback", consulta((*borde.Servicio).HacerRollback)),
+	ejecutandoComandos("intentar", consultaConEntorno((*borde.Servicio).Intentar)),
+	ejecutandoComandos("rollback", consultaConEntorno((*borde.Servicio).HacerRollback)),
 	delMotor("simular", consulta((*borde.Servicio).Simular)),
 	delMotor("lanzar", consulta((*borde.Servicio).Lanzar)),
 	delMotor("reservar", sinRespuesta((*borde.Servicio).Reservar)),
@@ -82,7 +85,7 @@ type descripcion struct {
 type sinParametros struct{}
 
 func atenderDescribir(nombres []string) atender {
-	return func(_ context.Context, _ *borde.Servicio, params []byte) (any, error) {
+	return func(_ context.Context, _ *borde.Servicio, params []byte, _ map[string]string) (any, error) {
 		var vacios sinParametros
 		if err := decodificar(params, &vacios); err != nil {
 			return nil, err
@@ -96,12 +99,26 @@ func atenderDescribir(nombres []string) atender {
 }
 
 func consulta[P, R any](op func(*borde.Servicio, context.Context, P) (R, error)) atender {
-	return func(ctx context.Context, s *borde.Servicio, params []byte) (any, error) {
+	return func(ctx context.Context, s *borde.Servicio, params []byte, _ map[string]string) (any, error) {
 		var p P
 		if err := decodificar(params, &p); err != nil {
 			return nil, err
 		}
 		return op(s, ctx, p)
+	}
+}
+
+// consultaConEntorno es una consulta que, además de sus parámetros, recibe las variables de entorno de la
+// petición: las que ejecutan comandos.
+func consultaConEntorno[P, R any](
+	op func(*borde.Servicio, context.Context, P, ejecucionpublicado.Entorno) (R, error),
+) atender {
+	return func(ctx context.Context, s *borde.Servicio, params []byte, entorno map[string]string) (any, error) {
+		var p P
+		if err := decodificar(params, &p); err != nil {
+			return nil, err
+		}
+		return op(s, ctx, p, entorno)
 	}
 }
 

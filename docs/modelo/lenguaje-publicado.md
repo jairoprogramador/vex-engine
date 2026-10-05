@@ -42,7 +42,7 @@ por la entrada y la salida estándar** (`docs/rediseno/RD-13-protocolo.md`). No 
 | **`result`** | Lo que devuelve la operación, completo. Las que no devuelven nada responden `{}`; una lista sin elementos es `[]` |
 | **`progreso`** | Notificaciones (sin `id`) que `intentar` y `rollback` envían **antes** de la respuesta, que es la última línea: `intento_iniciado`, `paso_iniciado`, `comando_terminado`, `paso_terminado`. Solo nombres y resultados, nunca la salida de un comando. Ver `RD-13` |
 | **`error`** | `{code, message, data}`; `data.tipo` es el nombre estable. Ver el catálogo en `RD-13` |
-| **`entorno`** | Miembro opcional de la petición: variables de entorno para los comandos. Aún no se admite |
+| **`entorno`** | Miembro opcional de la petición, fuera de `params`: variables de entorno (nombre → valor) para los comandos. Solo `intentar` y `rollback`. No son variables del pipeline ni secretos que el motor gestione: no se guardan ni pasan por Resolución. Ver `RD-13`, «Entorno de los comandos» |
 | **Salida de los comandos** | no se muestra al intentar: se guarda en el Historial y se consulta con `logs` |
 | **Configuración** | variables `VEX_ALMACEN` (obligatoria, el directorio tiene que existir), `VEX_ESPACIO` (solo `intentar` y `rollback`) y `VEX_MATERIAL` |
 

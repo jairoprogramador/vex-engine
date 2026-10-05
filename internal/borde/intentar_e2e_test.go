@@ -2,6 +2,7 @@ package borde_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -190,7 +191,7 @@ func TestE2E_UnPrimerIntentoLlegaADespliegue(t *testing.T) {
 	s := montarSistema(t)
 	pasos := pasosDelEjemplo(t)
 
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t))
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), nil)
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
@@ -220,12 +221,12 @@ func TestE2E_UnPrimerIntentoLlegaADespliegue(t *testing.T) {
 // miran las variables, aunque el directorio del material (project_workdir) sea otro en cada intento.
 func TestE2E_UnSegundoIntentoSinCambiosNoReejecutaNada(t *testing.T) {
 	s := montarSistema(t)
-	primero, err := s.borde.Intentar(context.Background(), s.peticion(t))
+	primero, err := s.borde.Intentar(context.Background(), s.peticion(t), nil)
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", primero.Estado)
 	pasos := pasosDelEjemplo(t)
 
-	segundo, err := s.borde.Intentar(context.Background(), s.peticion(t))
+	segundo, err := s.borde.Intentar(context.Background(), s.peticion(t), nil)
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", segundo.Estado)
@@ -237,7 +238,7 @@ func TestE2E_UnSegundoIntentoSinCambiosNoReejecutaNada(t *testing.T) {
 
 func TestE2E_CambiarUnaPlantillaReejecutaSoloEsePaso(t *testing.T) {
 	s := montarSistema(t)
-	_, err := s.borde.Intentar(context.Background(), s.peticion(t))
+	_, err := s.borde.Intentar(context.Background(), s.peticion(t), nil)
 	require.NoError(t, err)
 
 	// El paso a cambiar es uno con plantilla y con reglas que miran las instrucciones: cambiarla tiene
@@ -261,7 +262,7 @@ func TestE2E_CambiarUnaPlantillaReejecutaSoloEsePaso(t *testing.T) {
 	escribirFichero(t, s.repoPipeline, plantilla, string(actual)+"\nlínea añadida por la prueba\n")
 	commitear(t, repo)
 
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t))
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), nil)
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
@@ -276,7 +277,7 @@ func TestE2E_CambiarUnaPlantillaReejecutaSoloEsePaso(t *testing.T) {
 // paso usa la suya (${var.test}, ${var.acr}…) y todos usan además ${var.shared}.
 func TestE2E_CambiarUnaVariableDelPipelineReejecutaSoloAlPasoQueLaUsa(t *testing.T) {
 	s := montarSistema(t)
-	_, err := s.borde.Intentar(context.Background(), s.peticion(t))
+	_, err := s.borde.Intentar(context.Background(), s.peticion(t), nil)
 	require.NoError(t, err)
 
 	repo, err := git.PlainOpen(s.repoPipeline)
@@ -284,7 +285,7 @@ func TestE2E_CambiarUnaVariableDelPipelineReejecutaSoloAlPasoQueLaUsa(t *testing
 	escribirFichero(t, s.repoPipeline, "variables/prod/test.yaml", "- name: test\n  value: \"otro-valor\"\n")
 	commitear(t, repo)
 
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t))
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), nil)
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
@@ -300,7 +301,7 @@ func TestE2E_CambiarUnaVariableDelPipelineReejecutaSoloAlPasoQueLaUsa(t *testing
 // Una variable compartida reejecuta a los pasos que la usan; aquí la usan todos.
 func TestE2E_CambiarUnaVariableCompartidaReejecutaATodosLosQueLaUsan(t *testing.T) {
 	s := montarSistema(t)
-	_, err := s.borde.Intentar(context.Background(), s.peticion(t))
+	_, err := s.borde.Intentar(context.Background(), s.peticion(t), nil)
 	require.NoError(t, err)
 
 	repo, err := git.PlainOpen(s.repoPipeline)
@@ -308,7 +309,7 @@ func TestE2E_CambiarUnaVariableCompartidaReejecutaATodosLosQueLaUsan(t *testing.
 	escribirFichero(t, s.repoPipeline, "variables/vars.yaml", "- name: shared\n  value: \"otro-valor\"\n")
 	commitear(t, repo)
 
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t))
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), nil)
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
@@ -321,7 +322,7 @@ func TestE2E_CambiarUnaVariableCompartidaReejecutaATodosLosQueLaUsan(t *testing.
 // Declarar una variable que ningún paso usa no reejecuta nada.
 func TestE2E_UnaVariableNuevaQueNingunPasoUsaNoReejecutaNada(t *testing.T) {
 	s := montarSistema(t)
-	_, err := s.borde.Intentar(context.Background(), s.peticion(t))
+	_, err := s.borde.Intentar(context.Background(), s.peticion(t), nil)
 	require.NoError(t, err)
 
 	repo, err := git.PlainOpen(s.repoPipeline)
@@ -329,7 +330,7 @@ func TestE2E_UnaVariableNuevaQueNingunPasoUsaNoReejecutaNada(t *testing.T) {
 	escribirFichero(t, s.repoPipeline, "variables/prod/sin_uso.yaml", "- name: sin_uso\n  value: \"x\"\n")
 	commitear(t, repo)
 
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t))
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), nil)
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
@@ -344,7 +345,7 @@ func TestE2E_UnIntentoConCopiaDeTrabajoNuncaLlegaADespliegue(t *testing.T) {
 	peticion := s.peticion(t)
 	peticion.CopiaDeTrabajo = s.repoProyecto
 
-	resultado, err := s.borde.Intentar(context.Background(), peticion)
+	resultado, err := s.borde.Intentar(context.Background(), peticion, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, "exitoso", resultado.Estado)
@@ -360,7 +361,7 @@ func TestE2E_UnSegundoIntentoEnElMismoAmbienteSeRechaza(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = s.borde.Intentar(ctx, s.peticion(t))
+	_, err = s.borde.Intentar(ctx, s.peticion(t), nil)
 
 	require.Error(t, err)
 	var ocupado *historialpublicado.AmbienteOcupadoError
@@ -385,7 +386,7 @@ func TestE2E_UnAmbienteOcupadoNoTocaElEspacioDeTrabajoDeQuienLoOcupa(t *testing.
 	marca := filepath.Join(directorioDelPaso, "lo-que-escribe-el-intento-que-corre")
 	require.NoError(t, os.WriteFile(marca, []byte("sigue aquí"), 0o644))
 
-	_, err = s.borde.Intentar(ctx, s.peticion(t))
+	_, err = s.borde.Intentar(ctx, s.peticion(t), nil)
 
 	var ocupado *historialpublicado.AmbienteOcupadoError
 	require.ErrorAs(t, err, &ocupado)
@@ -405,7 +406,7 @@ func TestE2E_SiElEspacioNoSePuedePrepararElAmbienteQuedaLibre(t *testing.T) {
 	bloqueo := filepath.Join(s.raiz, ubicacion.Proyecto)
 	require.NoError(t, os.WriteFile(bloqueo, []byte("no soy un directorio"), 0o644))
 
-	_, err = s.borde.Intentar(ctx, s.peticion(t))
+	_, err = s.borde.Intentar(ctx, s.peticion(t), nil)
 
 	require.ErrorIs(t, err, ejecucionpublicado.ErrNoDisponible)
 	intentos, err := s.historial.IntentosDeUnAmbiente(ctx, "prod")
@@ -416,16 +417,86 @@ func TestE2E_SiElEspacioNoSePuedePrepararElAmbienteQuedaLibre(t *testing.T) {
 	require.True(t, intentos[0].SinDesenlace(), "no es un intento fallido: nunca ejecutó nada")
 
 	require.NoError(t, os.Remove(bloqueo))
-	resultado, err := s.borde.Intentar(ctx, s.peticion(t))
+	resultado, err := s.borde.Intentar(ctx, s.peticion(t), nil)
 	require.NoError(t, err, "el ambiente quedó libre")
 	require.Equal(t, "exitoso", string(resultado.Estado))
+}
+
+// Las variables de entorno las ve el comando y nada más: no son variables del pipeline, así que no pasan por
+// Resolución ni se guardan. Lo único donde puede aparecer su valor es en la salida del propio comando, si es el
+// comando quien lo imprime.
+func TestE2E_LasVariablesDeEntornoLasVeElComandoYNoQuedanEnNingunRegistro(t *testing.T) {
+	const valor = "valor-sensible-123"
+	s := montarSistema(t)
+	dir, repo := nuevoRepoVacio(t)
+	copiarArbol(t, filepath.Join("..", "ejecucion", "testdata", "ejemplo"), dir)
+	escribirFichero(t, dir, "steps/05-deploy/commands.yaml", "- name: ver-entorno\n  description: lee la variable de entorno\n  cmd: echo visto=$VAR_DE_PRUEBA\n")
+	commitear(t, repo)
+	s.repoPipeline = dir
+	ctx := context.Background()
+
+	resultado, err := s.borde.Intentar(ctx, s.peticion(t), ejecucionpublicado.Entorno{"VAR_DE_PRUEBA": valor})
+
+	require.NoError(t, err)
+	require.Equal(t, "exitoso", string(resultado.Estado))
+	salidas, err := s.historial.SalidasDeUnIntento(ctx, resultado.Intento, historialpublicado.TodasLasSalidas)
+	require.NoError(t, err)
+	var vista bool
+	for _, salida := range salidas {
+		if salida.Comando == "ver-entorno" {
+			require.Equal(t, "visto="+valor+"\n", salida.Texto, "el comando vio la variable")
+			vista = true
+		} else {
+			require.NotContains(t, salida.Texto, valor, "ningún otro comando la imprimió")
+		}
+	}
+	require.True(t, vista)
+
+	// Lo demás que el Historial guarda y publica: la apertura, los registros de cada paso, las variables, los
+	// despliegues y el resultado.
+	intento, err := s.historial.Intento(ctx, resultado.Intento)
+	require.NoError(t, err)
+	publicado := []any{intento, resultado}
+	datos := [][]byte{intento.Apertura.Contenido.Datos}
+	for _, r := range intento.Registros {
+		datos = append(datos, r.Contenido.Datos)
+		variables, err := s.historial.VariablesDeUnPaso(ctx, intento.Id, r.Paso)
+		require.NoError(t, err)
+		publicado = append(publicado, variables)
+		for _, v := range variables {
+			datos = append(datos, v.Contenido.Datos)
+		}
+	}
+	despliegues, err := s.historial.DesplieguesDeUnAmbiente(ctx, "prod")
+	require.NoError(t, err)
+	publicado = append(publicado, despliegues)
+	for _, p := range publicado {
+		texto, err := json.Marshal(p)
+		require.NoError(t, err)
+		require.NotContains(t, string(texto), valor)
+	}
+	for _, d := range datos {
+		require.NotContains(t, string(d), valor, "ni en el contenido de ningún registro")
+	}
+}
+
+func TestE2E_UnEntornoConUnNombreInvalidoSeRechazaSinAbrirNingunIntento(t *testing.T) {
+	s := montarSistema(t)
+	ctx := context.Background()
+
+	_, err := s.borde.Intentar(ctx, s.peticion(t), ejecucionpublicado.Entorno{"NOMBRE-MALO": "x"})
+
+	require.ErrorIs(t, err, ejecucionpublicado.ErrInvalido)
+	intentos, err := s.historial.IntentosDeUnAmbiente(ctx, "prod")
+	require.NoError(t, err)
+	require.Empty(t, intentos, "el ambiente no se ocupó")
 }
 
 // Lo que un comando imprime se guarda aparte y no queda en ningún registro del intento: lo que se busca en
 // ellos es lo que de verdad se imprimió, línea a línea, no un texto escrito a mano.
 func TestE2E_LoQueImprimeUnComandoNoQuedaEnNingunRegistro(t *testing.T) {
 	s := montarSistema(t)
-	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t))
+	resultado, err := s.borde.Intentar(context.Background(), s.peticion(t), nil)
 	require.NoError(t, err)
 	salidas, err := s.historial.SalidasDeUnIntento(context.Background(), resultado.Intento, historialpublicado.TodasLasSalidas)
 	require.NoError(t, err)

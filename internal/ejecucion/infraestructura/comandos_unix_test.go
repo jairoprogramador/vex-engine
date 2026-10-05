@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/jairoprogramador/vex-engine/internal/ejecucion/dominio"
 	"github.com/jairoprogramador/vex-engine/internal/ejecucion/infraestructura"
 )
 
@@ -31,7 +32,7 @@ func ejecutarYCancelar(t *testing.T, comandos infraestructura.Comandos, linea st
 	var recibido bytes.Buffer
 	terminado := make(chan error, 1)
 	go func() {
-		_, err := comandos.Ejecutar(ctx, t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), &recibido)
+		_, err := comandos.Ejecutar(ctx, t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), dominio.Entorno{}, &recibido)
 		terminado <- err
 	}()
 
@@ -124,7 +125,7 @@ func TestComandos_UnComandoExitosoQueDejaUnProcesoEnSegundoPlanoNoCuelgaLaEspera
 	comandos := infraestructura.NuevosComandosConPlazoDeGracia(200 * time.Millisecond)
 
 	inicio := time.Now()
-	resultado, err := comandos.Ejecutar(context.Background(), t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), &bytes.Buffer{})
+	resultado, err := comandos.Ejecutar(context.Background(), t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), dominio.Entorno{}, &bytes.Buffer{})
 
 	eliminarAlTerminar(t, leerPid(t, pidFichero))
 	require.NoError(t, err, "salió con 0: lo que dejó en segundo plano no es un fallo suyo")

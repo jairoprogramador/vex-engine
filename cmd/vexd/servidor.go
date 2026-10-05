@@ -66,9 +66,9 @@ func atenderPeticion(ctx context.Context, r rutas, p protocolo.Peticion, emisor 
 		return responder(emisor, errores, p, fallo{codigo: protocolo.CodigoMetodoDesconocido, tipo: tipoOperacionDesconocida,
 			salida: salidaInvalida, mensaje: fmt.Sprintf("operación desconocida %q", p.Method)})
 	}
-	if len(p.Entorno) > 0 {
+	if len(p.Entorno) > 0 && !op.ejecutaComandos {
 		return responder(emisor, errores, p, fallo{codigo: protocolo.CodigoParametrosInvalidos, tipo: tipoParametrosInvalidos,
-			salida: salidaInvalida, mensaje: "entorno: todavía no se admite"})
+			salida: salidaInvalida, mensaje: fmt.Sprintf("entorno: la operación %q no ejecuta comandos, no tiene a quién dárselo", op.nombre)})
 	}
 
 	respuesta, err := atenderContandoElProgreso(ctx, r, op, p, emisor, errores)
@@ -90,7 +90,7 @@ func atenderContandoElProgreso(
 	if err != nil {
 		return nil, err
 	}
-	return op.atender(ctx, servicio, parametrosDe(p))
+	return op.atender(ctx, servicio, parametrosDe(p), p.Entorno)
 }
 
 // servicioPara compone el motor para la operación, si lo necesita. La configuración que falta se dice antes de

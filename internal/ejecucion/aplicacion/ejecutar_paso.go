@@ -16,6 +16,7 @@ import (
 // salga como salga.
 func (s *Servicio) ejecutarPaso(
 	ctx context.Context, intento string, ubicacion dominio.Ubicacion, paso dominio.PasoDeEjecucion, ambito dominio.Ambito,
+	entorno dominio.Entorno,
 ) (bool, error) {
 	interpolar := func(texto string) (string, error) {
 		return s.d.Variables.Interpolar(ctx, intento, paso.Nombre(), ambito, texto)
@@ -33,7 +34,7 @@ func (s *Servicio) ejecutarPaso(
 		}
 
 		var salida bytes.Buffer
-		resultado, err := s.d.Comandos.Ejecutar(ctx, directorio, lineaInterpolada, comando, &salida)
+		resultado, err := s.d.Comandos.Ejecutar(ctx, directorio, lineaInterpolada, comando, entorno, &salida)
 		if err != nil {
 			err = fmt.Errorf("ejecución: el comando %q del paso %q: %w", comando.Nombre(), paso.Nombre(), err)
 		}

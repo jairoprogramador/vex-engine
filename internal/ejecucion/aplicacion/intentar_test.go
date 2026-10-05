@@ -19,7 +19,7 @@ func TestIntentar_SiElEspacioDeTrabajoNoEstaDisponibleElIntentoNoEmpieza(t *test
 	d.espacioDeTrabajo.errRehacer = fmt.Errorf("disco lleno: %w", dominio.ErrNoDisponible)
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), nil)
 
 	require.ErrorIs(t, err, publicado.ErrNoDisponible)
 	require.Empty(t, d.historial.registros, "EJ-5: ningún paso empieza")
@@ -37,7 +37,7 @@ func TestIntentar_UnAmbienteOcupadoNoTocaElEspacioDeTrabajo(t *testing.T) {
 	d.historial.errAbrir = errors.New("ambiente ocupado")
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), nil)
 
 	require.Error(t, err)
 	require.False(t, d.espacioDeTrabajo.rehecho, "el espacio del intento que ocupa el ambiente quedó intacto")
@@ -50,7 +50,7 @@ func TestIntentar_SiNoSePuedeAbandonarElIntentoQueNoEmpezoSeDiceAdemasDeLaCausa(
 	d.historial.errAbandonar = errors.New("el almacén no responde")
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), nil)
 
 	require.ErrorIs(t, err, publicado.ErrNoDisponible, "la causa sigue siendo la del espacio")
 	require.ErrorContains(t, err, "el almacén no responde", "y se dice que el ambiente pudo quedar ocupado")
@@ -65,7 +65,7 @@ func TestIntentar_UnaCopiaDeTrabajoAbreSinCommits(t *testing.T) {
 	peticion := peticionDePrueba()
 	peticion.CopiaDeTrabajo = "/tmp/wd"
 
-	resultado, err := servicio.Intentar(context.Background(), peticion)
+	resultado, err := servicio.Intentar(context.Background(), peticion, nil)
 
 	require.NoError(t, err)
 	require.Len(t, d.historial.aperturas, 1)
@@ -79,7 +79,7 @@ func TestIntentar_ElSegundoIntentoEnElMismoAmbienteSeRechaza(t *testing.T) {
 	d.historial.errAbrir = errors.New("ambiente ocupado")
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), nil)
 
 	require.Error(t, err)
 }
@@ -88,7 +88,7 @@ func TestIntentar_LaSalidaDeCadaComandoVaAlHistorial(t *testing.T) {
 	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), nil)
 
 	require.NoError(t, err)
 	require.NotEmpty(t, d.historial.salidas)
@@ -104,7 +104,7 @@ func TestIntentar_LaSalidaDeUnComandoFallidoTambienVaAlHistorial(t *testing.T) {
 	d.comandos.resultado = dominio.ResultadoDeUnComando{Exitoso: false}
 	servicio := aplicacion.NuevoServicio(deps)
 
-	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), nil)
 
 	require.NoError(t, err)
 	require.Len(t, d.historial.salidas, 1, "se detiene en el primer comando que falla")
@@ -120,7 +120,7 @@ func TestIntentar_ElResultadoTraeElDetalleQueDaElHistorial(t *testing.T) {
 	}
 	servicio := aplicacion.NuevoServicio(deps)
 
-	resultado, err := servicio.Intentar(context.Background(), peticionDePrueba())
+	resultado, err := servicio.Intentar(context.Background(), peticionDePrueba(), nil)
 
 	require.NoError(t, err)
 	require.Equal(t, "4s", resultado.Detalle.Tiempo)

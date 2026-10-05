@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -55,7 +56,8 @@ func (c Comandos) plazo() time.Duration {
 // solo con el shell) y el error se propaga: es la aplicación quien lo traduce en una cancelación del intento
 // (EJ-3), no este puerto.
 func (c Comandos) Ejecutar(
-	ctx context.Context, directorio, lineaInterpolada string, comando dominio.ComandoDeclarado, salida io.Writer,
+	ctx context.Context, directorio, lineaInterpolada string, comando dominio.ComandoDeclarado, entorno dominio.Entorno,
+	salida io.Writer,
 ) (dominio.ResultadoDeUnComando, error) {
 	nombreDelShell, flag := "sh", "-c"
 	if runtime.GOOS == "windows" {
@@ -63,6 +65,10 @@ func (c Comandos) Ejecutar(
 	}
 	cmd := exec.CommandContext(ctx, nombreDelShell, flag, lineaInterpolada)
 	cmd.Dir = filepath.Join(directorio, filepath.FromSlash(comando.Directorio()))
+	if !entorno.Vacio() {
+		// Con una variable repetida vale la última: las que se piden pisan las que el proceso ya tenía.
+		cmd.Env = append(os.Environ(), entorno.Lista()...)
+	}
 	terminar := prepararProceso(cmd, c.plazo())
 
 	var capturada bytes.Buffer

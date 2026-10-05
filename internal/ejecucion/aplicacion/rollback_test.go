@@ -28,7 +28,7 @@ func TestHacerRollback_UsaElMaterialYElPipelineDelDestino(t *testing.T) {
 
 	resultado, err := servicio.HacerRollback(context.Background(), publicado.PeticionDeRollback{
 		Version: "1", Despliegue: "dep-1", Solicitante: "ana",
-	})
+	}, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, "dep-2", resultado.Despliegue)
@@ -52,7 +52,7 @@ func TestHacerRollback_UnAmbienteOcupadoNoTocaElEspacioDeTrabajo(t *testing.T) {
 
 	_, err := servicio.HacerRollback(context.Background(), publicado.PeticionDeRollback{
 		Version: "1", Despliegue: "dep-1", Solicitante: "ana",
-	})
+	}, nil)
 
 	require.Error(t, err)
 	require.False(t, d.espacioDeTrabajo.rehecho, "el espacio del intento que ocupa el ambiente quedó intacto")
@@ -66,7 +66,7 @@ func TestHacerRollback_SiElEspacioDeTrabajoNoEstaDisponibleElIntentoSeAbandona(t
 
 	_, err := servicio.HacerRollback(context.Background(), publicado.PeticionDeRollback{
 		Version: "1", Despliegue: "dep-1", Solicitante: "ana",
-	})
+	}, nil)
 
 	require.ErrorIs(t, err, publicado.ErrNoDisponible)
 	require.Equal(t, []string{"int-1"}, d.historial.abandonados)
@@ -81,7 +81,7 @@ func TestHacerRollback_CierraConElDestinoComoPadre(t *testing.T) {
 
 	_, err := servicio.HacerRollback(context.Background(), publicado.PeticionDeRollback{
 		Version: "1", Despliegue: "dep-1", Solicitante: "ana",
-	})
+	}, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, "dep-1", d.historial.destinoCerrado)
@@ -94,7 +94,7 @@ func TestHacerRollback_PropagaElErrorSiElDestinoNoSePuedeResolver(t *testing.T) 
 
 	_, err := servicio.HacerRollback(context.Background(), publicado.PeticionDeRollback{
 		Version: "1", Despliegue: "dep-1", Solicitante: "ana",
-	})
+	}, nil)
 
 	require.Error(t, err)
 	require.Empty(t, d.historial.aperturas)

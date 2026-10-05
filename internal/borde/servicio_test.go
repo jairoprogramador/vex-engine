@@ -17,22 +17,25 @@ type ejecucionFalsa struct {
 	err                error
 	peticionDeIntento  ejecucionpublicado.PeticionDeIntento
 	peticionDeRollback ejecucionpublicado.PeticionDeRollback
+	entorno            ejecucionpublicado.Entorno
 	llamado            string
 }
 
 func (e *ejecucionFalsa) Intentar(
-	_ context.Context, p ejecucionpublicado.PeticionDeIntento,
+	_ context.Context, p ejecucionpublicado.PeticionDeIntento, entorno ejecucionpublicado.Entorno,
 ) (ejecucionpublicado.Resultado, error) {
 	e.llamado = "intentar"
 	e.peticionDeIntento = p
+	e.entorno = entorno
 	return e.resultado, e.err
 }
 
 func (e *ejecucionFalsa) HacerRollback(
-	_ context.Context, p ejecucionpublicado.PeticionDeRollback,
+	_ context.Context, p ejecucionpublicado.PeticionDeRollback, entorno ejecucionpublicado.Entorno,
 ) (ejecucionpublicado.Resultado, error) {
 	e.llamado = "rollback"
 	e.peticionDeRollback = p
+	e.entorno = entorno
 	return e.resultado, e.err
 }
 
@@ -42,7 +45,7 @@ func TestServicio_IntentarRechazaUnaVersionNoSoportadaSinLlamarAEjecucion(t *tes
 	falsa := &ejecucionFalsa{}
 	servicio := borde.NuevoServicio(borde.Dependencias{Ejecucion: falsa})
 
-	_, err := servicio.Intentar(context.Background(), ejecucionpublicado.PeticionDeIntento{Version: "99"})
+	_, err := servicio.Intentar(context.Background(), ejecucionpublicado.PeticionDeIntento{Version: "99"}, nil)
 
 	require.ErrorIs(t, err, borde.ErrVersionNoSoportada)
 	require.Empty(t, falsa.llamado)
@@ -52,7 +55,7 @@ func TestServicio_IntentarDelegaEnEjecucionConUnaVersionSoportada(t *testing.T) 
 	falsa := &ejecucionFalsa{resultado: ejecucionpublicado.Resultado{Intento: "int-1", Estado: "exitoso"}}
 	servicio := borde.NuevoServicio(borde.Dependencias{Ejecucion: falsa})
 
-	resultado, err := servicio.Intentar(context.Background(), ejecucionpublicado.PeticionDeIntento{Version: "1", Ambiente: "prod"})
+	resultado, err := servicio.Intentar(context.Background(), ejecucionpublicado.PeticionDeIntento{Version: "1", Ambiente: "prod"}, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, "intentar", falsa.llamado)
@@ -64,7 +67,7 @@ func TestServicio_HacerRollbackRechazaUnaVersionNoSoportadaSinLlamarAEjecucion(t
 	falsa := &ejecucionFalsa{}
 	servicio := borde.NuevoServicio(borde.Dependencias{Ejecucion: falsa})
 
-	_, err := servicio.HacerRollback(context.Background(), ejecucionpublicado.PeticionDeRollback{Version: "99"})
+	_, err := servicio.HacerRollback(context.Background(), ejecucionpublicado.PeticionDeRollback{Version: "99"}, nil)
 
 	require.ErrorIs(t, err, borde.ErrVersionNoSoportada)
 	require.Empty(t, falsa.llamado)
@@ -75,11 +78,25 @@ func TestServicio_HacerRollbackDelegaEnEjecucionConUnaVersionSoportada(t *testin
 	servicio := borde.NuevoServicio(borde.Dependencias{Ejecucion: falsa})
 
 	resultado, err := servicio.HacerRollback(
-		context.Background(), ejecucionpublicado.PeticionDeRollback{Version: "1", Despliegue: "dep-1"},
+		context.Background(), ejecucionpublicado.PeticionDeRollback{Version: "1", Despliegue: "dep-1"}, nil,
 	)
 
 	require.NoError(t, err)
 	require.Equal(t, "rollback", falsa.llamado)
 	require.Equal(t, "dep-1", falsa.peticionDeRollback.Despliegue)
 	require.Equal(t, "dep-2", resultado.Despliegue)
+}
+
+func TestServicio_ElEntornoLlegaAEjecucionTalCualYNoSeToca(t *testing.T) {
+	falsa := &ejecucionFalsa{}
+	servicio := borde.NuevoServicio(borde.Dependencias{Ejecucion: falsa})
+	entorno := ejecucionpublicado.Entorno{"A": "1"}
+
+	_, err := servicio.Intentar(context.Background(), ejecucionpublicado.PeticionDeIntento{Version: "1"}, entorno)
+	require.NoError(t, err)
+	require.Equal(t, entorno, falsa.entorno)
+
+	_, err = servicio.HacerRollback(context.Background(), ejecucionpublicado.PeticionDeRollback{Version: "1"}, entorno)
+	require.NoError(t, err)
+	require.Equal(t, entorno, falsa.entorno)
 }

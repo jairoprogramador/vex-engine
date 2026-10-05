@@ -125,10 +125,12 @@ type AperturaDeIntento struct {
 //
 // lineaInterpolada es la línea con sus ${var.<nombre>} ya resueltos — lo que de verdad corre. comando sigue
 // siendo la forma declarada, sin resolver: de ahí salen su directorio y las expresiones con las que se
-// comprueban sus aserciones y se capturan sus variables de salida, que nunca se interpolan.
+// comprueban sus aserciones y se capturan sus variables de salida, que nunca se interpolan. entorno son las
+// variables de entorno que quien invoca pidió: se añaden a las que el proceso ya tiene (y las pisan), solo para
+// este comando.
 type Comandos interface {
 	Ejecutar(
-		ctx context.Context, directorio, lineaInterpolada string, comando ComandoDeclarado, salida io.Writer,
+		ctx context.Context, directorio, lineaInterpolada string, comando ComandoDeclarado, entorno Entorno, salida io.Writer,
 	) (ResultadoDeUnComando, error)
 }
 

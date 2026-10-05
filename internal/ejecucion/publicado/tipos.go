@@ -70,3 +70,8 @@ type PasoDelDetalle struct {
 	Nombre string
 	Estado string
 }
+
+// Entorno son las variables de entorno que se piden para los comandos de un intento: nombre y valor. No son
+// variables del pipeline (no pasan por Resolución, no entran en ningún hash, no se guardan) ni secretos que el
+// motor gestione (otro producto). Un nombre que no es el de una variable de entorno es un ErrInvalido.
+type Entorno map[string]string
