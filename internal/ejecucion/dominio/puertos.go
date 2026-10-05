@@ -90,6 +90,9 @@ type Historial interface {
 	// CerrarIntento registra el desenlace y, si el intento llega a despliegue, lo crea. destino es el
 	// despliegue padre de un rollback, y vacío si no lo es.
 	CerrarIntento(ctx context.Context, intento string, desenlace Desenlace, destino string) (despliegue string, huboDespliegue bool, err error)
+	// AbandonarIntento da por abandonado un intento que se abrió y no llegó a empezar —el espacio de trabajo no
+	// se pudo preparar, EJ-5—, y libera su ambiente. No es un intento fallido: nunca ejecutó nada.
+	AbandonarIntento(ctx context.Context, intento string) error
 	UltimaVezDeUnPaso(ctx context.Context, paso string, ambito Ambito) (UltimaVezDeUnPaso, error)
 	// DespliegueParaRollback da lo que EJ-2 necesita de un despliegue destino: su ambiente y las dos fuentes
 	// con las que se hizo, ya decodificadas de su Contenido.

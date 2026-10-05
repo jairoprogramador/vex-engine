@@ -40,6 +40,7 @@ por la entrada y la salida estándar** (`docs/rediseno/RD-13-protocolo.md`). No 
 | **`method`** | `intentar` `rollback` `simular` `lanzar` `reservar` `liberar` `diagnosticar` `abandonar` `intento` `intentos` `despliegues` `logs` `describir` |
 | **`params`** | Los campos del tipo de la tabla de abajo, con su `Version` (los nombres de campo de Go, sin distinguir mayúsculas). Un campo que el tipo no tiene se rechaza |
 | **`result`** | Lo que devuelve la operación, completo. Las que no devuelven nada responden `{}`; una lista sin elementos es `[]` |
+| **`progreso`** | Notificaciones (sin `id`) que `intentar` y `rollback` envían **antes** de la respuesta, que es la última línea: `intento_iniciado`, `paso_iniciado`, `comando_terminado`, `paso_terminado`. Solo nombres y resultados, nunca la salida de un comando. Ver `RD-13` |
 | **`error`** | `{code, message, data}`; `data.tipo` es el nombre estable. Ver el catálogo en `RD-13` |
 | **`entorno`** | Miembro opcional de la petición: variables de entorno para los comandos. Aún no se admite |
 | **Salida de los comandos** | no se muestra al intentar: se guarda en el Historial y se consulta con `logs` |

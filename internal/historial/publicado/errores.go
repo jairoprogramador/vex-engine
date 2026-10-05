@@ -11,6 +11,10 @@ var (
 
 	// ErrNoExiste: lo que se pide no está en el historial.
 	ErrNoExiste = errors.New("historial: no existe")
+
+	// ErrEscrituraConcurrente: otros procesos escribieron en lo mismo, una y otra vez, y no se pudo escribir. No
+	// se escribió nada; volver a pedirlo es seguro.
+	ErrEscrituraConcurrente = errors.New("historial: otras escrituras ganaron en cada intento")
 )
 
 // AmbienteOcupadoError rechaza abrir un intento en un ambiente con otro en curso, y dice cuál. Ese intento

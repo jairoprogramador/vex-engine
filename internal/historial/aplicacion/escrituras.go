@@ -24,7 +24,7 @@ func (s *Servicio) AbrirIntento(ctx context.Context, a publicado.Apertura) (stri
 		return "", traducir(err)
 	}
 
-	err = conReintento(func() error {
+	err = conReintento(ctx, func() error {
 		ocupacion, err := s.d.Ocupaciones.DeUnAmbiente(ctx, apertura.Ambiente)
 		if err != nil {
 			return err
@@ -97,7 +97,7 @@ func (s *Servicio) RegistrarSalida(
 		return traducir(err)
 	}
 	id := dominio.IdIntento(intento)
-	return traducir(conReintento(func() error {
+	return traducir(conReintento(ctx, func() error {
 		if _, err := s.leerIntento(ctx, id); err != nil {
 			return err
 		}
@@ -124,7 +124,7 @@ func (s *Servicio) CerrarIntento(
 ) (publicado.Despliegue, bool, error) {
 	cierre := dominio.Cierre{Estado: estadoDeDominio(estado), Destino: dominio.IdDespliegue(destino)}
 	var intento *dominio.Intento
-	err := conReintento(func() error {
+	err := conReintento(ctx, func() error {
 		var err error
 		if intento, err = s.leerIntento(ctx, dominio.IdIntento(id)); err != nil {
 			return err
@@ -160,7 +160,7 @@ func (s *Servicio) desplegar(ctx context.Context, intento *dominio.Intento) (pub
 		hay        bool
 		escrito    bool
 	)
-	err = conReintento(func() error {
+	err = conReintento(ctx, func() error {
 		despliegues, err := s.d.Despliegues.DeUnAmbiente(ctx, a.Ambiente)
 		if err != nil {
 			return err
@@ -189,7 +189,7 @@ func (s *Servicio) desplegar(ctx context.Context, intento *dominio.Intento) (pub
 // AbandonarIntento vale también para un intento sin apertura, siempre que ocupe un ambiente: es el que queda
 // si la apertura no se pudo escribir.
 func (s *Servicio) AbandonarIntento(ctx context.Context, id string) error {
-	return traducir(conReintento(func() error {
+	return traducir(conReintento(ctx, func() error {
 		intento, err := s.d.Intentos.Intento(ctx, dominio.IdIntento(id))
 		if err != nil {
 			return err
@@ -214,7 +214,7 @@ func (s *Servicio) RegistrarLanzamiento(
 		return publicado.Lanzamiento{}, err
 	}
 	var lanzamiento dominio.Lanzamiento
-	err = conReintento(func() error {
+	err = conReintento(ctx, func() error {
 		lanzamientos, err := s.d.Lanzamientos.Todos(ctx)
 		if err != nil {
 			return err
@@ -237,7 +237,7 @@ func (s *Servicio) RegistrarLanzamiento(
 }
 
 func (s *Servicio) RegistrarReserva(ctx context.Context, ambiente string, reservado bool) error {
-	return traducir(conReintento(func() error {
+	return traducir(conReintento(ctx, func() error {
 		reservas, err := s.d.Reservas.DeUnAmbiente(ctx, dominio.Ambiente(ambiente))
 		if err != nil {
 			return err
@@ -253,7 +253,7 @@ func (s *Servicio) RegistrarReserva(ctx context.Context, ambiente string, reserv
 func (s *Servicio) enIntento(
 	ctx context.Context, id string, registrar func(*dominio.Intento, time.Time) error,
 ) error {
-	return traducir(conReintento(func() error {
+	return traducir(conReintento(ctx, func() error {
 		intento, err := s.leerIntento(ctx, dominio.IdIntento(id))
 		if err != nil {
 			return err

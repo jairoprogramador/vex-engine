@@ -9,6 +9,7 @@ import (
 	diagnosticoaplicacion "github.com/jairoprogramador/vex-engine/internal/diagnostico/aplicacion"
 	diagnosticoinfraestructura "github.com/jairoprogramador/vex-engine/internal/diagnostico/infraestructura"
 	ejecucionaplicacion "github.com/jairoprogramador/vex-engine/internal/ejecucion/aplicacion"
+	ejecuciondominio "github.com/jairoprogramador/vex-engine/internal/ejecucion/dominio"
 	ejecucioninfraestructura "github.com/jairoprogramador/vex-engine/internal/ejecucion/infraestructura"
 	historialaplicacion "github.com/jairoprogramador/vex-engine/internal/historial/aplicacion"
 	historialinfraestructura "github.com/jairoprogramador/vex-engine/internal/historial/infraestructura"
@@ -45,7 +46,8 @@ func (r rutas) validar(op operacion) error {
 
 // componer es la raíz de composición: el único sitio que conoce todos los contextos y los conecta. Los de
 // abajo (Historial, Suministro) se construyen primero; los de entrada, con lo publicado de los de abajo.
-func componer(r rutas) (*borde.Servicio, error) {
+// progreso es a dónde cuenta Ejecución cómo avanza un intento.
+func componer(r rutas, progreso ejecuciondominio.Progreso) (*borde.Servicio, error) {
 	almacen, err := historialinfraestructura.NuevoAlmacenLocal(r.almacen)
 	if err != nil {
 		return nil, fmt.Errorf("%w: el almacén del historial (%s): %w", errConfiguracion, nombreAlmacen, err)
@@ -80,6 +82,7 @@ func componer(r rutas) (*borde.Servicio, error) {
 		Historial:             ejecucioninfraestructura.NuevoHistorial(historial),
 		Comandos:              ejecucioninfraestructura.NuevosComandos(),
 		EspacioDeTrabajo:      ejecucioninfraestructura.NuevoEspacioDeTrabajo(r.espacio),
+		Progreso:              progreso,
 		NombreDeLaHerramienta: "vexd",
 	})
 	simulacion := simulacionaplicacion.NuevoServicio(simulacionaplicacion.Dependencias{

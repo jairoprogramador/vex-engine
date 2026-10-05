@@ -34,6 +34,7 @@ func TestClasificar(t *testing.T) {
 		"configuración del proceso":           {errConfiguracion, codigoConfiguracionInvalida, tipoConfiguracionInvalida, salidaInvalida},
 		"no existe en el historial":           {historialpublicado.ErrNoExiste, codigoNoExiste, tipoNoExiste, salidaFallo},
 		"historial sin intentos":              {borde.ErrHistorialSinIntentos, codigoNoExiste, tipoNoExiste, salidaFallo},
+		"otras escrituras ganaron siempre":    {historialpublicado.ErrEscrituraConcurrente, codigoEscrituraConcurrente, tipoEscrituraConcurrente, salidaFallo},
 		"rechazado por ejecución":             {ejecucionpublicado.ErrRechazado, codigoRechazado, tipoRechazado, salidaFallo},
 		"rechazado por el historial":          {historialpublicado.ErrRechazado, codigoRechazado, tipoRechazado, salidaFallo},
 		"espacio de trabajo no disponible":    {ejecucionpublicado.ErrNoDisponible, codigoNoDisponible, tipoNoDisponible, salidaFallo},

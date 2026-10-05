@@ -8,10 +8,11 @@ import (
 	"github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
 )
 
-// Intentar es EJ-1: abre el intento en el Historial, que lo rechaza si el ambiente está ocupado (DEC-07.8);
-// pide el pipeline comprobado y el material — de hoy, de un commit o de una copia de trabajo, que nunca llega a
-// despliegue (DEC-10.7); pone el material del pipeline en el espacio de trabajo (EJ-5 si no se puede); y
-// recorre sus pasos con el bucle explícito.
+// Intentar es EJ-1: pide el pipeline comprobado y el material — de hoy, de un commit o de una copia de trabajo,
+// que nunca llega a despliegue (DEC-10.7); abre el intento en el Historial, que lo rechaza si el ambiente está
+// ocupado (DEC-07.8); solo entonces pone el material del pipeline en el espacio de trabajo, que borraría el de
+// otro intento si el ambiente estuviera ocupado (EJ-5 si no se puede: el intento se abandona y el ambiente
+// queda libre); y recorre sus pasos con el bucle explícito.
 func (s *Servicio) Intentar(ctx context.Context, p publicado.PeticionDeIntento) (resultado publicado.Resultado, err error) {
 	esCopiaDeTrabajo := p.CopiaDeTrabajo != ""
 
@@ -39,9 +40,6 @@ func (s *Servicio) Intentar(ctx context.Context, p publicado.PeticionDeIntento) 
 	if err != nil {
 		return publicado.Resultado{}, traducir(err)
 	}
-	if err := s.d.EspacioDeTrabajo.RehacerParteDelMotor(ctx, ubicacion, pipeline.Pasos); err != nil {
-		return publicado.Resultado{}, traducir(err)
-	}
 
 	pasos, pasosPorNombre := indicePasos(pipeline.Pasos)
 	hastaPaso := resolverHastaPaso(p.HastaPaso, pasos)
@@ -57,9 +55,15 @@ func (s *Servicio) Intentar(ctx context.Context, p publicado.PeticionDeIntento) 
 		return publicado.Resultado{}, traducir(err)
 	}
 
+	// Primero el Historial, que decide quién ocupa el ambiente, y solo entonces el espacio de trabajo: rehacerlo
+	// borra los directorios de los pasos, y si otro intento tiene el ambiente, serían los suyos.
+	if err := s.d.EspacioDeTrabajo.RehacerParteDelMotor(ctx, ubicacion, pipeline.Pasos); err != nil {
+		return publicado.Resultado{}, traducir(s.abandonar(ctx, id, err))
+	}
+
 	intento, err := dominio.NuevoIntentoEnCurso(p.Ambiente, pasos, hastaPaso)
 	if err != nil {
-		return publicado.Resultado{}, traducir(err)
+		return publicado.Resultado{}, traducir(s.abandonar(ctx, id, err))
 	}
 
 	c := contextoDelIntento{

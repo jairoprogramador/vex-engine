@@ -18,6 +18,7 @@ type dependenciasDePrueba struct {
 	historial        *historialFalso
 	comandos         *comandosFalsos
 	espacioDeTrabajo *espacioDeTrabajoFalso
+	progreso         *progresoFalso
 }
 
 func nuevasDependenciasDePrueba(t *testing.T, nombresDePasos ...string) (aplicacion.Dependencias, *dependenciasDePrueba) {
@@ -37,10 +38,11 @@ func nuevasDependenciasDePrueba(t *testing.T, nombresDePasos ...string) (aplicac
 		historial:        nuevoHistorialFalso(t),
 		comandos:         &comandosFalsos{resultado: dominio.ResultadoDeUnComando{Exitoso: true}},
 		espacioDeTrabajo: &espacioDeTrabajoFalso{},
+		progreso:         &progresoFalso{},
 	}
 	return aplicacion.Dependencias{
 		Pipelines: d.pipelines, Fuentes: d.fuentes, Variables: d.variables, Historial: d.historial,
-		Comandos: d.comandos, EspacioDeTrabajo: d.espacioDeTrabajo, NombreDeLaHerramienta: "vexd",
+		Comandos: d.comandos, EspacioDeTrabajo: d.espacioDeTrabajo, Progreso: d.progreso, NombreDeLaHerramienta: "vexd",
 	}, d
 }
 

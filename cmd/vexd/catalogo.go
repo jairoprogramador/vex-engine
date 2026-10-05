@@ -24,6 +24,7 @@ const (
 	codigoNoDisponible          = -32005
 	codigoConfiguracionInvalida = -32006
 	codigoCancelado             = -32007
+	codigoEscrituraConcurrente  = -32008
 )
 
 // Tipos de error: el nombre estable que un cliente puede comparar, en data.tipo.
@@ -36,6 +37,7 @@ const (
 	tipoNoDisponible          = "no_disponible"
 	tipoConfiguracionInvalida = "configuracion_invalida"
 	tipoCancelado             = "cancelado"
+	tipoEscrituraConcurrente  = "escritura_concurrente"
 	tipoInterno               = "interno"
 	tipoOperacionDesconocida  = "operacion_desconocida"
 	tipoPeticionInvalida      = "peticion_invalida"
@@ -85,6 +87,8 @@ func clasificar(err error) fallo {
 		return fallo{codigo: codigoVersionNoSoportada, tipo: tipoVersionNoSoportada, salida: salidaInvalida, mensaje: err.Error()}
 	case esPeticionInvalida(err):
 		return fallo{codigo: protocolo.CodigoParametrosInvalidos, tipo: tipoParametrosInvalidos, salida: salidaInvalida, mensaje: err.Error()}
+	case errors.Is(err, historialpublicado.ErrEscrituraConcurrente):
+		return fallo{codigo: codigoEscrituraConcurrente, tipo: tipoEscrituraConcurrente, salida: salidaFallo, mensaje: err.Error()}
 	case errors.Is(err, historialpublicado.ErrNoExiste):
 		return fallo{codigo: codigoNoExiste, tipo: tipoNoExiste, salida: salidaFallo, mensaje: err.Error()}
 	case errors.Is(err, ejecucionpublicado.ErrRechazado), errors.Is(err, historialpublicado.ErrRechazado):

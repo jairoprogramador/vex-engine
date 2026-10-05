@@ -98,6 +98,28 @@ func TestAdaptadorDeHistorial_AbrirRegistrarYCerrarUnIntentoExitoso(t *testing.T
 	require.NotEmpty(t, despliegue)
 }
 
+func TestAdaptadorDeHistorial_AbandonarUnIntentoLiberaSuAmbiente(t *testing.T) {
+	h, ctx := nuevoHistorialReal(t)
+	adaptador := infraestructura.NuevoHistorial(h)
+	id, err := adaptador.AbrirIntento(ctx, aperturaDePrueba(t, "prod"))
+	require.NoError(t, err)
+	_, err = adaptador.AbrirIntento(ctx, aperturaDePrueba(t, "prod"))
+	require.Error(t, err, "con el ambiente ocupado no se abre otro")
+
+	require.NoError(t, adaptador.AbandonarIntento(ctx, id))
+
+	_, err = adaptador.AbrirIntento(ctx, aperturaDePrueba(t, "prod"))
+	require.NoError(t, err, "abandonado, el ambiente queda libre")
+}
+
+func TestAdaptadorDeHistorial_AbandonarUnIntentoQueNoExisteEsUnError(t *testing.T) {
+	h, ctx := nuevoHistorialReal(t)
+
+	err := infraestructura.NuevoHistorial(h).AbandonarIntento(ctx, "no-existe")
+
+	require.Error(t, err)
+}
+
 func TestAdaptadorDeHistorial_UltimaVezDeUnPasoSinRegistroNoHay(t *testing.T) {
 	h, _ := nuevoHistorialReal(t)
 	adaptador := infraestructura.NuevoHistorial(h)

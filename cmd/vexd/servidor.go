@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/jairoprogramador/vex-engine/internal/borde"
+	ejecuciondominio "github.com/jairoprogramador/vex-engine/internal/ejecucion/dominio"
 	"github.com/jairoprogramador/vex-engine/internal/protocolo"
 )
 
@@ -70,27 +71,38 @@ func atenderPeticion(ctx context.Context, r rutas, p protocolo.Peticion, emisor 
 			salida: salidaInvalida, mensaje: "entorno: todavía no se admite"})
 	}
 
-	servicio, err := servicioPara(r, op)
-	if err != nil {
-		return responderError(emisor, errores, p, err)
-	}
-	respuesta, err := op.atender(ctx, servicio, parametrosDe(p))
+	respuesta, err := atenderContandoElProgreso(ctx, r, op, p, emisor, errores)
 	if err != nil {
 		return responderError(emisor, errores, p, err)
 	}
 	return responderExito(emisor, errores, p, respuesta)
 }
 
+// atenderContandoElProgreso atiende la operación mientras cuenta a quien invoca cómo avanza. Lo que cuenta se
+// escribe del todo antes de volver: las notificaciones van siempre antes que la respuesta.
+func atenderContandoElProgreso(
+	ctx context.Context, r rutas, op operacion, p protocolo.Peticion, emisor *protocolo.Emisor, errores io.Writer,
+) (any, error) {
+	progreso := nuevoProgreso(emisor, errores)
+	defer progreso.cerrar()
+
+	servicio, err := servicioPara(r, op, progreso)
+	if err != nil {
+		return nil, err
+	}
+	return op.atender(ctx, servicio, parametrosDe(p))
+}
+
 // servicioPara compone el motor para la operación, si lo necesita. La configuración que falta se dice antes de
 // tocar ningún contexto.
-func servicioPara(r rutas, op operacion) (*borde.Servicio, error) {
+func servicioPara(r rutas, op operacion, progreso ejecuciondominio.Progreso) (*borde.Servicio, error) {
 	if !op.usaMotor {
 		return nil, nil
 	}
 	if err := r.validar(op); err != nil {
 		return nil, err
 	}
-	return componer(r)
+	return componer(r, progreso)
 }
 
 // parametrosDe son los params de la petición; sin ellos, un objeto vacío, para que cada operación diga qué le falta.

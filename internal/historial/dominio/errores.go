@@ -12,6 +12,10 @@ var (
 	// ErrConflicto: alguien añadió un registro al agregado desde que se leyó. Se vuelve a leer y a decidir.
 	ErrConflicto = errors.New("historial: el agregado cambió desde que se leyó")
 
+	// ErrEscrituraConcurrente: se volvió a leer y a decidir muchas veces y otros escritores ganaron siempre. No
+	// se escribió nada.
+	ErrEscrituraConcurrente = errors.New("historial: otras escrituras ganaron en cada intento")
+
 	// ErrNoExiste: lo que se pide no está en el historial.
 	ErrNoExiste = errors.New("historial: no existe")
 )

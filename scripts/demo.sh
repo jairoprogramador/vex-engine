@@ -320,7 +320,7 @@ printf '\n%s(copia y pega en una terminal para enviar esta misma petición a vex
 printf '%s%s %q <<<'"'"'%s'"'"'%s\n' "$CIAN$NEGRITA" "$(printf '%q ' "${ENTORNO_DE_VEXD[@]}")" "$VEXD" "$MENSAJE" "$RESET"
 
 seccion "$MAGENTA" "RESPUESTA DEL MOTOR"
-printf '%sstdout: la respuesta (una línea; con jq se muestra con sangría) · stderr: la causa de un error interno%s\n\n' "$TENUE" "$RESET"
+printf '%sstdout: el avance (notificaciones progreso) y, al final, la respuesta (con jq, con sangría) · stderr: la causa de un error interno%s\n\n' "$TENUE" "$RESET"
 set +e
 RESPUESTA="$(env "${ENTORNO_DE_VEXD[@]}" "$VEXD" <<<"$MENSAJE")"
 codigo=$?

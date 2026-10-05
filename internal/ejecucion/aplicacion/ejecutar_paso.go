@@ -37,9 +37,15 @@ func (s *Servicio) ejecutarPaso(
 		if err != nil {
 			err = fmt.Errorf("ejecución: el comando %q del paso %q: %w", comando.Nombre(), paso.Nombre(), err)
 		}
-		if errSalida := s.registrarSalida(ctx, intento, paso.Nombre(), comando.Nombre(), err == nil && resultado.Exitoso, salida.String()); errSalida != nil {
+		salioBien := err == nil && resultado.Exitoso
+		if errSalida := s.registrarSalida(ctx, intento, paso.Nombre(), comando.Nombre(), salioBien, salida.String()); errSalida != nil {
 			return false, errors.Join(err, errSalida)
 		}
+		// Su salida ya está en el Historial: quien reciba este aviso puede pedir logs y encontrarla.
+		s.emitir(ctx, dominio.EventoDeProgreso{
+			Tipo: dominio.ComandoTerminado, Intento: intento, Paso: paso.Nombre(), Comando: comando.Nombre(),
+			Estado: estadoDelComando(salioBien),
+		})
 		if err != nil {
 			return false, err
 		}
@@ -52,6 +58,13 @@ func (s *Servicio) ejecutarPaso(
 		}
 	}
 	return true, nil
+}
+
+func estadoDelComando(salioBien bool) string {
+	if salioBien {
+		return dominio.Exitoso.String()
+	}
+	return dominio.Fallido.String()
 }
 
 // registrarLoProducido entrega cada variable producida al ámbito que le toca: el compartido si el comando la

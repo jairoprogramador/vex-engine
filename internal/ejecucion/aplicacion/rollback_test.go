@@ -3,6 +3,7 @@ package aplicacion_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -41,6 +42,35 @@ func TestHacerRollback_UsaElMaterialYElPipelineDelDestino(t *testing.T) {
 	require.True(t, apertura.ConCommits)
 	require.Equal(t, "02-despliegue", apertura.HastaPaso, "EJ-2 hace todos los pasos del pipeline, hasta el último")
 	require.Len(t, apertura.Pasos, 2)
+}
+
+func TestHacerRollback_UnAmbienteOcupadoNoTocaElEspacioDeTrabajo(t *testing.T) {
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
+	d.historial.destinoParaRollback = destinoDePrueba(t)
+	d.historial.errAbrir = errors.New("ambiente ocupado")
+	servicio := aplicacion.NuevoServicio(deps)
+
+	_, err := servicio.HacerRollback(context.Background(), publicado.PeticionDeRollback{
+		Version: "1", Despliegue: "dep-1", Solicitante: "ana",
+	})
+
+	require.Error(t, err)
+	require.False(t, d.espacioDeTrabajo.rehecho, "el espacio del intento que ocupa el ambiente quedó intacto")
+}
+
+func TestHacerRollback_SiElEspacioDeTrabajoNoEstaDisponibleElIntentoSeAbandona(t *testing.T) {
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
+	d.historial.destinoParaRollback = destinoDePrueba(t)
+	d.espacioDeTrabajo.errRehacer = fmt.Errorf("disco lleno: %w", dominio.ErrNoDisponible)
+	servicio := aplicacion.NuevoServicio(deps)
+
+	_, err := servicio.HacerRollback(context.Background(), publicado.PeticionDeRollback{
+		Version: "1", Despliegue: "dep-1", Solicitante: "ana",
+	})
+
+	require.ErrorIs(t, err, publicado.ErrNoDisponible)
+	require.Equal(t, []string{"int-1"}, d.historial.abandonados)
+	require.Empty(t, d.historial.registros)
 }
 
 func TestHacerRollback_CierraConElDestinoComoPadre(t *testing.T) {

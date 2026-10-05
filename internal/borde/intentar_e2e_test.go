@@ -42,6 +42,8 @@ var firmante = object.Signature{Name: "ana", Email: "ana@vex.test", When: time.D
 type sistema struct {
 	borde     *borde.Servicio
 	historial *historialaplicacion.Servicio
+	espacio   *ejecucioninfraestructura.EspacioDeTrabajo
+	raiz      string // la raíz del espacio de trabajo
 
 	repoProyecto string
 	repoPipeline string
@@ -77,19 +79,22 @@ func montarSistema(t *testing.T) *sistema {
 	})
 
 	raizDelEspacio := t.TempDir()
+	espacio := ejecucioninfraestructura.NuevoEspacioDeTrabajo(raizDelEspacio)
 	ejecucionServicio := ejecucionaplicacion.NuevoServicio(ejecucionaplicacion.Dependencias{
 		Pipelines:             ejecucioninfraestructura.NuevosPipelines(definicionServicio),
 		Fuentes:               ejecucioninfraestructura.NuevasFuentes(suministroServicio),
 		Variables:             ejecucioninfraestructura.NuevasVariables(resolucionServicio.ParaEjecucion()),
 		Historial:             ejecucioninfraestructura.NuevoHistorial(historialServicio),
 		Comandos:              ejecucioninfraestructura.NuevosComandos(),
-		EspacioDeTrabajo:      ejecucioninfraestructura.NuevoEspacioDeTrabajo(raizDelEspacio),
+		EspacioDeTrabajo:      espacio,
 		NombreDeLaHerramienta: "vexd-e2e",
 	})
 
 	return &sistema{
 		borde:        borde.NuevoServicio(borde.Dependencias{Ejecucion: ejecucionServicio, Historial: historialServicio}),
 		historial:    historialServicio,
+		espacio:      espacio,
+		raiz:         raizDelEspacio,
 		repoProyecto: nuevoRepoDeProyecto(t),
 		repoPipeline: nuevoRepoDePipeline(t),
 	}
@@ -360,6 +365,60 @@ func TestE2E_UnSegundoIntentoEnElMismoAmbienteSeRechaza(t *testing.T) {
 	require.Error(t, err)
 	var ocupado *historialpublicado.AmbienteOcupadoError
 	require.True(t, errors.As(err, &ocupado), "se esperaba un *AmbienteOcupadoError, se obtuvo: %v", err)
+}
+
+// El espacio de trabajo de un ambiente es de quien lo ocupa: si otro intento lo tiene, rehacerlo borraría los
+// directorios de sus pasos mientras corre. Por eso el Historial, que decide quién ocupa el ambiente, se consulta
+// antes de tocar el disco.
+func TestE2E_UnAmbienteOcupadoNoTocaElEspacioDeTrabajoDeQuienLoOcupa(t *testing.T) {
+	s := montarSistema(t)
+	ctx := context.Background()
+	_, err := s.historial.AbrirIntento(ctx, historialpublicado.Apertura{
+		Ambiente: "prod", Solicitante: "otro", Pasos: []historialpublicado.PasoDeclarado{{Nombre: primerPaso(t)}},
+		HastaPaso: primerPaso(t), HashDelCodigo: "h", ConCommits: true,
+	})
+	require.NoError(t, err)
+	ubicacion, err := s.espacio.Ubicar(s.repoProyecto, s.repoPipeline, "prod")
+	require.NoError(t, err)
+	directorioDelPaso := s.espacio.DirectorioDelPaso(ubicacion, primerPaso(t))
+	require.NoError(t, os.MkdirAll(directorioDelPaso, 0o755))
+	marca := filepath.Join(directorioDelPaso, "lo-que-escribe-el-intento-que-corre")
+	require.NoError(t, os.WriteFile(marca, []byte("sigue aquí"), 0o644))
+
+	_, err = s.borde.Intentar(ctx, s.peticion(t))
+
+	var ocupado *historialpublicado.AmbienteOcupadoError
+	require.ErrorAs(t, err, &ocupado)
+	contenido, err := os.ReadFile(marca)
+	require.NoError(t, err, "el espacio de trabajo del intento que ocupa el ambiente sigue ahí")
+	require.Equal(t, "sigue aquí", string(contenido))
+}
+
+// EJ-5: si el espacio de trabajo no se puede preparar, el intento no empieza, y no deja el ambiente ocupado: el
+// siguiente intento, con el espacio arreglado, no se rechaza.
+func TestE2E_SiElEspacioNoSePuedePrepararElAmbienteQuedaLibre(t *testing.T) {
+	s := montarSistema(t)
+	ctx := context.Background()
+	ubicacion, err := s.espacio.Ubicar(s.repoProyecto, s.repoPipeline, "prod")
+	require.NoError(t, err)
+	// Un fichero donde tendría que haber un directorio: el espacio de este proyecto no se puede crear.
+	bloqueo := filepath.Join(s.raiz, ubicacion.Proyecto)
+	require.NoError(t, os.WriteFile(bloqueo, []byte("no soy un directorio"), 0o644))
+
+	_, err = s.borde.Intentar(ctx, s.peticion(t))
+
+	require.ErrorIs(t, err, ejecucionpublicado.ErrNoDisponible)
+	intentos, err := s.historial.IntentosDeUnAmbiente(ctx, "prod")
+	require.NoError(t, err)
+	require.Len(t, intentos, 1)
+	require.True(t, intentos[0].Abandonado, "el intento que no llegó a empezar se abandona")
+	require.Empty(t, intentos[0].Registros, "no ejecutó ningún paso")
+	require.True(t, intentos[0].SinDesenlace(), "no es un intento fallido: nunca ejecutó nada")
+
+	require.NoError(t, os.Remove(bloqueo))
+	resultado, err := s.borde.Intentar(ctx, s.peticion(t))
+	require.NoError(t, err, "el ambiente quedó libre")
+	require.Equal(t, "exitoso", string(resultado.Estado))
 }
 
 // Lo que un comando imprime se guarda aparte y no queda en ningún registro del intento: lo que se busca en

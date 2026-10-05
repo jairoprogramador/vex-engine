@@ -20,6 +20,9 @@ type ParaEjecucion interface {
 	// CerrarIntento registra el desenlace y, si el intento llega a despliegue, lo crea y lo anuncia. El
 	// destino de un rollback será su padre. Repetir el mismo cierre no escribe otro: completa lo que faltara.
 	CerrarIntento(ctx context.Context, intento string, estado Estado, destino string) (Despliegue, bool, error)
+	// AbandonarIntento da por abandonado un intento sin desenlace y libera su ambiente. Ejecución lo usa para el
+	// que abrió y no llegó a empezar; quien invoca lo usa para uno que se quedó colgado (ParaBorde).
+	AbandonarIntento(ctx context.Context, intento string) error
 	UltimaVezDeUnPaso(ctx context.Context, paso string, ambito Ambito) (RegistroDePaso, bool, error)
 	DespliegueYSuIntento(ctx context.Context, despliegue string) (Despliegue, Intento, error)
 	// Intento es uno por su identidad, con sus registros: de ahí sale el detalle de lo que hizo.

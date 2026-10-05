@@ -58,7 +58,7 @@ Una línea completa, sin saltos dentro. Pasa de 1 MiB y se rechaza. Una petició
 
 | Variable | Qué es | Obligatoria |
 |---|---|---|
-| `VEX_ALMACEN` | El **historial**: los registros de intentos, despliegues, lanzamientos y reservas. Es la memoria del motor. Si lo borras, olvida todo. El directorio **tiene que existir**: el motor no lo crea, para no escribir en el vacío si un volumen no se montó | Siempre, salvo `describir` |
+| `VEX_ALMACEN` | El **historial** (en un sistema de ficheros local: no NFS ni SMB, ver `RD-13`, «El almacén compartido»): los registros de intentos, despliegues, lanzamientos y reservas. Es la memoria del motor. Si lo borras, olvida todo. El directorio **tiene que existir**: el motor no lo crea, para no escribir en el vacío si un volumen no se montó | Siempre, salvo `describir` |
 | `VEX_ESPACIO` | El **espacio de trabajo**: donde se ejecutan los comandos de los pasos. Una subcarpeta por ambiente (`<espacio>/<ambiente>/motor/<paso>/`). Se rehace en cada intento | Solo `intentar` y `rollback` |
 | `VEX_MATERIAL` | Donde el motor copia el código de las fuentes que lee de git. Es una copia desechable: borrarla no cambia ninguna decisión | No. Por defecto, `<temporal del sistema>/vex/material` |
 
@@ -66,7 +66,9 @@ No hay opciones de línea de comandos para esto: solo las variables. En un conte
 
 ### La respuesta
 
-Una línea en **stdout**, y nada más. Las demás secciones de esta guía llaman «respuesta» a lo que va en `result`.
+**stdout** es solo protocolo, una línea por mensaje. La **respuesta es la última línea**. Antes, en `intentar` y
+`rollback`, van las notificaciones de progreso (ver «El avance»). Las demás secciones de esta guía llaman
+«respuesta» a lo que va en `result`.
 
 ```json
 {"jsonrpc":"2.0","id":"1","result":{"Intento":"…","Estado":"exitoso"}}
@@ -78,6 +80,23 @@ Una línea en **stdout**, y nada más. Las demás secciones de esta guía llaman
 - Las operaciones que no devuelven nada responden `{}`. Una lista sin elementos es `[]`.
 - Lo que imprimen los comandos de los pasos no se muestra: se consulta con `logs`.
 - **stderr** solo lleva la causa de un error interno (`-32000`), que no se cuenta a quien invoca.
+
+### El avance de un intento
+
+Mientras un intento corre, `vexd` cuenta cómo avanza con notificaciones, antes de la respuesta:
+
+```
+{"jsonrpc":"2.0","method":"progreso","params":{"evento":"intento_iniciado","intento":"01a1…"}}
+{"jsonrpc":"2.0","method":"progreso","params":{"evento":"paso_iniciado","intento":"01a1…","paso":"test"}}
+{"jsonrpc":"2.0","method":"progreso","params":{"evento":"comando_terminado","intento":"01a1…","paso":"test","comando":"comando-test-01","estado":"exitoso"}}
+{"jsonrpc":"2.0","method":"progreso","params":{"evento":"paso_terminado","intento":"01a1…","paso":"test","estado":"ejecutado"}}
+{"jsonrpc":"2.0","id":"1","result":{"Intento":"01a1…","Estado":"exitoso", …}}
+```
+
+`estado` de un paso: `ejecutado` o `precargado` (no se reejecutó: no hay `paso_iniciado`), o `fallido` o `cancelado`.
+Nunca llevan lo que imprimió un comando: cuando llega `comando_terminado`, su salida ya está en el historial y se
+lee con `logs`. Si quien invoca no lee la salida, el motor no se detiene: descarta eventos y lo dice en stderr. Para
+ver solo la respuesta: `… | tail -n 1`.
 
 ### Los errores
 
@@ -94,6 +113,7 @@ Una línea en **stdout**, y nada más. Las demás secciones de esta guía llaman
 | `-32005` | `no_disponible` | El espacio de trabajo del ambiente no se alcanzó; el intento no empezó |
 | `-32006` | `configuracion_invalida` | Falta una variable `VEX_*` obligatoria, o su directorio no existe; el mensaje nombra la variable |
 | `-32007` | `cancelado` | Se canceló antes de abrir el intento |
+| `-32008` | `escritura_concurrente` | Otros procesos escribieron a la vez, una y otra vez, y no se pudo escribir. No se escribió nada: volver a pedirlo es seguro |
 | `-32000` | `interno` | Cualquier otro; la causa va a stderr |
 
 Los códigos y los `tipo` son estables.

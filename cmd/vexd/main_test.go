@@ -70,15 +70,54 @@ func invocarCon(t *testing.T, ctx context.Context, r rutas, entrada io.Reader) i
 	return invocacion{codigo, salida.String(), errores.String()}
 }
 
-// respuesta lee la salida estándar: tiene que ser exactamente una línea, que es la respuesta y nada más.
-func (i invocacion) respuesta(t *testing.T) lineaDeRespuesta {
+// lineas son los mensajes de la salida estándar. Todos son protocolo, uno por línea y cada uno entero.
+func (i invocacion) lineas(t *testing.T) []string {
 	t.Helper()
 	require.True(t, strings.HasSuffix(i.salida, "\n"), "una línea completa: %q", i.salida)
-	require.Equal(t, 1, strings.Count(i.salida, "\n"), "la salida estándar es solo la respuesta: %q", i.salida)
+	lineas := strings.Split(strings.TrimSuffix(i.salida, "\n"), "\n")
+	for _, linea := range lineas {
+		require.True(t, json.Valid([]byte(linea)), "la salida estándar es solo protocolo: %q", linea)
+	}
+	return lineas
+}
+
+// respuesta lee la respuesta de la salida estándar: es la última línea. Las anteriores, si las hay, son
+// notificaciones de progreso (lo que el motor cuenta mientras avanza), nunca otra cosa.
+func (i invocacion) respuesta(t *testing.T) lineaDeRespuesta {
+	t.Helper()
+	lineas := i.lineas(t)
+	i.progresoDe(t, lineas[:len(lineas)-1])
 	var r lineaDeRespuesta
-	require.NoError(t, json.Unmarshal([]byte(i.salida), &r))
+	require.NoError(t, json.Unmarshal([]byte(lineas[len(lineas)-1]), &r))
 	require.Equal(t, "2.0", r.JSONRPC)
+	require.NotEmpty(t, r.ID, "la última línea es la respuesta: lleva id")
 	return r
+}
+
+// progreso son los eventos que el motor contó antes de responder, en orden.
+func (i invocacion) progreso(t *testing.T) []paramsDeProgreso {
+	t.Helper()
+	lineas := i.lineas(t)
+	return i.progresoDe(t, lineas[:len(lineas)-1])
+}
+
+func (i invocacion) progresoDe(t *testing.T, lineas []string) []paramsDeProgreso {
+	t.Helper()
+	eventos := make([]paramsDeProgreso, 0, len(lineas))
+	for _, linea := range lineas {
+		var n struct {
+			JSONRPC string           `json:"jsonrpc"`
+			ID      *json.RawMessage `json:"id"`
+			Method  string           `json:"method"`
+			Params  paramsDeProgreso `json:"params"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(linea), &n))
+		require.Equal(t, "2.0", n.JSONRPC)
+		require.Nil(t, n.ID, "una notificación no lleva id: %s", linea)
+		require.Equal(t, metodoProgreso, n.Method, "antes de la respuesta solo hay progreso: %s", linea)
+		eventos = append(eventos, n.Params)
+	}
+	return eventos
 }
 
 // resultado lee el result de una respuesta que salió bien.

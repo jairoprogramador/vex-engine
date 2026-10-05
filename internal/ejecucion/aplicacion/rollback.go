@@ -36,9 +36,6 @@ func (s *Servicio) HacerRollback(ctx context.Context, p publicado.PeticionDeRoll
 	if err != nil {
 		return publicado.Resultado{}, traducir(err)
 	}
-	if err := s.d.EspacioDeTrabajo.RehacerParteDelMotor(ctx, ubicacion, pipeline.Pasos); err != nil {
-		return publicado.Resultado{}, traducir(err)
-	}
 
 	// EJ-2 hace todos los pasos del pipeline: hasta el último, explícito (resolverHastaPaso).
 	pasos, pasosPorNombre := indicePasos(pipeline.Pasos)
@@ -55,9 +52,14 @@ func (s *Servicio) HacerRollback(ctx context.Context, p publicado.PeticionDeRoll
 		return publicado.Resultado{}, traducir(err)
 	}
 
+	// Primero el Historial, que decide quién ocupa el ambiente, y solo entonces el espacio de trabajo (ver Intentar).
+	if err := s.d.EspacioDeTrabajo.RehacerParteDelMotor(ctx, ubicacion, pipeline.Pasos); err != nil {
+		return publicado.Resultado{}, traducir(s.abandonar(ctx, id, err))
+	}
+
 	intento, err := dominio.NuevoIntentoEnCurso(destino.Ambiente(), pasos, hastaPaso)
 	if err != nil {
-		return publicado.Resultado{}, traducir(err)
+		return publicado.Resultado{}, traducir(s.abandonar(ctx, id, err))
 	}
 
 	c := contextoDelIntento{

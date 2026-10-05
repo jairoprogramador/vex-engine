@@ -42,6 +42,13 @@ func (h *Historial) AbrirIntento(ctx context.Context, a dominio.AperturaDeIntent
 	return id, nil
 }
 
+func (h *Historial) AbandonarIntento(ctx context.Context, intento string) error {
+	if err := h.historial.AbandonarIntento(ctx, intento); err != nil {
+		return fmt.Errorf("ejecución: abandonar el intento %q: %w", intento, err)
+	}
+	return nil
+}
+
 func (h *Historial) RegistrarComienzo(ctx context.Context, intento, paso string, recursos dominio.RecursosDeUnPaso) error {
 	contenido, err := codificarContenidoDeRegistro(recursos)
 	if err != nil {

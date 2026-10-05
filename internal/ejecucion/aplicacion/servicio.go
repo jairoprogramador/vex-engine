@@ -14,6 +14,9 @@ type Dependencias struct {
 	Comandos         dominio.Comandos
 	EspacioDeTrabajo dominio.EspacioDeTrabajo
 
+	// Progreso es a dónde se cuenta cómo avanza un intento. Es opcional: sin él no se cuenta nada.
+	Progreso dominio.Progreso
+
 	// NombreDeLaHerramienta es la variable estándar tool_name (RD-04 §9, hallazgo 1): compartida, generada por
 	// el motor, y por eso una dependencia — no una constante — para poder probarla.
 	NombreDeLaHerramienta string
@@ -29,5 +32,8 @@ type Servicio struct {
 var _ publicado.ParaBorde = (*Servicio)(nil)
 
 func NuevoServicio(d Dependencias) *Servicio {
+	if d.Progreso == nil {
+		d.Progreso = progresoNulo{}
+	}
 	return &Servicio{d: d}
 }

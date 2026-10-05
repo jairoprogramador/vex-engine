@@ -1,7 +1,11 @@
 package aplicacion
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"math/rand/v2"
+	"time"
 
 	"github.com/jairoprogramador/vex-engine/internal/historial/dominio"
 	"github.com/jairoprogramador/vex-engine/internal/historial/publicado"
@@ -46,15 +50,51 @@ func (s *Servicio) Escuchar(escucha publicado.EscuchaDespliegueRegistrado) {
 	s.escuchas = append(s.escuchas, escucha)
 }
 
-// vueltasAnteConflicto es cuántas veces se vuelve a leer y a decidir si otro escribió en el mismo agregado.
-const vueltasAnteConflicto = 3
+const (
+	// vueltasAnteConflicto es cuántas veces se vuelve a leer y a decidir si otro escribió en el mismo agregado.
+	// Cada contenedor es un escritor, y la secuencia de lanzamientos es una para todos los ambientes: con N
+	// escritores a la vez, el último necesita hasta N-1 vueltas.
+	vueltasAnteConflicto = 10
 
-func conReintento(escribir func() error) error {
+	// esperaMaxima acota lo que crece la espera entre vueltas.
+	esperaMaxima = 250 * time.Millisecond
+)
+
+// esperaBase es la espera tras el primer conflicto; se duplica en cada vuelta hasta esperaMaxima. Es una
+// variable para que las pruebas no esperen de verdad.
+var esperaBase = 2 * time.Millisecond
+
+// conReintento ejecuta una escritura y, si otro escribió a la vez en el mismo agregado (ErrConflicto), vuelve a
+// leer y a decidir. Entre vuelta y vuelta espera un tiempo al azar entre cero y un tope que se duplica, para que
+// quienes chocaron no vuelvan a chocar todos juntos. Si no lo consigue, devuelve un error que lo dice y que no es
+// un fallo del historial: no se escribió nada.
+func conReintento(ctx context.Context, escribir func() error) error {
 	for vuelta := 1; ; vuelta++ {
 		err := escribir()
-		if !errors.Is(err, dominio.ErrConflicto) || vuelta == vueltasAnteConflicto {
+		if !errors.Is(err, dominio.ErrConflicto) {
 			return err
 		}
+		if vuelta == vueltasAnteConflicto {
+			return fmt.Errorf("%w tras %d vueltas: %w", dominio.ErrEscrituraConcurrente, vuelta, err)
+		}
+		if err := esperarAnteConflicto(ctx, vuelta); err != nil {
+			return err
+		}
+	}
+}
+
+func esperarAnteConflicto(ctx context.Context, vuelta int) error {
+	tope := min(esperaBase<<(vuelta-1), esperaMaxima)
+	if tope <= 0 {
+		return ctx.Err()
+	}
+	temporizador := time.NewTimer(rand.N(tope))
+	defer temporizador.Stop()
+	select {
+	case <-temporizador.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -68,6 +108,8 @@ func traducir(err error) error {
 		return &publicado.AmbienteOcupadoError{Ambiente: string(ocupado.Ambiente), Intento: string(ocupado.Intento)}
 	}
 	switch {
+	case errors.Is(err, dominio.ErrEscrituraConcurrente):
+		return &errorTraducido{publicado: publicado.ErrEscrituraConcurrente, causa: err}
 	case errors.Is(err, dominio.ErrRechazado):
 		return &errorTraducido{publicado: publicado.ErrRechazado, causa: err}
 	case errors.Is(err, dominio.ErrNoExiste):

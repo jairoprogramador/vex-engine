@@ -21,8 +21,39 @@ func TestIntentar_SiElEspacioDeTrabajoNoEstaDisponibleElIntentoNoEmpieza(t *test
 
 	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
 
+	require.ErrorIs(t, err, publicado.ErrNoDisponible)
+	require.Empty(t, d.historial.registros, "EJ-5: ningún paso empieza")
+	require.Empty(t, d.comandos.llamados, "EJ-5: ningún comando corre")
+	require.Equal(t, []string{"int-1"}, d.historial.abandonados,
+		"el ambiente se reservó antes de tocar el espacio: si el espacio falla, el intento se abandona y el ambiente queda libre")
+	require.False(t, d.historial.cerrado, "nunca llegó a ejecutar nada: no es un intento fallido")
+}
+
+func TestIntentar_UnAmbienteOcupadoNoTocaElEspacioDeTrabajo(t *testing.T) {
+	// El espacio de trabajo del ambiente es de quien lo ocupa: si otro intento lo tiene, rehacerlo borraría los
+	// directorios de los pasos del que está corriendo. Quien manda es el Historial, que decide quién ocupa el
+	// ambiente, y por eso se le pregunta antes.
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
+	d.historial.errAbrir = errors.New("ambiente ocupado")
+	servicio := aplicacion.NuevoServicio(deps)
+
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
+
 	require.Error(t, err)
-	require.Empty(t, d.historial.aperturas, "EJ-5: el intento no debe llegar a abrirse si el espacio de trabajo no está disponible")
+	require.False(t, d.espacioDeTrabajo.rehecho, "el espacio del intento que ocupa el ambiente quedó intacto")
+	require.Empty(t, d.historial.abandonados, "no se abrió ningún intento que abandonar")
+}
+
+func TestIntentar_SiNoSePuedeAbandonarElIntentoQueNoEmpezoSeDiceAdemasDeLaCausa(t *testing.T) {
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
+	d.espacioDeTrabajo.errRehacer = fmt.Errorf("disco lleno: %w", dominio.ErrNoDisponible)
+	d.historial.errAbandonar = errors.New("el almacén no responde")
+	servicio := aplicacion.NuevoServicio(deps)
+
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba())
+
+	require.ErrorIs(t, err, publicado.ErrNoDisponible, "la causa sigue siendo la del espacio")
+	require.ErrorContains(t, err, "el almacén no responde", "y se dice que el ambiente pudo quedar ocupado")
 }
 
 func TestIntentar_UnaCopiaDeTrabajoAbreSinCommits(t *testing.T) {

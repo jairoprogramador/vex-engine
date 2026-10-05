@@ -130,6 +130,9 @@ type historialFalso struct {
 	idAbierto string
 	aperturas []dominio.AperturaDeIntento
 
+	abandonados  []string
+	errAbandonar error
+
 	ultimaVezPorPaso map[string]dominio.UltimaVezDeUnPaso
 	fallarRegistrar  map[string]bool
 	registros        []registroDeHistorial
@@ -159,6 +162,13 @@ func (h *historialFalso) AbrirIntento(_ context.Context, a dominio.AperturaDeInt
 		return "", h.errAbrir
 	}
 	return h.idAbierto, nil
+}
+
+func (h *historialFalso) AbandonarIntento(_ context.Context, intento string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.abandonados = append(h.abandonados, intento)
+	return h.errAbandonar
 }
 
 func (h *historialFalso) RegistrarComienzo(_ context.Context, _, paso string, _ dominio.RecursosDeUnPaso) error {

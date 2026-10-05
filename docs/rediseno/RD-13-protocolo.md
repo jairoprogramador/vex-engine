@@ -98,15 +98,32 @@ proceso sí refleja ambos (ver abajo), como hoy.
 
 ### Notificaciones
 
-`vexd → vex`, sin `id`, sin respuesta. Quien no entienda una, la ignora.
+`vexd → vex`, sin `id`, sin respuesta. Quien no entienda una, la ignora. Las notificaciones van **siempre antes**
+que la respuesta, que es la última línea de la salida.
 
 ```json
-{"jsonrpc":"2.0","method":"progreso","params":{"evento":"paso_iniciado","paso":"test"}}
+{"jsonrpc":"2.0","method":"progreso","params":{"evento":"paso_iniciado","intento":"01a1…","paso":"test"}}
 ```
 
-Eventos previstos: `intento_iniciado`, `paso_iniciado`, `paso_terminado`, `comando_terminado`
-(comando y resultado, **sin su salida**: esa se guarda en el Historial y se lee con `logs`). Ninguno es
-obligatorio en la versión 1; se añaden sin romper a nadie.
+`progreso` cuenta cómo avanza un intento (`intentar` y `rollback`). Sus `params` van en minúscula, porque son del
+protocolo y no un tipo publicado:
+
+| `evento` | Cuándo | Lleva |
+|---|---|---|
+| `intento_iniciado` | El intento está abierto y su espacio listo; va a dar su primer paso. Si el ambiente está ocupado o el espacio no está disponible (EJ-5), no hay intento y no se cuenta nada | `intento` |
+| `paso_iniciado` | Un paso empieza a ejecutarse, con su registro de comienzo ya escrito. Un paso que no se reejecuta no empieza: solo termina | `intento`, `paso` |
+| `comando_terminado` | Un comando terminó y **su salida ya está en el Historial**: quien lo recibe puede pedir `logs` y encontrarla | `intento`, `paso`, `comando`, `estado`: `exitoso` o `fallido` |
+| `paso_terminado` | Un paso terminó, con su registro escrito | `intento`, `paso`, `estado`: `ejecutado` o `precargado` si salió bien; `fallido` o `cancelado` si no |
+
+- **Nunca llevan la salida de un comando ni el valor de una variable**: solo nombres y resultados. La salida se
+  lee con `logs`.
+- **Llegan en el orden en que ocurrieron**, y los de la cancelación también (se emiten sin depender del contexto
+  cancelado, como el registro en el Historial).
+- **No bloquean al motor.** Los escribe una sola goroutine desde una cola de 256. Si quien invoca no lee la salida,
+  la escritura se bloquea, la cola se llena y los eventos nuevos **se descartan** (se dice cuántos en la salida de
+  error): un destino que no lee no puede parar un intento. La respuesta final, en cambio, sí espera a ser leída.
+- Un `progreso` perdido no se repite: el estado verdadero es siempre el del Historial (`intento`, `logs`).
+- Ninguno es obligatorio para quien invoca. Se pueden añadir eventos y campos sin romper a nadie.
 
 `vex → vexd`: `cancelar` (notificación sin `id` ni parámetros), equivalente a la señal. `vexd` la espera en lo que queda de la entrada.
 
@@ -130,6 +147,7 @@ por separado: `vex` puede comprobar compatibilidad antes de enviar nada.
 | `-32004` | `ambiente_ocupado` | `*historial.AmbienteOcupadoError` (`data.intento`) | 1 |
 | `-32005` | `no_disponible` | `ejecucion.ErrNoDisponible` | 1 |
 | `-32006` | `configuracion_invalida` | falta una variable `VEX_*` obligatoria, o su directorio no existe | 2 |
+| `-32008` | `escritura_concurrente` | `historial.ErrEscrituraConcurrente`: otros escritores ganaron en cada vuelta; no se escribió nada y volver a pedirlo es seguro | 1 |
 | `-32007` | `cancelado` | cancelación antes de abrir el intento (`context.Canceled`) | 130 |
 | `-32000` | `interno` | cualquier otro; el detalle va a `stderr` | 1 |
 
@@ -153,6 +171,28 @@ publicado. El adaptador de `cmd/vexd` no importa esos contextos: solo clasifica 
 En `simular`, un pipeline que no pasa la comprobación no es un error sino el resultado (`Causa.Fallos`).
 
 Los códigos y `data.tipo` son **estables**: añadir uno es compatible, cambiar o reutilizar uno no.
+
+## El almacén compartido
+
+Muchos contenedores pueden escribir a la vez en el mismo almacén (un volumen). Lo que hace seguro eso, y lo que exige:
+
+- **Cada escritura es compare-and-swap por posición** (un enlace duro, `link()`): de dos escritores en la misma
+  posición gana uno, y quien pierde vuelve a leer y a decidir. Por eso decidir `ambiente_ocupado` es atómico entre
+  procesos: el segundo que intenta ocupar el ambiente lo encuentra ocupado.
+- **El Historial se consulta antes de tocar el espacio de trabajo.** Intentar y rollback abren el intento (que
+  reserva el ambiente) y solo entonces rehacen el espacio: rehacerlo borra los directorios de los pasos, y si
+  otro intento tiene el ambiente, serían los suyos. Si el espacio falla después de abrir, el intento se
+  **abandona** (nunca ejecutó nada: no es `fallido`) y el ambiente queda libre.
+- **Los reintentos tienen espera.** Hasta 10 vueltas, con una espera al azar que crece (2 ms duplicándose, tope
+  250 ms) para que los que chocaron no vuelvan a chocar juntos. Si no basta, `-32008`.
+- **El volumen del almacén tiene que ser un sistema de ficheros local** (ext4, xfs, APFS…) donde `link()` sea
+  atómico. No sirven NFS, SMB ni algunos bind mounts de Docker Desktop: ahí `link()` puede dar falsos conflictos o
+  no ser atómico, y los listados de directorio pueden estar desfasados. Llevarlo a otras máquinas es de otro
+  almacén (RD-11), no de este protocolo.
+- **El espacio de trabajo** (`VEX_ESPACIO`) es por ambiente: dos intentos en ambientes distintos no se pisan. El
+  mismo ambiente, uno solo a la vez, lo garantiza el punto anterior.
+- Un contenedor que muere con `SIGKILL` no cierra su intento: el ambiente queda ocupado hasta `abandonar`. Con
+  `SIGTERM` sí se cierra como `cancelado`.
 
 ## Nombres de campo
 
@@ -218,8 +258,7 @@ alguna sea sensible es decisión de quien la pasa.
 
 ## Pendiente de verificar al implementar
 
-1. **Eventos de progreso.** Ejecución tiene que ofrecer un punto donde emitirlos; es el único cambio real dentro
-   de `internal`. Hasta entonces, la versión 1 puede no emitir ninguno.
+1. ~~**Eventos de progreso.**~~ Hecho: `Progreso` es un puerto del dominio de Ejecución, que `cmd/vexd` implementa.
 2. **Inyección de `entorno`.** Hoy el hijo hereda el entorno de `vexd` y no se le añade nada
    (`ejecucion/infraestructura/comandos.go`); hay que ampliar el puerto de comandos.
 3. **Almacén compartido entre contenedores.** Escritura atómica y decisión atómica de `ambiente_ocupado` con

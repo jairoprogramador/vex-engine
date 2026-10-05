@@ -26,6 +26,7 @@ type contextoDelIntento struct {
 // seguir sin que el intento llegara a un desenlace: el Historial no aceptó un registro (EJ-4) u otro puerto
 // falló, y quien llama NO debe cerrarlo — queda sin desenlace, tal como pide EJ-4.
 func (s *Servicio) recorrer(ctx context.Context, c contextoDelIntento, intento *dominio.IntentoEnCurso) error {
+	s.emitir(ctx, dominio.EventoDeProgreso{Tipo: dominio.IntentoIniciado, Intento: c.id})
 	for {
 		paso, ok := intento.SiguientePaso()
 		if !ok {
@@ -83,6 +84,7 @@ func (s *Servicio) reejecutarPaso(
 	if err := s.d.Historial.RegistrarComienzo(ctx, c.id, paso.Nombre(), ahora); err != nil {
 		return err
 	}
+	s.emitir(ctx, dominio.EventoDeProgreso{Tipo: dominio.PasoIniciado, Intento: c.id, Paso: paso.Nombre()})
 
 	exitoso, err := s.ejecutarPaso(ctx, c.id, c.ubicacion, pasoDeEjecucion, ambito)
 	ctxDelRegistro, cancelado := ctx, false
@@ -105,7 +107,23 @@ func (s *Servicio) reejecutarPaso(
 	if cancelado {
 		intento.Cancelar()
 	}
+	s.emitir(ctx, dominio.EventoDeProgreso{
+		Tipo: dominio.PasoTerminado, Intento: c.id, Paso: paso.Nombre(), Estado: estadoDelPasoTerminado(exitoso, cancelado),
+	})
 	return nil
+}
+
+// estadoDelPasoTerminado es cómo acabó un paso que se ejecutó: «ejecutado» si salió bien, o el desenlace con que
+// acabó. La cancelación gana sobre el fallo que ella misma provocó (DEC-09.2).
+func estadoDelPasoTerminado(exitoso, cancelado bool) string {
+	switch {
+	case cancelado:
+		return dominio.Cancelado.String()
+	case exitoso:
+		return string(dominio.PasoEjecutado)
+	default:
+		return dominio.Fallido.String()
+	}
 }
 
 func (s *Servicio) dejarSinReejecutar(
@@ -118,5 +136,11 @@ func (s *Servicio) dejarSinReejecutar(
 	if err := s.d.Historial.RegistrarNoReejecucion(ctx, c.id, paso.Nombre(), decision.Evidencia(), ahora); err != nil {
 		return err
 	}
-	return intento.Completar(paso.Nombre(), true)
+	if err := intento.Completar(paso.Nombre(), true); err != nil {
+		return err
+	}
+	s.emitir(ctx, dominio.EventoDeProgreso{
+		Tipo: dominio.PasoTerminado, Intento: c.id, Paso: paso.Nombre(), Estado: string(dominio.PasoPrecargado),
+	})
+	return nil
 }
