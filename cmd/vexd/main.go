@@ -1,29 +1,27 @@
 // Command vexd es la raíz de composición del motor: conecta los contextos y atiende, con el borde, una
 // operación del lenguaje publicado por invocación (docs/modelo/lenguaje-publicado.md).
 //
-// Uso: vexd <operación> --almacen <dir> [--espacio <dir>] [--material <dir>] [--entrada <fichero>]
+// Habla JSON-RPC 2.0 por la entrada y la salida estándar, un mensaje JSON por línea
+// (docs/rediseno/RD-13-protocolo.md): lee una petición, responde con una línea y termina. No tiene subcomandos
+// ni opciones. Lo que necesita del entorno lo lee de variables:
 //
-// La petición es un JSON (por --entrada o por la entrada estándar) con los campos del lenguaje publicado. La
-// respuesta es un JSON en la salida estándar. Lo que imprimen los comandos de
-// los pasos no se muestra: se guarda en el historial y se consulta con logs. Un error se explica en la salida
-// de error.
+//	VEX_ALMACEN   almacén del historial; el directorio tiene que existir
+//	VEX_ESPACIO   espacio de trabajo de los ambientes, para intentar y rollback
+//	VEX_MATERIAL  donde se pone el material de las fuentes; una copia desechable
 //
-// Códigos de salida: 0 bien · 1 la operación falló, o el intento terminó fallido · 2 la invocación o la
-// petición son inválidas · 130 cancelado por señal.
+// La salida estándar es solo protocolo. Lo que imprimen los comandos de los pasos no se muestra: se guarda en el
+// historial y se consulta con logs. En la salida de error va solo la causa de un error interno.
+//
+// Códigos de salida: 0 bien · 1 la operación falló, o el intento terminó fallido · 2 la petición o la
+// configuración son inválidas · 130 cancelado por señal o por la notificación cancelar.
 package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"io"
 	"os"
 	"os/signal"
-	"sort"
-	"strings"
+	"path/filepath"
 	"syscall"
-
-	"github.com/jairoprogramador/vex-engine/internal/borde"
 )
 
 // version se sobrescribe con `-ldflags "-X main.version=<tag>"` en el build.
@@ -40,7 +38,6 @@ const (
 	estadoExitoso    = "exitoso"
 	estadoFallido    = "fallido"
 	estadoCancelado  = "cancelado"
-	entradaEstandar  = "-"
 	marcaDeOperacion = "vexd"
 )
 
@@ -50,89 +47,25 @@ func main() {
 	defer stop()
 	go func() { <-ctx.Done(); stop() }()
 
-	os.Exit(ejecutar(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	os.Exit(ejecutar(ctx, rutasDelEntorno(os.Getenv), os.Stdin, os.Stdout, os.Stderr))
 }
 
-// ejecutar es main sin el proceso: recibe todo lo que toca, para poder probarlo entero.
-func ejecutar(ctx context.Context, args []string, entrada io.Reader, salida, errores io.Writer) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
-		uso(errores)
-		if len(args) == 0 {
-			return salidaInvalida
-		}
-		return salidaBien
+// rutasDelEntorno lee la configuración del proceso. Es lo único que lee el entorno: ejecutar recibe las rutas ya
+// resueltas. Que falte una obligatoria se dice cuando se sabe qué operación se pide, no aquí.
+func rutasDelEntorno(getenv func(string) string) rutas {
+	r := rutas{
+		almacen:  getenv(nombreAlmacen),
+		espacio:  getenv(nombreEspacio),
+		material: getenv(nombreMaterial),
 	}
-	if args[0] == "version" {
-		fmt.Fprintln(salida, version)
-		return salidaBien
+	if r.material == "" {
+		r.material = materialPorDefecto()
 	}
-
-	op, ok := buscar(args[0])
-	if !ok {
-		fmt.Fprintf(errores, "%s: operación desconocida %q\n\n", marcaDeOperacion, args[0])
-		uso(errores)
-		return salidaInvalida
-	}
-	opciones, err := leerOpciones(op, args[1:], errores)
-	if err != nil {
-		if errors.Is(err, errAyuda) {
-			return salidaBien
-		}
-		fmt.Fprintf(errores, "%s %s: %v\n", marcaDeOperacion, op.nombre, err)
-		return salidaInvalida
-	}
-
-	peticion, err := leerPeticion(opciones.entrada, entrada)
-	if err != nil {
-		fmt.Fprintf(errores, "%s %s: %v\n", marcaDeOperacion, op.nombre, err)
-		return salidaInvalida
-	}
-	servicio, err := componer(opciones.rutas)
-	if err != nil {
-		fmt.Fprintf(errores, "%s %s: %v\n", marcaDeOperacion, op.nombre, err)
-		return salidaInvalida
-	}
-
-	respuesta, err := op.atender(ctx, servicio, peticion)
-	if err != nil {
-		fmt.Fprintf(errores, "%s %s: %v\n", marcaDeOperacion, op.nombre, err)
-		return codigoDeError(err)
-	}
-	if err := escribirRespuesta(salida, respuesta); err != nil {
-		fmt.Fprintf(errores, "%s %s: la respuesta: %v\n", marcaDeOperacion, op.nombre, err)
-		return salidaFallo
-	}
-	return codigoDeLaRespuesta(respuesta)
+	return r
 }
 
-func codigoDeError(err error) int {
-	switch {
-	case errors.Is(err, errEntrada), errors.Is(err, borde.ErrVersionNoSoportada), errors.Is(err, borde.ErrPeticionInvalida):
-		return salidaInvalida
-	case errors.Is(err, context.Canceled):
-		return salidaCancelado
-	default:
-		return salidaFallo
-	}
-}
-
-func uso(w io.Writer) {
-	nombres := make([]string, 0, len(operaciones))
-	for _, o := range operaciones {
-		nombres = append(nombres, o.nombre)
-	}
-	sort.Strings(nombres)
-	fmt.Fprintf(w, `uso: %[1]s <operación> [opciones]
-
-Operaciones: %[2]s, version
-
-Opciones (cada operación acepta las que usa):
-  --almacen <dir>    almacén del historial; tiene que existir (o $%[3]s)
-  --espacio <dir>    espacio de trabajo de los ambientes, para intentar y rollback (o $%[4]s)
-  --material <dir>   donde se pone el material de las fuentes; una copia desechable (o $%[5]s)
-  --entrada <fichero> petición en JSON; sin ella, la entrada estándar
-
-Respuesta: JSON en la salida estándar. La salida de los comandos se consulta con logs.
-Lenguaje publicado: docs/modelo/lenguaje-publicado.md
-`, marcaDeOperacion, strings.Join(nombres, ", "), nombreAlmacen, nombreEspacio, nombreMaterial)
+// materialPorDefecto es un directorio temporal: el material es una copia que se puede borrar sin que cambie
+// ninguna decisión, y en un contenedor efímero muere con él.
+func materialPorDefecto() string {
+	return filepath.Join(os.TempDir(), "vex", "material")
 }

@@ -6,6 +6,7 @@
 ## Reglas comunes
 
 - **Una petición por invocación.** El motor atiende una operación y termina.
+- **Se habla por JSON-RPC 2.0**, un mensaje por línea, por la entrada y la salida estándar (`docs/rediseno/RD-13-protocolo.md`).
 - **Toda petición declara su versión** (`Version`). Hoy solo se soporta `"1"`. Una versión distinta, o vacía, se
   rechaza con `borde.ErrVersionNoSoportada` **antes** de tocar ningún contexto.
 - **Nada de lo que se consulta lleva el valor de una variable** (`DEC-04.7`). Las variables se nombran y, a lo
@@ -26,27 +27,33 @@
 ## La invocación
 
 `cmd/vexd` (el binario `vexd`) es la raíz de composición: conecta los contextos y atiende **una operación por
-invocación** con `internal/borde/`.
+invocación** con `internal/borde/`. No tiene subcomandos ni opciones: habla **JSON-RPC 2.0, un mensaje JSON por línea,
+por la entrada y la salida estándar** (`docs/rediseno/RD-13-protocolo.md`). No hay servidor.
 
 ```
-vexd <operación> --almacen <dir> [--espacio <dir>] [--material <dir>] [--entrada <fichero>]
+{"jsonrpc":"2.0","id":"1","method":"intentar","params":{"Version":"1", …}}   → vexd, por stdin
+{"jsonrpc":"2.0","id":"1","result":{…}}                                       ← vexd, por stdout
 ```
 
-| Operación | `intentar` `rollback` `simular` `lanzar` `reservar` `liberar` `diagnosticar` `abandonar` `intento` `intentos` `despliegues` `logs` |
+| | |
 |---|---|
-| **Petición** | un JSON, de `--entrada` o de la entrada estándar, con los campos del tipo de la tabla de abajo (los nombres de campo de Go, sin distinguir mayúsculas). Un campo que el tipo no tiene se rechaza |
-| **Respuesta** | un JSON en la salida estándar. Las que no devuelven nada responden `{}` |
+| **`method`** | `intentar` `rollback` `simular` `lanzar` `reservar` `liberar` `diagnosticar` `abandonar` `intento` `intentos` `despliegues` `logs` `describir` |
+| **`params`** | Los campos del tipo de la tabla de abajo, con su `Version` (los nombres de campo de Go, sin distinguir mayúsculas). Un campo que el tipo no tiene se rechaza |
+| **`result`** | Lo que devuelve la operación, completo. Las que no devuelven nada responden `{}`; una lista sin elementos es `[]` |
+| **`error`** | `{code, message, data}`; `data.tipo` es el nombre estable. Ver el catálogo en `RD-13` |
+| **`entorno`** | Miembro opcional de la petición: variables de entorno para los comandos. Aún no se admite |
 | **Salida de los comandos** | no se muestra al intentar: se guarda en el Historial y se consulta con `logs` |
-| **Errores** | texto en la salida de error |
-| **`--almacen`** | el almacén del Historial, un directorio que **tiene que existir** (o `$VEX_ALMACEN`) |
-| **`--espacio`** | el espacio de trabajo de los ambientes; solo `intentar` y `rollback` (o `$VEX_ESPACIO`) |
-| **`--material`** | donde Suministro pone el material de las fuentes; una copia desechable (o `$VEX_MATERIAL`) |
+| **Configuración** | variables `VEX_ALMACEN` (obligatoria, el directorio tiene que existir), `VEX_ESPACIO` (solo `intentar` y `rollback`) y `VEX_MATERIAL` |
 
-Los tres directorios los da la invocación y no la petición (`DEC-06.18`): por eso `DirectorioDelAlmacen` y
+Los tres directorios los da el proceso y no la petición (`DEC-06.18`): por eso `DirectorioDelAlmacen` y
 `DirectorioDeEspacioDeTrabajo` de `PeticionDeIntento` y `PeticionDeRollback` no los lee nadie.
 
-Código de salida: `0` bien · `1` la operación falló, o el intento terminó `fallido` · `2` la invocación o la
-petición son inválidas (incluida una versión no soportada) · `130` cancelado, por señal o el intento `cancelado`.
+Un intento que termina `fallido` o `cancelado` es un `result` correcto. Solo es `error` lo que impide atender la
+petición.
+
+Código de salida: `0` bien · `1` la operación falló, o el intento terminó `fallido` · `2` la petición o la
+configuración son inválidas (incluida una versión no soportada) · `130` cancelado, por señal o por la notificación
+`cancelar`, o el intento `cancelado`. Cerrar la entrada **no** cancela.
 
 ## Operaciones
 
@@ -63,7 +70,8 @@ petición son inválidas (incluida una versión no soportada) · `130` cancelado
 | **Consultar un intento** | `borde.PeticionDeConsultaDeIntento` | `historial.Intento` | Historial |
 | **Consultar los intentos** de un ambiente | `borde.PeticionDeIntentosDeUnAmbiente` | `[]historial.Intento` | Historial |
 | **Consultar los despliegues** de un ambiente | `borde.PeticionDeDesplieguesDeUnAmbiente` | `[]historial.Despliegue` | Historial |
-| **Consultar los logs** de un intento | `borde.PeticionDeLogs` | `{IntentoId, Salidas}` | Historial |
+| **Consultar los logs** de un intento | `borde.PeticionDeLogs` | `borde.RespuestaDeLogs` | Historial |
+| **Describir** el motor | — | `{VersionDelMotor, VersionesDelLenguaje, Operaciones}` | (ninguno: no usa el motor) |
 
 ### Detalles por operación
 
@@ -85,29 +93,27 @@ petición son inválidas (incluida una versión no soportada) · `130` cancelado
   `no_se_atribuye`.
 - **Logs.** `Intento` es opcional: sin él, es el último que se abrió en cualquier ambiente. `Resultado` también:
   `"exitoso"` o `"fallido"` filtra por cómo terminó cada comando, y vacío los muestra todos; otro valor es una
-  petición inválida (código `2`). La respuesta dice el intento (`IntentoId`, que es el último si no se pidió uno) y
-  agrupa por paso (`Salidas`), en el orden en que corrieron, los comandos de cada uno: `comando` (su nombre),
-  `salida` (lo que escribió, salida y error juntos, sin el salto de línea final) y `resultado` (`"exitoso"` o
-  `"fallido"`). Solo aparecen los pasos que ejecutaron comandos en ese intento: uno que llegó hasta `test` solo
-  trae `test`, y uno que llegó hasta `deploy` trae todos los pasos hasta `deploy` que corrieron. Un paso que se
-  precargó no tiene salidas en ese intento, y sin ninguna que mostrar, `Salidas` es `{}`:
+  petición inválida (`-32602`). La respuesta dice el intento (`Intento`, que es el último si no se pidió uno) y su
+  `Ambiente`, y trae `Salidas`: una lista plana, en el orden en que corrieron los comandos, con `Paso`, `Comando`,
+  `Exitoso`, `Texto` (salida y error juntos, tal cual) e `Instante`. Solo aparecen los pasos que ejecutaron
+  comandos en ese intento: uno que llegó hasta `test` solo trae `test`. Un paso que se precargó no tiene salidas en
+  ese intento, y sin ninguna que mostrar, `Salidas` es `[]`:
 
   ```json
   {
-    "IntentoId": "01a106d1-94e1-727c-a252-4efac5ab306c",
-    "Salidas": {
-      "test": [
-        {"comando": "comando-test-01", "salida": "hola vex-demo", "resultado": "exitoso"},
-        {"comando": "comando-test-02", "salida": "etiqueta=v1.0.0", "resultado": "exitoso"}
-      ],
-      "supply": [
-        {"comando": "comando-supply-01", "salida": "hola vex-demo", "resultado": "exitoso"}
-      ]
-    }
+    "Intento": "01a106d1-94e1-727c-a252-4efac5ab306c",
+    "Ambiente": "prod",
+    "Salidas": [
+      {"Paso": "test", "Comando": "comando-test-01", "Exitoso": true, "Texto": "hola vex-demo\n", "Instante": "2026-10-05T22:12:42.9Z"}
+    ]
   }
   ```
 
-  Un intento que no existe, o un historial sin intentos si no se pide uno, es un fallo (código `1`).
+  Un intento que no existe es `no_existe`, y un historial sin ningún intento si no se pide uno también: el motor
+  no tiene texto para humanos, y es quien presenta la respuesta quien lo dice.
+- **Describir.** Sin parámetros y sin `VEX_ALMACEN`. Dice la versión del motor, las versiones del lenguaje que
+  entiende (`borde.VersionesSoportadas`) y las operaciones, para que quien invoca compruebe que se entienden
+  antes de pedir nada.
 - **Consultas del Historial.** Solo lectura. Lo que dicen los registros de cada contexto (`Contenido`) viaja
   opaco.
 

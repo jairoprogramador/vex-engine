@@ -16,7 +16,7 @@ guía práctica de `docs/modelo/lenguaje-publicado.md`, que es el contrato.
 ```bash
 scripts/demo.sh --limpio          # compila, arma /tmp/demo-vex y hace un primer intento
 source /tmp/demo-vex/entorno.sh   # deja VEXD, VEX_ALMACEN, VEX_ESPACIO y VEX_MATERIAL en tu shell
-echo '{"Version":"1","Ambiente":"prod"}' | $VEXD despliegues
+vexd_demo despliegues '{"Version":"1","Ambiente":"sand"}'
 ```
 
 `scripts/demo.sh` hace, en este orden:
@@ -28,39 +28,75 @@ echo '{"Version":"1","Ambiente":"prod"}' | $VEXD despliegues
 3. **Intenta** en el ambiente `prod` (cambiable con `AMBIENTE=…`) y muestra la respuesta y el código de salida.
 4. **Escribe** `$DEMO_DIR/entorno.sh` para que sigas con otras operaciones.
 
-Con `source entorno.sh`, las opciones `--almacen`, `--espacio` y `--material` ya no hacen falta: `vexd` lee
-`VEX_ALMACEN`, `VEX_ESPACIO` y `VEX_MATERIAL`. `$VEXD` es la ruta al ejecutable, y `vexd_demo <operación>` es
-lo mismo que `$VEXD <operación>`.
+Con `source entorno.sh` tienes `VEX_ALMACEN`, `VEX_ESPACIO` y `VEX_MATERIAL` exportadas, que es de donde `vexd`
+lee su configuración. `$VEXD` es la ruta al ejecutable, y `vexd_demo <operación> [params]` arma la petición del
+protocolo (JSON-RPC, una línea), se la envía y muestra la respuesta. Con `jq` instalado, `vexd_demo … | jq .` la
+muestra con sangría.
 
 ## La invocación
 
+`vexd` no tiene subcomandos ni opciones. Habla **JSON-RPC 2.0 por la entrada y la salida estándar, un mensaje JSON
+por línea**: lee una petición, escribe una respuesta y termina. No hay servidor (docs/rediseno/RD-13-protocolo.md).
+
+```bash
+echo '{"jsonrpc":"2.0","id":"1","method":"despliegues","params":{"Version":"1","Ambiente":"sand"}}' | $VEXD
 ```
-vexd <operación> [--almacen <dir>] [--espacio <dir>] [--material <dir>] [--entrada <fichero>]
-vexd version
-vexd help
-```
 
-**Una invocación atiende una operación y termina.** No hay servidor.
+### La petición
 
-### Opciones
-
-| Opción | Variable | Qué es | Obligatoria |
-|---|---|---|---|
-| `--almacen <dir>` | `VEX_ALMACEN` | El **historial**: los registros de intentos, despliegues, lanzamientos y reservas. Es la memoria del motor. Si lo borras, olvida todo. El directorio **tiene que existir**: el motor no lo crea, para no escribir en el vacío si un volumen no se montó | Siempre |
-| `--espacio <dir>` | `VEX_ESPACIO` | El **espacio de trabajo**: donde se ejecutan los comandos de los pasos. Una subcarpeta por ambiente (`<espacio>/<ambiente>/motor/<paso>/`). Se rehace en cada intento | Solo `intentar` y `rollback` |
-| `--material <dir>` | `VEX_MATERIAL` | Donde el motor copia el código de las fuentes que lee de git. Es una copia desechable: borrarla no cambia ninguna decisión | No. Por defecto, `<caché del usuario>/vex/material` |
-| `--entrada <fichero>` | — | Fichero con la petición en JSON. Con `-` o sin la opción, la lee de la **entrada estándar** | No |
-
-La opción tiene prioridad sobre la variable.
-
-### Qué sale por dónde
-
-| Canal | Contenido |
+| Miembro | Qué es |
 |---|---|
-| **stdout** | Solo la respuesta, en JSON. Las operaciones que no devuelven nada responden `{}` |
-| **stderr** | Los mensajes de error. Lo que imprimen los comandos de los pasos no se muestra: se consulta con `logs` |
+| `jsonrpc` | Siempre `"2.0"` |
+| `id` | Una cadena o un número. La respuesta lo devuelve igual |
+| `method` | La operación: `intentar`, `logs`, `describir`… (ver más abajo) |
+| `params` | Los campos de la operación, con su `Version`. Es lo que las tablas de abajo llaman «petición» |
+| `entorno` | Opcional. Variables de entorno para los comandos. **Todavía no se admite**: con valor se rechaza |
 
-Lo que imprimieron los comandos queda en el historial: `vexd logs` lo muestra (ver más abajo).
+Una línea completa, sin saltos dentro. Pasa de 1 MiB y se rechaza. Una petición sin salto final también vale.
+
+### Variables de entorno de `vexd`
+
+| Variable | Qué es | Obligatoria |
+|---|---|---|
+| `VEX_ALMACEN` | El **historial**: los registros de intentos, despliegues, lanzamientos y reservas. Es la memoria del motor. Si lo borras, olvida todo. El directorio **tiene que existir**: el motor no lo crea, para no escribir en el vacío si un volumen no se montó | Siempre, salvo `describir` |
+| `VEX_ESPACIO` | El **espacio de trabajo**: donde se ejecutan los comandos de los pasos. Una subcarpeta por ambiente (`<espacio>/<ambiente>/motor/<paso>/`). Se rehace en cada intento | Solo `intentar` y `rollback` |
+| `VEX_MATERIAL` | Donde el motor copia el código de las fuentes que lee de git. Es una copia desechable: borrarla no cambia ninguna decisión | No. Por defecto, `<temporal del sistema>/vex/material` |
+
+No hay opciones de línea de comandos para esto: solo las variables. En un contenedor las fija la imagen.
+
+### La respuesta
+
+Una línea en **stdout**, y nada más. Las demás secciones de esta guía llaman «respuesta» a lo que va en `result`.
+
+```json
+{"jsonrpc":"2.0","id":"1","result":{"Intento":"…","Estado":"exitoso"}}
+{"jsonrpc":"2.0","id":"1","error":{"code":-32004,"message":"…","data":{"tipo":"ambiente_ocupado","intento":"…"}}}
+```
+
+- **Un intento que termina `fallido` o `cancelado` es un `result` correcto** cuyo `Estado` lo dice. Solo es
+  `error` lo que impide atender la petición.
+- Las operaciones que no devuelven nada responden `{}`. Una lista sin elementos es `[]`.
+- Lo que imprimen los comandos de los pasos no se muestra: se consulta con `logs`.
+- **stderr** solo lleva la causa de un error interno (`-32000`), que no se cuenta a quien invoca.
+
+### Los errores
+
+| `code` | `data.tipo` | Cuándo |
+|---|---|---|
+| `-32700` | `json_invalido` | La línea no es JSON |
+| `-32600` | `peticion_invalida` | No es una petición JSON-RPC (falta `id` o `method`), no llegó ninguna, o la línea es demasiado larga |
+| `-32601` | `operacion_desconocida` | El `method` no existe |
+| `-32602` | `parametros_invalidos` | Un campo que la operación no tiene, un valor que no vale, `entorno` con valor |
+| `-32001` | `version_no_soportada` | `Version` vacía o distinta de `"1"` |
+| `-32002` | `rechazado` | Lo pedido rompe una regla del motor |
+| `-32003` | `no_existe` | Lo consultado no está en el historial (incluido `logs` sin ningún intento) |
+| `-32004` | `ambiente_ocupado` | Hay otro intento en el ambiente; `data.intento` dice cuál |
+| `-32005` | `no_disponible` | El espacio de trabajo del ambiente no se alcanzó; el intento no empezó |
+| `-32006` | `configuracion_invalida` | Falta una variable `VEX_*` obligatoria, o su directorio no existe; el mensaje nombra la variable |
+| `-32007` | `cancelado` | Se canceló antes de abrir el intento |
+| `-32000` | `interno` | Cualquier otro; la causa va a stderr |
+
+Los códigos y los `tipo` son estables.
 
 ### Códigos de salida
 
@@ -68,19 +104,24 @@ Lo que imprimieron los comandos queda en el historial: `vexd logs` lo muestra (v
 |---|---|
 | `0` | Bien. Si era un intento o un rollback, terminó `exitoso` |
 | `1` | La operación falló (por ejemplo, ambiente ocupado o una fuente que no existe), o el intento terminó `fallido` |
-| `2` | La invocación o la petición son inválidas: operación desconocida, falta una opción, JSON mal formado, campo desconocido, versión no soportada, almacén inexistente |
-| `130` | Cancelado, con Ctrl-C o `SIGTERM`, o el intento terminó `cancelado` |
+| `2` | La petición o la configuración son inválidas: JSON mal formado, operación desconocida, campo desconocido, versión no soportada, falta `VEX_ALMACEN`, almacén inexistente |
+| `130` | Cancelado: `SIGTERM`, Ctrl-C o la notificación `cancelar`, o el intento terminó `cancelado` |
 
 Un intento `fallido` **sí imprime su respuesta** en stdout, además de salir con `1`.
 
+### Cancelar
+
+Con `SIGTERM` o Ctrl-C, o enviando, en la misma entrada, la notificación `{"jsonrpc":"2.0","method":"cancelar"}`.
+**Cerrar la entrada no cancela**: un pipe la cierra nada más escribir, y solo quiere decir «no envío más».
+
 ## Cómo se escribe una petición
 
-Una petición es un objeto JSON. Reglas:
+Los campos de cada operación van en `params`. Reglas:
 
 - **Los nombres de campo son los del lenguaje publicado**, en español y `PascalCase`: `FuenteDelProyecto`,
   no `fuente_del_proyecto`. No distingue mayúsculas (`ambiente` vale), pero escríbelos como en esta guía.
-- **`Version` va siempre** y hoy es `"1"`. Vacía o distinta da código 2 antes de tocar nada.
-- **Un campo que la operación no tiene se rechaza** (código 2). Es a propósito: un error de escritura no debe
+- **`Version` va siempre** y hoy es `"1"`. Vacía o distinta da `-32001` (salida 2) antes de tocar nada.
+- **Un campo que la operación no tiene se rechaza** (`-32602`, salida 2). Es a propósito: un error de escritura no debe
   hacer que el motor haga otra cosa de la que pediste.
 - **Los campos opcionales se omiten** o se dejan vacíos.
 - **Las fuentes son directorios locales de repos git.** Los remotos vendrán con RD-11.
@@ -88,11 +129,11 @@ Una petición es un objeto JSON. Reglas:
 
 ## Las operaciones
 
-Once operaciones. En cada una: la petición, la respuesta y un ejemplo, con `$D` = `$DEMO_DIR`.
+Doce operaciones. En cada una: los `params`, el `result` y un ejemplo con `vexd_demo` (después de `source entorno.sh`), con `$D` = `$DEMO_DIR`.
 
 ### `intentar` — ejecutar un pipeline hasta un paso en un ambiente
 
-Necesita `--almacen` y `--espacio`.
+Necesita `VEX_ALMACEN` y `VEX_ESPACIO`.
 
 | Campo | Obligatorio | Significado |
 |---|---|---|
@@ -114,7 +155,7 @@ Necesita `--almacen` y `--espacio`.
 \* Solo hacen falta los que el pipeline use.
 
 `DirectorioDeEspacioDeTrabajo` y `DirectorioDelAlmacen` existen en el tipo pero **nadie los lee**: esos
-directorios se dan con las opciones de la línea de comandos.
+directorios se dan con las variables `VEX_*`.
 
 **Respuesta**
 
@@ -125,23 +166,21 @@ directorios se dan con las opciones de la línea de comandos.
 | `Despliegue` | El despliegue al que llegó. Vacío si no llegó a ninguno (falló, se canceló, usó `CopiaDeTrabajo`) |
 
 ```bash
-$VEXD intentar <<EOF
-{ "Version": "1", "Ambiente": "prod", "Solicitante": "ana",
-  "FuenteDelProyecto": "$D/proyecto", "FuenteDelPipeline": "$D/pipeline",
-  "Metadatos": { "ProjectName": "vex-demo", "ProjectId": "p1" } }
-EOF
+vexd_demo intentar "{ \"Version\": \"1\", \"Ambiente\": \"prod\", \"Solicitante\": \"ana\",
+  \"FuenteDelProyecto\": \"$D/proyecto\", \"FuenteDelPipeline\": \"$D/pipeline\",
+  \"Metadatos\": { \"ProjectName\": \"vex-demo\", \"ProjectId\": \"p1\" } }"
 ```
 
 **Solo hace el trabajo que hace falta.** Repetir un intento sin cambios no ejecuta ningún comando; si cambia
 lo que un paso declara, solo se re-ejecuta ese paso (con todos sus comandos). Qué mira cada paso lo decide su
 `rules` en `config.yaml`.
 
-**Un ambiente, un intento a la vez.** Si hay otro intento sin desenlace en el mismo ambiente, falla con código 1
-y dice cuál es (véase `abandonar`).
+**Un ambiente, un intento a la vez.** Si hay otro intento sin desenlace en el mismo ambiente, falla con `-32004`
+(salida 1) y dice cuál es en `data.intento` (véase `abandonar`).
 
 ### `rollback` — volver a un despliegue anterior
 
-Necesita `--almacen` y `--espacio`. El ambiente y las fuentes las toma del propio despliegue destino: no se
+Necesita `VEX_ALMACEN` y `VEX_ESPACIO`. El ambiente y las fuentes las toma del propio despliegue destino: no se
 repiten.
 
 | Campo | Obligatorio | Significado |
@@ -155,9 +194,7 @@ Respuesta: la misma que `intentar`. Un rollback es **un intento nuevo** y genera
 es el destino; no reescribe nada del historial.
 
 ```bash
-$VEXD rollback <<EOF
-{ "Version": "1", "Despliegue": "<id>", "Solicitante": "ana", "Metadatos": { "ProjectName": "vex-demo" } }
-EOF
+vexd_demo rollback '{ "Version": "1", "Despliegue": "<id>", "Solicitante": "ana", "Metadatos": { "ProjectName": "vex-demo" } }'
 ```
 
 ### `simular` — recorrer el pipeline sin efectos
@@ -188,8 +225,8 @@ simulación nunca devuelve valores).
 
 ```bash
 SHA=$(git -C $D/pipeline rev-parse HEAD)
-echo "{\"Version\":\"1\",\"Ambiente\":\"sand\",\"Solicitante\":\"jailux\",\"HastaPaso\":\"test\",\"Fuente\":\"$D/pipeline\",\"Commit\":\"$SHA\"}" | $VEXD simular
-echo "{\"Version\":\"1\",\"Ambiente\":\"sand\",\"Solicitante\":\"jailux\",\"HastaPaso\":\"test\",\"CopiaDeTrabajo\":\"$D/pipeline\"}"            | $VEXD simular
+vexd_demo simular "{\"Version\":\"1\",\"Ambiente\":\"sand\",\"Solicitante\":\"jailux\",\"HastaPaso\":\"test\",\"Fuente\":\"$D/pipeline\",\"Commit\":\"$SHA\"}"
+vexd_demo simular "{\"Version\":\"1\",\"Ambiente\":\"sand\",\"Solicitante\":\"jailux\",\"HastaPaso\":\"test\",\"CopiaDeTrabajo\":\"$D/pipeline\"}"
 ```
 
 ### `lanzar` — hacer visible un despliegue
@@ -205,7 +242,7 @@ Respuesta: `Ambiente`, `Despliegue`, `Version` (número, sube de uno en uno por 
 Es **incondicional**: la reserva solo bloquea el lanzamiento automático, nunca este.
 
 ```bash
-echo '{"Version":"1","Ambiente":"prod","Despliegue":"<id>","Nombre":"v1"}' | $VEXD lanzar
+vexd_demo lanzar '{"Version":"1","Ambiente":"prod","Despliegue":"<id>","Nombre":"v1"}'
 ```
 
 ### `reservar` y `liberar` — quién decide los lanzamientos de un ambiente
@@ -257,7 +294,8 @@ Solo lectura, y **nunca devuelven el valor de una variable**.
 | `intentos` | `Version`, `Ambiente` | La lista de intentos del ambiente |
 | `despliegues` | `Version`, `Ambiente` | La lista de despliegues: `Id`, `Ambiente`, `Intento`, `Padre` (vacío en el primero), `Instante` |
 
-El contenido de los registros (`Contenido.Datos`) viaja opaco, en base64.
+El contenido de los registros (`Contenido.Datos`) viaja opaco, en base64. Un ambiente sin intentos o sin despliegues
+responde `[]`.
 
 ### `logs` — la salida de los comandos de un intento
 
@@ -269,20 +307,33 @@ Solo lectura. Lo que imprimió cada comando se guarda en el historial al termina
 | `Intento` | no | El intento a consultar. Sin él, el último que se abrió en cualquier ambiente |
 | `Resultado` | no | `"exitoso"` o `"fallido"`: solo los comandos que salieron así. Sin él, todos |
 
-La respuesta trae `IntentoId` y, en `Salidas`, los comandos de cada paso que corrió, en el orden de los pasos:
-`comando`, `salida` (sin el salto de línea final) y `resultado` (`"exitoso"` o `"fallido"`). Un intento que llegó
-hasta `test` solo trae `test`.
+La respuesta trae `Intento` (cuál es, el último si no se pidió uno), `Ambiente` y `Salidas`: una lista plana, en el
+orden en que corrieron los comandos, con `Paso`, `Comando`, `Exitoso`, `Texto` (lo que escribió, salida y error
+juntos, **tal cual**, con su salto de línea final) e `Instante`. Agrupar por paso o recortar es cosa de quien
+presente la respuesta. Un intento que llegó hasta `test` solo trae `test`; sin salidas que mostrar, `Salidas` es `[]`.
 
 ```json
 {
-  "IntentoId": "01a106d1-94e1-727c-a252-4efac5ab306c",
-  "Salidas": {
-    "test": [
-      {"comando": "comando-test-01", "salida": "hola vex-demo", "resultado": "exitoso"},
-      {"comando": "comando-test-02", "salida": "etiqueta=v1.0.0", "resultado": "exitoso"}
-    ]
-  }
+  "Intento": "01a106d1-94e1-727c-a252-4efac5ab306c",
+  "Ambiente": "prod",
+  "Salidas": [
+    {"Paso": "test", "Comando": "comando-test-01", "Exitoso": true, "Texto": "hola vex-demo\n", "Instante": "2026-10-05T22:12:42.9Z"},
+    {"Paso": "test", "Comando": "comando-test-02", "Exitoso": true, "Texto": "etiqueta=v1.0.0\n", "Instante": "2026-10-05T22:12:42.9Z"}
+  ]
 }
+```
+
+Un historial **sin ningún intento** no tiene logs que dar: es `-32003` (`no_existe`), no un mensaje.
+
+### `describir` — qué es este motor
+
+Sin parámetros, y es la única que **no necesita `VEX_ALMACEN`**. Sirve para saber, antes de pedir nada, si quien
+invoca y este motor se entienden: la imagen del contenedor y la CLI se versionan por separado.
+
+Respuesta: `VersionDelMotor`, `VersionesDelLenguaje` (las que acepta `Version`) y `Operaciones` (ordenadas).
+
+```bash
+echo '{"jsonrpc":"2.0","id":"1","method":"describir"}' | $VEXD
 ```
 
 ## Armar tu propio pipeline de prueba
@@ -372,11 +423,8 @@ Todas parten de `scripts/demo.sh --limpio` y `source /tmp/demo-vex/entorno.sh`. 
 
 ```bash
 D=$DEMO_DIR
-intentar() { $VEXD intentar <<EOF
-{ "Version":"1","Ambiente":"prod","Solicitante":"yo","FuenteDelProyecto":"$D/proyecto","FuenteDelPipeline":"$D/pipeline",
-  "Metadatos":{"ProjectName":"vex-demo","ProjectId":"p1"} }
-EOF
-}
+intentar() { vexd_demo intentar "{ \"Version\":\"1\",\"Ambiente\":\"prod\",\"Solicitante\":\"yo\",\"FuenteDelProyecto\":\"$D/proyecto\",\"FuenteDelPipeline\":\"$D/pipeline\",
+  \"Metadatos\":{\"ProjectName\":\"vex-demo\",\"ProjectId\":\"p1\"} }"; }
 confirmar() { git -C $D/pipeline -c user.name=demo -c user.email=demo@vex.test commit -qam "$1"; }
 ```
 
@@ -399,15 +447,15 @@ rm $D/pipeline/steps/02-desplegar/commands.yaml.bak
 confirmar romper
 intentar; echo "código: $?"       # Estado "fallido", código 1
 INT=<Intento de la respuesta>
-echo "{\"Version\":\"1\",\"Intento\":\"$INT\",\"Ambiente\":\"prod\"}" | $VEXD diagnosticar
+vexd_demo diagnosticar "{\"Version\":\"1\",\"Intento\":\"$INT\",\"Ambiente\":\"prod\"}"
 # → con_atribucion, eje "instrucciones", paso "desplegar"
 ```
 
 **Rollback.** Toma un `Id` de `despliegues` y vuelve a él con `rollback`. Genera un despliegue nuevo.
 
 **Ambiente ocupado.** Pon un `cmd: sleep 60` en un paso, lanza `intentar` y mátalo con `kill -9` (con Ctrl-C el
-intento se cierra como `cancelado` y no ocupa nada). El siguiente `intentar` falla con código 1 diciendo qué
-intento ocupa el ambiente, y `abandonar` con ese id lo libera.
+intento se cierra como `cancelado` y no ocupa nada). El siguiente `intentar` falla con `-32004` (salida 1)
+diciendo en `data.intento` qué intento ocupa el ambiente, y `abandonar` con ese id lo libera.
 
 **Intento con copia de trabajo.** Añade `"CopiaDeTrabajo": "$D/proyecto"` a la petición: responde `exitoso` con
 `Despliegue` vacío.
@@ -417,9 +465,9 @@ intento ocupa el ambiente, y `abandonar` con ese id lo libera.
 **Errores esperados.**
 
 ```bash
-echo '{"Version":"9","Ambiente":"prod"}' | $VEXD reservar; echo $?    # 2, versión no soportada
-echo '{"Version":"1","Ambient":"prod"}'  | $VEXD reservar; echo $?    # 2, campo desconocido
-$VEXD intentos --almacen /no/existe </dev/null; echo $?               # 2, almacén inexistente
+vexd_demo reservar '{"Version":"9","Ambiente":"prod"}'; echo $?     # -32001, versión no soportada; 2
+vexd_demo reservar '{"Version":"1","Ambient":"prod"}'; echo $?      # -32602, campo desconocido; 2
+VEX_ALMACEN=/no/existe vexd_demo intentos '{"Version":"1","Ambiente":"prod"}'; echo $?   # -32006, almacén inexistente; 2
 ```
 
 **Empezar de cero.** `scripts/demo.sh --limpio`, o borra `$DEMO_DIR/almacen/*` para olvidar el historial sin
@@ -429,15 +477,17 @@ tocar los repos.
 
 | Síntoma | Causa probable |
 |---|---|
-| `falta --almacen (o $VEX_ALMACEN)` | No diste el almacén ni hiciste `source entorno.sh` |
-| `el almacén del historial: … no such file` | El directorio del almacén no existe. Créalo con `mkdir` |
-| `petición ilegible: json: unknown field "X"` | El campo no existe en esa operación; revisa su tabla |
-| `versión no soportada` | Falta `"Version": "1"` |
+| `-32006` «falta VEX_ALMACEN» | No exportaste la variable ni hiciste `source entorno.sh` |
+| `-32006` «el almacén del historial (VEX_ALMACEN): … no such file» | El directorio del almacén no existe. Créalo con `mkdir` |
+| `-32602` «parámetros ilegibles: json: unknown field "X"» | El campo no existe en esa operación; revisa su tabla |
+| `-32700` o `-32600` | El mensaje no es una línea JSON-RPC: un salto dentro de la petición, o falta `id`/`method` |
+| `-32001` «versión no soportada» | Falta `"Version": "1"` en `params` |
+| `-32000` «error interno» | Mira stderr: ahí va la causa |
 | `simulación: … "" no es un commit` | `simular` con `Fuente` necesita `Commit` completo; o usa `CopiaDeTrabajo` |
-| `el ambiente "prod" tiene en curso el intento …` | Hay un intento sin desenlace: espera, o `abandonar` |
+| `-32004` «el ambiente "prod" tiene en curso el intento …» | Hay un intento sin desenlace: espera, o `abandonar` |
 | El intento no ejecuta nada | Nada cambió respecto al anterior; edita algo y haz commit |
 | Cambié un fichero del pipeline y no se nota | Falta el commit (salvo con `CopiaDeTrabajo`) |
 | `Estado: fallido` sin más | Mira `logs` con `"Resultado": "fallido"`: es la salida del comando que falló |
 
-Las pruebas automáticas de la misma línea de comandos están en `cmd/vexd/main_test.go`: son un buen modelo de
+Las pruebas automáticas del protocolo están en `cmd/vexd/main_test.go` y `internal/protocolo`: son un buen modelo de
 peticiones válidas.

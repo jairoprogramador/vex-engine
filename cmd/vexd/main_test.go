@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,25 +16,89 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/jairoprogramador/vex-engine/internal/borde"
+	historialpublicado "github.com/jairoprogramador/vex-engine/internal/historial/publicado"
+	"github.com/jairoprogramador/vex-engine/internal/protocolo"
 )
 
-// Prueba de la raíz de composición entera: la línea de comandos, el borde y los seis contextos con sus
-// adaptadores de verdad (almacén en disco, repositorios git, comandos del shell).
+// Prueba de la raíz de composición entera: el protocolo, el borde y los seis contextos con sus adaptadores de
+// verdad (almacén en disco, repositorios git, comandos del shell).
 
 type invocacion struct {
 	codigo          int
 	salida, errores string
 }
 
-func invocar(t *testing.T, peticion string, args ...string) invocacion {
+// lineaDeRespuesta es la respuesta del protocolo leída como JSON.
+type lineaDeRespuesta struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Result  json.RawMessage `json:"result"`
+	Error   *struct {
+		Code    int
+		Message string
+		Data    map[string]string
+	} `json:"error"`
+}
+
+// peticion es la línea que se envía a vexd para una operación.
+func peticion(metodo, params string) string {
+	var compactos bytes.Buffer
+	if err := json.Compact(&compactos, []byte(params)); err != nil {
+		compactos.Reset()
+		compactos.WriteString(params) // una prueba de params rotos los envía tal cual
+	}
+	return `{"jsonrpc":"2.0","id":"1","method":` + quote(metodo) + `,"params":` + compactos.String() + `}`
+}
+
+func invocar(t *testing.T, r rutas, metodo, params string) invocacion {
+	t.Helper()
+	return invocarLinea(t, r, peticion(metodo, params))
+}
+
+func invocarLinea(t *testing.T, r rutas, linea string) invocacion {
+	t.Helper()
+	return invocarCon(t, context.Background(), r, strings.NewReader(linea+"\n"))
+}
+
+func invocarCon(t *testing.T, ctx context.Context, r rutas, entrada io.Reader) invocacion {
 	t.Helper()
 	var salida, errores bytes.Buffer
-	codigo := ejecutar(context.Background(), args, strings.NewReader(peticion), &salida, &errores)
+	codigo := ejecutar(ctx, r, entrada, &salida, &errores)
 	return invocacion{codigo, salida.String(), errores.String()}
 }
 
+// respuesta lee la salida estándar: tiene que ser exactamente una línea, que es la respuesta y nada más.
+func (i invocacion) respuesta(t *testing.T) lineaDeRespuesta {
+	t.Helper()
+	require.True(t, strings.HasSuffix(i.salida, "\n"), "una línea completa: %q", i.salida)
+	require.Equal(t, 1, strings.Count(i.salida, "\n"), "la salida estándar es solo la respuesta: %q", i.salida)
+	var r lineaDeRespuesta
+	require.NoError(t, json.Unmarshal([]byte(i.salida), &r))
+	require.Equal(t, "2.0", r.JSONRPC)
+	return r
+}
+
+// resultado lee el result de una respuesta que salió bien.
+func (i invocacion) resultado(t *testing.T, destino any) {
+	t.Helper()
+	r := i.respuesta(t)
+	require.Nil(t, r.Error, "se esperaba un resultado: %s", i.salida)
+	require.NoError(t, json.Unmarshal(r.Result, destino))
+}
+
+// error lee el error de una respuesta que falló.
+func (i invocacion) error(t *testing.T) lineaDeRespuesta {
+	t.Helper()
+	r := i.respuesta(t)
+	require.NotNil(t, r.Error, "se esperaba un error: %s", i.salida)
+	require.Nil(t, r.Result)
+	return r
+}
+
 type entorno struct {
-	banderas                   []string
+	rutas                      rutas
 	repoProyecto, repoPipeline string
 }
 
@@ -45,9 +110,8 @@ func nuevoEntorno(t *testing.T) entorno {
 // nuevoEntornoConPipeline parte del pipeline de ejemplo y deja que la prueba lo cambie antes de commitearlo.
 func nuevoEntornoConPipeline(t *testing.T, cambiar func(dir string)) entorno {
 	t.Helper()
-	almacen, espacio, material := t.TempDir(), t.TempDir(), t.TempDir()
 	return entorno{
-		banderas:     []string{"--almacen", almacen, "--espacio", espacio, "--material", material},
+		rutas:        rutas{almacen: t.TempDir(), espacio: t.TempDir(), material: t.TempDir()},
 		repoProyecto: nuevoRepo(t, func(dir string) { escribir(t, dir, "README.md", "proyecto") }),
 		repoPipeline: nuevoRepo(t, func(dir string) {
 			copiar(t, pipelineDeEjemplo, dir)
@@ -77,15 +141,6 @@ func comandosDeclarados(t *testing.T, carpetaDelPaso string) []string {
 	return nombres
 }
 
-// nombresDe son los nombres de los comandos, en el orden en que aparecen.
-func nombresDe(comandos []vistaDeLog) []string {
-	nombres := make([]string, 0, len(comandos))
-	for _, c := range comandos {
-		nombres = append(nombres, c.Comando)
-	}
-	return nombres
-}
-
 func (e entorno) intento() string {
 	return `{"Version":"1","Ambiente":"prod","Solicitante":"ana",
 	  "FuenteDelProyecto":` + quote(e.repoProyecto) + `,"FuenteDelPipeline":` + quote(e.repoPipeline) + `,
@@ -94,10 +149,20 @@ func (e entorno) intento() string {
 
 func quote(s string) string { b, _ := json.Marshal(s); return string(b) }
 
+// intentar abre un intento y devuelve su id; el intento tiene que terminar con el código que se espera.
+func intentar(t *testing.T, e entorno, params string, codigoEsperado int) string {
+	t.Helper()
+	r := invocar(t, e.rutas, "intentar", params)
+	require.Equal(t, codigoEsperado, r.codigo, r.errores)
+	var resultado struct{ Intento string }
+	r.resultado(t, &resultado)
+	return resultado.Intento
+}
+
 func TestIntentar_LlegaADespliegueYNoMuestraLaSalidaDeLosComandos(t *testing.T) {
 	e := nuevoEntorno(t)
 
-	r := invocar(t, e.intento(), append([]string{"intentar"}, e.banderas...)...)
+	r := invocar(t, e.rutas, "intentar", e.intento())
 
 	require.Equal(t, salidaBien, r.codigo, r.errores)
 	var resultado struct {
@@ -107,7 +172,7 @@ func TestIntentar_LlegaADespliegueYNoMuestraLaSalidaDeLosComandos(t *testing.T) 
 			Pasos  []struct{ Nombre, Estado string }
 		}
 	}
-	require.NoError(t, json.Unmarshal([]byte(r.salida), &resultado), "la salida estándar es solo la respuesta")
+	r.resultado(t, &resultado)
 	require.Equal(t, "exitoso", resultado.Estado)
 	require.NotEmpty(t, resultado.Despliegue)
 	require.NotEmpty(t, resultado.Detalle.Tiempo)
@@ -116,112 +181,125 @@ func TestIntentar_LlegaADespliegueYNoMuestraLaSalidaDeLosComandos(t *testing.T) 
 		require.NotEmpty(t, paso.Nombre)
 		require.Equal(t, "ejecutado", paso.Estado, "en el primer intento nada se precarga: %s", paso.Nombre)
 	}
+	require.JSONEq(t, `"1"`, string(r.respuesta(t).ID), "se responde con el id de la petición")
 	require.Empty(t, r.errores, "lo que imprimen los comandos no se muestra: se consulta con logs")
 	require.NotContains(t, r.salida, "etiqueta=v1.0.0", "ni se mezcla con la respuesta")
 }
 
-func logs(t *testing.T, e entorno, peticion string) invocacion {
+func logs(t *testing.T, e entorno, params string) invocacion {
 	t.Helper()
-	return invocar(t, peticion, append([]string{"logs"}, e.banderas...)...)
+	return invocar(t, e.rutas, "logs", params)
 }
 
-// respuestaDeLogs es la respuesta de logs leída como JSON.
-type respuestaDeLogs struct {
-	IntentoId string
-	Salidas   map[string][]vistaDeLog
-}
-
-func leerLogs(t *testing.T, r invocacion) respuestaDeLogs {
+func leerLogs(t *testing.T, r invocacion) borde.RespuestaDeLogs {
 	t.Helper()
 	require.Equal(t, salidaBien, r.codigo, r.errores)
-	var logs respuestaDeLogs
-	require.NoError(t, json.Unmarshal([]byte(r.salida), &logs), "la respuesta de logs es JSON")
-	require.NotEmpty(t, logs.IntentoId)
-	return logs
+	var l borde.RespuestaDeLogs
+	r.resultado(t, &l)
+	require.NotEmpty(t, l.Intento)
+	return l
 }
 
-// comandosDe son todos los comandos de la respuesta, de todos los pasos.
-func (l respuestaDeLogs) comandosDe() []vistaDeLog {
-	var todos []vistaDeLog
-	for _, comandos := range l.Salidas {
-		todos = append(todos, comandos...)
+// delPaso son las salidas de un paso, en el orden en que corrieron sus comandos.
+func delPaso(l borde.RespuestaDeLogs, paso string) []historialpublicado.Salida {
+	var salidas []historialpublicado.Salida
+	for _, s := range l.Salidas {
+		if s.Paso == paso {
+			salidas = append(salidas, s)
+		}
 	}
-	return todos
+	return salidas
+}
+
+func comandosDe(salidas []historialpublicado.Salida) []string {
+	nombres := make([]string, 0, len(salidas))
+	for _, s := range salidas {
+		nombres = append(nombres, s.Comando)
+	}
+	return nombres
+}
+
+func primeraSalidaDe(l borde.RespuestaDeLogs, paso string) int {
+	for i, s := range l.Salidas {
+		if s.Paso == paso {
+			return i
+		}
+	}
+	return -1
 }
 
 func TestLogs_SinIntentoMuestraLosComandosDelUltimoConSuSalida(t *testing.T) {
 	e := nuevoEntorno(t)
-	intentar := invocar(t, e.intento(), append([]string{"intentar"}, e.banderas...)...)
-	require.Equal(t, salidaBien, intentar.codigo, intentar.errores)
+	intentar(t, e, e.intento(), salidaBien)
 
 	r := logs(t, e, `{"Version":"1"}`)
 
-	require.Equal(t, salidaBien, r.codigo, r.errores)
 	require.Empty(t, r.errores)
-	logs := leerLogs(t, r)
-	require.Equal(t, vistaDeLog{"comando-test-01", "hola vex-demo", "exitoso"}, logs.Salidas["test"][0], "en el orden en que corrieron")
-	require.Equal(t, vistaDeLog{"comando-test-02", "etiqueta=v1.0.0", "exitoso"}, logs.Salidas["test"][1])
-	require.Equal(t, comandosDeclarados(t, "01-test"), nombresDe(logs.Salidas["test"]), "los que el paso declara")
-	require.Equal(t, vistaDeLog{"comando-deploy-01", "despliegue exitoso", "exitoso"}, logs.Salidas["deploy"][0])
-	require.NotContains(t, r.salida, "${var.", "las variables se interpolaron")
-	require.Less(t, strings.Index(r.salida, `"test"`), strings.Index(r.salida, `"acr"`), "los pasos, en el orden en que corrieron")
-	require.Less(t, strings.Index(r.salida, `"acr"`), strings.Index(r.salida, `"deploy"`))
+	l := leerLogs(t, r)
+	test := delPaso(l, "test")
+	require.Equal(t, comandosDeclarados(t, "01-test"), comandosDe(test), "los que el paso declara, en el orden en que corrieron")
+	require.Equal(t, "hola vex-demo", strings.TrimSpace(test[0].Texto))
+	require.True(t, test[0].Exitoso)
+	require.Equal(t, "etiqueta=v1.0.0", strings.TrimSpace(test[1].Texto))
+	require.Equal(t, "despliegue exitoso", strings.TrimSpace(delPaso(l, "deploy")[0].Texto))
+	require.Equal(t, "prod", l.Ambiente)
+	for _, s := range l.Salidas {
+		require.NotContains(t, s.Texto, "${var.", "las variables se interpolaron")
+	}
+	require.Less(t, primeraSalidaDe(l, "test"), primeraSalidaDe(l, "acr"), "los pasos, en el orden en que corrieron")
+	require.Less(t, primeraSalidaDe(l, "acr"), primeraSalidaDe(l, "deploy"))
 }
 
 func TestLogs_ConIntentoMuestraLosDeEseIntento(t *testing.T) {
 	e := nuevoEntorno(t)
-	intentar := invocar(t, e.intento(), append([]string{"intentar"}, e.banderas...)...)
-	var resultado struct{ Intento string }
-	require.NoError(t, json.Unmarshal([]byte(intentar.salida), &resultado))
+	intento := intentar(t, e, e.intento(), salidaBien)
 
-	r := logs(t, e, `{"Version":"1","Intento":`+quote(resultado.Intento)+`}`)
+	l := leerLogs(t, logs(t, e, `{"Version":"1","Intento":`+quote(intento)+`}`))
 
-	require.Equal(t, salidaBien, r.codigo, r.errores)
-	logs := leerLogs(t, r)
-	require.Equal(t, resultado.Intento, logs.IntentoId)
-	require.Equal(t, "comando-test-01", logs.Salidas["test"][0].Comando)
+	require.Equal(t, intento, l.Intento)
+	require.Equal(t, "comando-test-01", delPaso(l, "test")[0].Comando)
 }
 
 func TestLogs_SinIntentoDiceCualEsElUltimo(t *testing.T) {
 	e := nuevoEntorno(t)
-	var ultimo struct{ Intento string }
+	var ultimo string
 	for range 2 {
-		intentar := invocar(t, e.intento(), append([]string{"intentar"}, e.banderas...)...)
-		require.NoError(t, json.Unmarshal([]byte(intentar.salida), &ultimo))
+		ultimo = intentar(t, e, e.intento(), salidaBien)
 	}
 
-	logs := leerLogs(t, logs(t, e, `{"Version":"1"}`))
+	l := leerLogs(t, logs(t, e, `{"Version":"1"}`))
 
-	require.Equal(t, ultimo.Intento, logs.IntentoId)
+	require.Equal(t, ultimo, l.Intento)
 }
 
 func TestLogs_SoloMuestraLosPasosHastaDondeLlegoElIntento(t *testing.T) {
 	e := nuevoEntorno(t)
 	hasta := strings.Replace(e.intento(), `"Ambiente":"prod",`, `"Ambiente":"prod","HastaPaso":"test",`, 1)
-	require.Equal(t, salidaBien, invocar(t, hasta, append([]string{"intentar"}, e.banderas...)...).codigo)
+	intentar(t, e, hasta, salidaBien)
 
-	logs := leerLogs(t, logs(t, e, `{"Version":"1"}`))
+	l := leerLogs(t, logs(t, e, `{"Version":"1"}`))
 
-	require.Len(t, logs.Salidas, 1)
-	require.Equal(t, comandosDeclarados(t, "01-test"), nombresDe(logs.Salidas["test"]), "los que el paso declara")
+	require.Equal(t, comandosDeclarados(t, "01-test"), comandosDe(l.Salidas), "solo los del paso al que llegó")
 }
 
-func TestLogs_UnIntentoQueNoExisteFalla(t *testing.T) {
+func TestLogs_UnIntentoQueNoExisteEsNoExiste(t *testing.T) {
 	e := nuevoEntorno(t)
 
 	r := logs(t, e, `{"Version":"1","Intento":"no-existe"}`)
 
 	require.Equal(t, salidaFallo, r.codigo)
-	require.Empty(t, r.salida)
+	require.Equal(t, codigoNoExiste, r.error(t).Error.Code)
 }
 
-func TestLogs_SinNingunIntentoRespondeUnMensajeSinFallar(t *testing.T) {
+func TestLogs_SinNingunIntentoEsNoExiste_ElMotorNoTieneTextoParaHumanos(t *testing.T) {
 	e := nuevoEntorno(t)
 
 	r := logs(t, e, `{"Version":"1"}`)
 
-	require.Equal(t, salidaBien, r.codigo, r.errores)
-	require.JSONEq(t, `{"Mensaje":`+quote(mensajeLogsSinHistorial)+`}`, r.salida)
+	require.Equal(t, salidaFallo, r.codigo, r.errores)
+	respuesta := r.error(t)
+	require.Equal(t, codigoNoExiste, respuesta.Error.Code)
+	require.Equal(t, tipoNoExiste, respuesta.Error.Data["tipo"])
 }
 
 func TestLogs_ElResultadoFiltraLosComandosExitososOFallidos(t *testing.T) {
@@ -235,19 +313,18 @@ func TestLogs_ElResultadoFiltraLosComandosExitososOFallidos(t *testing.T) {
   cmd: echo explotó; exit 1
 `)
 	})
-	intentar := invocar(t, e.intento(), append([]string{"intentar"}, e.banderas...)...)
-	require.Equal(t, salidaFallo, intentar.codigo, intentar.errores)
+	intentar(t, e, e.intento(), salidaFallo)
 
-	todos := logs(t, e, `{"Version":"1"}`)
-	fallidos := logs(t, e, `{"Version":"1","Resultado":"fallido"}`)
-	exitosos := logs(t, e, `{"Version":"1","Resultado":"exitoso"}`)
+	todos := leerLogs(t, logs(t, e, `{"Version":"1"}`))
+	fallidos := leerLogs(t, logs(t, e, `{"Version":"1","Resultado":"fallido"}`))
+	exitosos := leerLogs(t, logs(t, e, `{"Version":"1","Resultado":"exitoso"}`))
 
-	ok := vistaDeLog{"comando-deploy-ok", "todo bien", "exitoso"}
-	roto := vistaDeLog{"comando-deploy-roto", "explotó", "fallido"}
-	require.Equal(t, []vistaDeLog{ok, roto}, leerLogs(t, todos).Salidas["deploy"])
-	require.Equal(t, map[string][]vistaDeLog{"deploy": {roto}}, leerLogs(t, fallidos).Salidas)
-	require.Contains(t, leerLogs(t, exitosos).comandosDe(), ok)
-	require.NotContains(t, leerLogs(t, exitosos).comandosDe(), roto)
+	require.Equal(t, []string{"comando-deploy-ok", "comando-deploy-roto"}, comandosDe(delPaso(todos, "deploy")))
+	require.Equal(t, []string{"comando-deploy-roto"}, comandosDe(fallidos.Salidas))
+	require.False(t, fallidos.Salidas[0].Exitoso)
+	require.Equal(t, "explotó", strings.TrimSpace(fallidos.Salidas[0].Texto))
+	require.Contains(t, comandosDe(exitosos.Salidas), "comando-deploy-ok")
+	require.NotContains(t, comandosDe(exitosos.Salidas), "comando-deploy-roto")
 }
 
 func TestLogs_UnResultadoDesconocidoEsUnaPeticionInvalida(t *testing.T) {
@@ -256,80 +333,208 @@ func TestLogs_UnResultadoDesconocidoEsUnaPeticionInvalida(t *testing.T) {
 	r := logs(t, e, `{"Version":"1","Resultado":"roto"}`)
 
 	require.Equal(t, salidaInvalida, r.codigo, r.errores)
-	require.Contains(t, r.errores, "Resultado")
+	respuesta := r.error(t)
+	require.Equal(t, protocolo.CodigoParametrosInvalidos, respuesta.Error.Code)
+	require.Contains(t, respuesta.Error.Message, "Resultado")
+}
+
+func TestLogs_SinLogsQueMostrarNoHayNingunaSalida(t *testing.T) {
+	e := nuevoEntornoConPipeline(t, func(dir string) {
+		escribir(t, dir, "steps/05-deploy/commands.yaml", "- name: comando-deploy-ok\n  description: sale bien\n  cmd: echo todo bien\n")
+	})
+	intentar(t, e, e.intento(), salidaBien)
+
+	l := leerLogs(t, logs(t, e, `{"Version":"1","Resultado":"fallido"}`))
+
+	require.Empty(t, l.Salidas)
 }
 
 func TestConsultas_VenLoQueIntentarDejoEnElHistorial(t *testing.T) {
 	e := nuevoEntorno(t)
-	intento := invocar(t, e.intento(), append([]string{"intentar"}, e.banderas...)...)
-	require.Equal(t, salidaBien, intento.codigo, intento.errores)
+	intentar(t, e, e.intento(), salidaBien)
 
-	despliegues := invocar(t, `{"Version":"1","Ambiente":"prod"}`, append([]string{"despliegues"}, e.banderas...)...)
+	despliegues := invocar(t, e.rutas, "despliegues", `{"Version":"1","Ambiente":"prod"}`)
 
 	require.Equal(t, salidaBien, despliegues.codigo, despliegues.errores)
 	var lista []map[string]any
-	require.NoError(t, json.Unmarshal([]byte(despliegues.salida), &lista))
+	despliegues.resultado(t, &lista)
 	require.Len(t, lista, 1)
 }
 
 func TestReservarYLiberar_ResponderUnObjetoVacio(t *testing.T) {
 	e := nuevoEntorno(t)
 	for _, op := range []string{"reservar", "liberar"} {
-		r := invocar(t, `{"Version":"1","Ambiente":"prod"}`, append([]string{op}, e.banderas...)...)
+		r := invocar(t, e.rutas, op, `{"Version":"1","Ambiente":"prod"}`)
+
 		require.Equal(t, salidaBien, r.codigo, r.errores)
-		require.JSONEq(t, `{}`, r.salida)
+		require.JSONEq(t, `{}`, string(r.respuesta(t).Result))
 	}
 }
 
 func TestUnaVersionNoSoportadaSeRechazaConCodigoDeInvalida(t *testing.T) {
 	e := nuevoEntorno(t)
 
-	r := invocar(t, `{"Version":"9","Ambiente":"prod"}`, append([]string{"reservar"}, e.banderas...)...)
+	r := invocar(t, e.rutas, "reservar", `{"Version":"9","Ambiente":"prod"}`)
 
 	require.Equal(t, salidaInvalida, r.codigo)
-	require.Contains(t, r.errores, "versión no soportada")
-	require.Empty(t, r.salida)
+	respuesta := r.error(t)
+	require.Equal(t, codigoVersionNoSoportada, respuesta.Error.Code)
+	require.Equal(t, tipoVersionNoSoportada, respuesta.Error.Data["tipo"])
+	require.Contains(t, respuesta.Error.Message, "versión no soportada")
 }
 
-func TestInvocacionesInvalidas(t *testing.T) {
+func TestPeticionesInvalidas(t *testing.T) {
 	e := nuevoEntorno(t)
+	sinAlmacen := rutas{}
+	sinEspacio := rutas{almacen: t.TempDir()}
+	almacenInexistente := rutas{almacen: filepath.Join(t.TempDir(), "no-existe")}
 	casos := map[string]struct {
-		peticion string
-		args     []string
+		linea    string
+		rutas    rutas
+		codigo   int
+		tipo     string
 		contiene string
 	}{
-		"sin operación":         {"", nil, "uso:"},
-		"operación desconocida": {"", []string{"bailar"}, "desconocida"},
-		"sin almacén":           {"{}", []string{"intentos"}, "--almacen"},
-		"intentar sin espacio":  {"{}", []string{"intentar", "--almacen", t.TempDir()}, "--espacio"},
-		"almacén inexistente":   {`{"Version":"1"}`, []string{"intentos", "--almacen", filepath.Join(t.TempDir(), "no-existe")}, "almacén"},
-		"JSON mal formado":      {"{", append([]string{"intentos"}, e.banderas...), "ilegible"},
-		"campo desconocido":     {`{"Version":"1","Ambient":"prod"}`, append([]string{"intentos"}, e.banderas...), "ilegible"},
+		"JSON mal formado":      {`{`, e.rutas, protocolo.CodigoJSONInvalido, "json_invalido", "JSON"},
+		"no es una petición":    {`[1]`, e.rutas, protocolo.CodigoPeticionInvalida, tipoPeticionInvalida, "petición"},
+		"sin id":                {`{"jsonrpc":"2.0","method":"intentos","params":{}}`, e.rutas, protocolo.CodigoPeticionInvalida, tipoPeticionInvalida, "id"},
+		"sin operación":         {`{"jsonrpc":"2.0","id":"1","params":{}}`, e.rutas, protocolo.CodigoPeticionInvalida, tipoPeticionInvalida, "method"},
+		"operación desconocida": {peticion("bailar", `{}`), e.rutas, protocolo.CodigoMetodoDesconocido, tipoOperacionDesconocida, "bailar"},
+		"campo desconocido":     {peticion("intentos", `{"Version":"1","Ambient":"prod"}`), e.rutas, protocolo.CodigoParametrosInvalidos, tipoParametrosInvalidos, "Ambient"},
+		"entorno sin soportar":  {`{"jsonrpc":"2.0","id":"1","method":"intentos","params":{},"entorno":{"A":"1"}}`, e.rutas, protocolo.CodigoParametrosInvalidos, tipoParametrosInvalidos, "entorno"},
+		"sin almacén":           {peticion("intentos", `{"Version":"1","Ambiente":"prod"}`), sinAlmacen, codigoConfiguracionInvalida, tipoConfiguracionInvalida, nombreAlmacen},
+		"intentar sin espacio":  {peticion("intentar", `{}`), sinEspacio, codigoConfiguracionInvalida, tipoConfiguracionInvalida, nombreEspacio},
+		"almacén inexistente":   {peticion("intentos", `{"Version":"1","Ambiente":"prod"}`), almacenInexistente, codigoConfiguracionInvalida, tipoConfiguracionInvalida, nombreAlmacen},
 	}
 	for nombre, c := range casos {
 		t.Run(nombre, func(t *testing.T) {
-			r := invocar(t, c.peticion, c.args...)
-			require.Equal(t, salidaInvalida, r.codigo, r.errores)
-			require.Contains(t, r.errores, c.contiene)
+			r := invocarLinea(t, c.rutas, c.linea)
+
+			require.Equal(t, salidaInvalida, r.codigo, r.salida)
+			respuesta := r.error(t)
+			require.Equal(t, c.codigo, respuesta.Error.Code)
+			require.Equal(t, c.tipo, respuesta.Error.Data["tipo"])
+			require.Contains(t, respuesta.Error.Message, c.contiene)
+			require.Empty(t, r.errores, "un error de quien invoca no es un error interno")
 		})
 	}
 }
 
-func TestUnaFuenteQueNoExisteFallaConCodigoDeFallo(t *testing.T) {
-	e := nuevoEntorno(t)
+func TestUnaPeticionSinSaltoFinalTambienSeAtiende(t *testing.T) {
+	r := invocarCon(t, context.Background(), rutas{}, strings.NewReader(peticion("describir", `{}`)))
 
-	r := invocar(t, `{"Version":"1","Ambiente":"prod","Solicitante":"ana","FuenteDelProyecto":"/no/existe","FuenteDelPipeline":"/no/existe"}`,
-		append([]string{"intentar"}, e.banderas...)...)
-
-	require.Equal(t, salidaFallo, r.codigo)
-	require.NotEmpty(t, r.errores)
-	require.Empty(t, r.salida)
+	require.Equal(t, salidaBien, r.codigo, r.errores)
 }
 
-func TestVersion(t *testing.T) {
-	r := invocar(t, "", "version")
-	require.Equal(t, salidaBien, r.codigo)
-	require.Equal(t, version+"\n", r.salida)
+func TestSinPeticionEsInvalido(t *testing.T) {
+	r := invocarCon(t, context.Background(), rutas{}, strings.NewReader(""))
+
+	require.Equal(t, salidaInvalida, r.codigo)
+	respuesta := r.error(t)
+	require.Equal(t, protocolo.CodigoPeticionInvalida, respuesta.Error.Code)
+	require.JSONEq(t, `null`, string(respuesta.ID), "sin petición no hay id al que responder")
+}
+
+func TestUnaLineaDemasiadoLargaEsInvalida(t *testing.T) {
+	r := invocarLinea(t, rutas{}, strings.Repeat("x", maximoDeLinea+1))
+
+	require.Equal(t, salidaInvalida, r.codigo)
+	require.Equal(t, protocolo.CodigoPeticionInvalida, r.error(t).Error.Code)
+}
+
+func TestElIdDeLaPeticionSeDevuelveEnElError(t *testing.T) {
+	r := invocarLinea(t, rutas{}, `{"jsonrpc":"2.0","id":42,"method":"bailar"}`)
+
+	require.JSONEq(t, `42`, string(r.error(t).ID))
+}
+
+func TestUnaFuenteQueNoExisteEsUnErrorInternoPorAhora(t *testing.T) {
+	e := nuevoEntorno(t)
+
+	r := invocar(t, e.rutas, "intentar",
+		`{"Version":"1","Ambiente":"prod","Solicitante":"ana","FuenteDelProyecto":"/no/existe","FuenteDelPipeline":"/no/existe"}`)
+
+	require.Equal(t, salidaFallo, r.codigo)
+	respuesta := r.error(t)
+	require.Equal(t, codigoInterno, respuesta.Error.Code)
+	require.Equal(t, "error interno", respuesta.Error.Message, "la causa no se cuenta a quien invoca")
+	require.NotEmpty(t, r.errores, "la causa va a la salida de error")
+}
+
+func TestDescribir_NoNecesitaElMotor(t *testing.T) {
+	r := invocar(t, rutas{}, "describir", `{}`)
+
+	require.Equal(t, salidaBien, r.codigo, r.errores)
+	var d descripcion
+	r.resultado(t, &d)
+	require.Equal(t, version, d.VersionDelMotor)
+	require.Equal(t, borde.VersionesSoportadas, d.VersionesDelLenguaje)
+	require.Contains(t, d.Operaciones, "intentar")
+	require.Contains(t, d.Operaciones, "describir")
+	require.IsIncreasing(t, d.Operaciones, "ordenadas, para que no cambien de una invocación a otra")
+}
+
+func TestDescribir_SinParametrosTambien(t *testing.T) {
+	r := invocarLinea(t, rutas{}, `{"jsonrpc":"2.0","id":"1","method":"describir"}`)
+
+	require.Equal(t, salidaBien, r.codigo, r.errores)
+}
+
+func TestDescribir_NoTieneParametros(t *testing.T) {
+	r := invocar(t, rutas{}, "describir", `{"Version":"1"}`)
+
+	require.Equal(t, salidaInvalida, r.codigo)
+	require.Equal(t, protocolo.CodigoParametrosInvalidos, r.error(t).Error.Code)
+}
+
+func TestCancelacion_UnContextoCancelado(t *testing.T) {
+	e := nuevoEntorno(t)
+	ctx, cancelar := context.WithCancel(context.Background())
+	cancelar()
+
+	r := invocarCon(t, ctx, e.rutas, strings.NewReader(peticion("intentar", e.intento())+"\n"))
+
+	require.Equal(t, salidaCancelado, r.codigo, r.salida)
+}
+
+func TestCancelacion_LaNotificacionCancelarCancelaElIntentoAbierto(t *testing.T) {
+	listo := filepath.Join(t.TempDir(), "listo")
+	e := nuevoEntornoConPipeline(t, func(dir string) {
+		escribir(t, dir, "steps/05-deploy/commands.yaml",
+			"- name: comando-deploy-lento\n  description: tarda\n  cmd: touch "+listo+"; exec sleep 30\n")
+	})
+	entrada, escribirEnLaEntrada := io.Pipe()
+	var salida, errores bytes.Buffer
+	terminado := make(chan int, 1)
+	go func() { terminado <- ejecutar(context.Background(), e.rutas, entrada, &salida, &errores) }()
+
+	_, err := io.WriteString(escribirEnLaEntrada, peticion("intentar", e.intento())+"\n")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { _, err := os.Stat(listo); return err == nil },
+		20*time.Second, 50*time.Millisecond, "el comando lento no llegó a correr")
+	_, err = io.WriteString(escribirEnLaEntrada, `{"jsonrpc":"2.0","method":"cancelar"}`+"\n")
+	require.NoError(t, err)
+
+	select {
+	case codigo := <-terminado:
+		require.Equal(t, salidaCancelado, codigo, salida.String())
+	case <-time.After(20 * time.Second):
+		t.Fatal("cancelar no detuvo el intento")
+	}
+	r := invocacion{salidaCancelado, salida.String(), errores.String()}
+	var resultado struct{ Estado string }
+	r.resultado(t, &resultado)
+	require.Equal(t, "cancelado", resultado.Estado, "el intento ya estaba abierto: es un resultado, no un error")
+	require.NoError(t, escribirEnLaEntrada.Close())
+}
+
+func TestCerrarLaEntradaNoCancela(t *testing.T) {
+	// Un pipe (`echo '…' | vexd`) cierra la entrada nada más escribir: es «no envío más», no «cancela».
+	e := nuevoEntorno(t)
+
+	r := invocarCon(t, context.Background(), e.rutas, strings.NewReader(peticion("intentar", e.intento())+"\n"))
+
+	require.Equal(t, salidaBien, r.codigo, r.salida)
 }
 
 var firmante = object.Signature{Name: "ana", Email: "ana@vex.test", When: time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC)}
@@ -373,17 +578,4 @@ func copiar(t *testing.T, origen, destino string) {
 		escribir(t, destino, relativa, string(contenido))
 		return nil
 	}))
-}
-
-func TestLogs_SinLogsQueMostrarRespondeUnaListaVacia(t *testing.T) {
-	e := nuevoEntornoConPipeline(t, func(dir string) {
-		escribir(t, dir, "steps/05-deploy/commands.yaml", "- name: comando-deploy-ok\n  description: sale bien\n  cmd: echo todo bien\n")
-	})
-	require.Equal(t, salidaBien, invocar(t, e.intento(), append([]string{"intentar"}, e.banderas...)...).codigo)
-
-	r := logs(t, e, `{"Version":"1","Resultado":"fallido"}`)
-
-	require.Equal(t, salidaBien, r.codigo, r.errores)
-	require.Empty(t, leerLogs(t, r).Salidas)
-	require.Contains(t, r.salida, `"Salidas": {}`)
 }

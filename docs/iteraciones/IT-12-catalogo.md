@@ -136,6 +136,11 @@ el CLI y el portal (`DEC-11.6`). Escribirlo en la cabecera evita que la condici�
 el producto no asume (`DEC-08.8`). La promesa de no exponer valores es sobre lo que **se guarda y se
 publica**, y eso no cambia: registros, consulta del historial y diagnóstico.
 
+> **Revisión.** El código dejó de cumplir el segundo punto: la salida de cada comando se entrega al Historial
+> al terminar el comando y se consulta con la operación `logs` (`docs/modelo/lenguaje-publicado.md`; no se
+> muestra al intentar). Sigue sin taparse nada ni haber enmascarado. La promesa de no exponer valores se
+> refiere a los registros de variables, no a la salida de los comandos. Ver `RD-13`.
+
 ### DEC-12.6 — Los ficheros del pipeline: la estructura de hoy, con `config.yaml` en el lenguaje del modelo *(Q-12.2)*
 
 **Decisión.**

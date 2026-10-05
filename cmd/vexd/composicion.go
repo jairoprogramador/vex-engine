@@ -31,12 +31,24 @@ type rutas struct {
 	material string
 }
 
+// validar dice qué falta de la configuración del proceso para atender la operación: el almacén siempre, el
+// espacio solo si la operación ejecuta comandos. El mensaje nombra la variable.
+func (r rutas) validar(op operacion) error {
+	if r.almacen == "" {
+		return fmt.Errorf("%w: falta %s: dónde está el historial", errConfiguracion, nombreAlmacen)
+	}
+	if op.usaEspacio && r.espacio == "" {
+		return fmt.Errorf("%w: falta %s: dónde trabajan los pasos de cada ambiente", errConfiguracion, nombreEspacio)
+	}
+	return nil
+}
+
 // componer es la raíz de composición: el único sitio que conoce todos los contextos y los conecta. Los de
 // abajo (Historial, Suministro) se construyen primero; los de entrada, con lo publicado de los de abajo.
 func componer(r rutas) (*borde.Servicio, error) {
 	almacen, err := historialinfraestructura.NuevoAlmacenLocal(r.almacen)
 	if err != nil {
-		return nil, fmt.Errorf("el almacén del historial: %w", err)
+		return nil, fmt.Errorf("%w: el almacén del historial (%s): %w", errConfiguracion, nombreAlmacen, err)
 	}
 	historial := historialaplicacion.NuevoServicio(historialaplicacion.Dependencias{
 		Intentos:     historialinfraestructura.NuevosIntentos(almacen),

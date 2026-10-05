@@ -237,7 +237,7 @@ if [ "$COMPILAR" = 1 ]; then
   (cd "$RAIZ" && go build -o vexd ./cmd/vexd)
 fi
 [ -x "$VEXD" ] || { echo "${ROJO}no existe $VEXD: responde que sí a compilar${RESET}" >&2; exit 1; }
-echo "${TENUE}versión de vexd: $("$VEXD" version)${RESET}"
+echo "${TENUE}vexd dice de sí mismo: $(printf '%s\n' '{"jsonrpc":"2.0","id":"1","method":"describir"}' | "$VEXD")${RESET}"
 
 # 2. Preparar directorios y repos (el del pipeline solo se crea si no existe: así se puede editar entre pruebas)
 [ "$LIMPIO" = 1 ] && rm -rf "$DEMO_DIR"
@@ -269,8 +269,13 @@ export DEMO_DIR="$DEMO_DIR"
 export VEX_ALMACEN="$DEMO_DIR/almacen"
 export VEX_ESPACIO="$DEMO_DIR/espacio"
 export VEX_MATERIAL="$DEMO_DIR/material"
-# vexd_demo <operación>   (la petición JSON se lee de la entrada estándar)
-vexd_demo() { "$VEXD" "\$@"; }
+# vexd_demo <operación> [params JSON]   envía una petición del protocolo (JSON-RPC, una línea) a vexd
+# y muestra la respuesta; \$VEX_* ya están exportadas. Ejemplo: vexd_demo intentos '{"Version":"1","Ambiente":"sand"}'
+vexd_demo() {
+  local params="\${2:-}"
+  [ -n "\$params" ] || params='{}'
+  printf '{"jsonrpc":"2.0","id":"1","method":"%s","params":%s}\n' "\$1" "\$(tr -d '\n' <<<"\$params")" | "\$VEXD"
+}
 ENTORNO
 
 # 3. Ejecutar la operación: la petición se arma con las opciones elegidas, se muestra y se envía tal cual.
@@ -306,26 +311,26 @@ PETICION="{
   \"Version\": \"1\",
   $CAMPOS
 }"
-COMANDO=("$VEXD" "$OPERACION"
-  --almacen "$DEMO_DIR/almacen"
-  --espacio "$DEMO_DIR/espacio"
-  --material "$DEMO_DIR/material")
-printf '\n%s(copia y pega en una terminal para enviar esta misma petición a vexd)%s\n' "$TENUE" "$RESET"
+# vexd habla JSON-RPC por la entrada y la salida estándar: una línea por mensaje (docs/rediseno/RD-13-protocolo.md).
 # Una sola línea: sin terminador de heredoc que se rompa al copiar (espacios al final de línea).
-PETICION_EN_UNA_LINEA="$(tr '\n' ' ' <<<"$PETICION" | tr -s ' ')"
-printf '%s%s<<<'"'"'%s'"'"'%s\n' "$CIAN$NEGRITA" "$(printf '%q ' "${COMANDO[@]}")" "$PETICION_EN_UNA_LINEA" "$RESET"
+PARAMS_EN_UNA_LINEA="$(tr '\n' ' ' <<<"$PETICION" | tr -s ' ')"
+MENSAJE="{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"$OPERACION\",\"params\":$PARAMS_EN_UNA_LINEA}"
+ENTORNO_DE_VEXD=(VEX_ALMACEN="$DEMO_DIR/almacen" VEX_ESPACIO="$DEMO_DIR/espacio" VEX_MATERIAL="$DEMO_DIR/material")
+printf '\n%s(copia y pega en una terminal para enviar esta misma petición a vexd)%s\n' "$TENUE" "$RESET"
+printf '%s%s %q <<<'"'"'%s'"'"'%s\n' "$CIAN$NEGRITA" "$(printf '%q ' "${ENTORNO_DE_VEXD[@]}")" "$VEXD" "$MENSAJE" "$RESET"
 
 seccion "$MAGENTA" "RESPUESTA DEL MOTOR"
-printf '%sstdout: la respuesta · stderr: los errores%s\n\n' "$TENUE" "$RESET"
+printf '%sstdout: la respuesta (una línea; con jq se muestra con sangría) · stderr: la causa de un error interno%s\n\n' "$TENUE" "$RESET"
 set +e
-"${COMANDO[@]}" <<<"$PETICION"
+RESPUESTA="$(env "${ENTORNO_DE_VEXD[@]}" "$VEXD" <<<"$MENSAJE")"
 codigo=$?
 set -e
+if command -v jq >/dev/null 2>&1; then jq . <<<"$RESPUESTA"; else echo "$RESPUESTA"; fi
 
 color_codigo="$ROJO"
 [ "$codigo" = 0 ] && color_codigo="$VERDE"
 seccion "$color_codigo" "RESULTADO"
-printf 'código de salida: %s%s%s   %s(0 bien · 1 falló · 2 petición inválida · 130 cancelado)%s\n' \
+printf 'código de salida: %s%s%s   %s(0 bien · 1 falló · 2 petición o configuración inválida · 130 cancelado; el motivo, en error.data.tipo)%s\n' \
   "$color_codigo$NEGRITA" "$codigo" "$RESET" "$TENUE" "$RESET"
 printf '%spara seguir: source %s/entorno.sh   y mira docs/guia-de-pruebas.md%s\n' "$TENUE" "$DEMO_DIR" "$RESET"
 exit "$codigo"

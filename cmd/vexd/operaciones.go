@@ -4,41 +4,62 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/jairoprogramador/vex-engine/internal/borde"
 )
 
-// errEntrada es una petición que no se pudo leer: JSON mal formado o con campos que el lenguaje publicado no
-// tiene. Es un error de quien invoca, no de la operación.
-var errEntrada = errors.New("petición ilegible")
+const nombreDescribir = "describir"
 
-// atender lee la petición de una operación, la envía al borde y devuelve su respuesta.
-type atender func(ctx context.Context, s *borde.Servicio, peticion []byte) (any, error)
+// atender lee los parámetros de una operación, la envía al borde y devuelve su respuesta. El servicio es nil en
+// las operaciones que no usan el motor.
+type atender func(ctx context.Context, s *borde.Servicio, params []byte) (any, error)
 
-// operacion es una operación del lenguaje publicado (docs/modelo/lenguaje-publicado.md) con su nombre en la
-// línea de comandos.
+// operacion es una operación del lenguaje publicado (docs/modelo/lenguaje-publicado.md) con el nombre con que se
+// pide: el method de la petición.
 type operacion struct {
 	nombre string
+	// usaMotor: la operación necesita el almacén y los contextos compuestos. describir no: sirve para saber si
+	// este motor y quien invoca se entienden antes de pedirle nada.
+	usaMotor bool
 	// usaEspacio: la operación ejecuta comandos, así que necesita el espacio de trabajo de los ambientes.
 	usaEspacio bool
 	atender    atender
 }
 
-var operaciones = []operacion{
-	{"intentar", true, consulta((*borde.Servicio).Intentar)},
-	{"rollback", true, consulta((*borde.Servicio).HacerRollback)},
-	{"simular", false, consulta((*borde.Servicio).Simular)},
-	{"lanzar", false, consulta((*borde.Servicio).Lanzar)},
-	{"reservar", false, sinRespuesta((*borde.Servicio).Reservar)},
-	{"liberar", false, sinRespuesta((*borde.Servicio).Liberar)},
-	{"diagnosticar", false, consultaResumida((*borde.Servicio).PreguntarLaCausa, presentarDiagnostico)},
-	{"abandonar", false, sinRespuesta((*borde.Servicio).AbandonarIntento)},
-	{"intento", false, consultaResumida((*borde.Servicio).Intento, resumir)},
-	{"intentos", false, consultaResumida((*borde.Servicio).IntentosDeUnAmbiente, resumirTodos)},
-	{"despliegues", false, consultaResumida((*borde.Servicio).DesplieguesDeUnAmbiente, mostrarDespliegues)},
-	{"logs", false, atenderLogs()},
+func delMotor(nombre string, atender atender) operacion {
+	return operacion{nombre: nombre, usaMotor: true, atender: atender}
+}
+
+func delMotorConEspacio(nombre string, atender atender) operacion {
+	return operacion{nombre: nombre, usaMotor: true, usaEspacio: true, atender: atender}
+}
+
+var operaciones = registrar(
+	delMotorConEspacio("intentar", consulta((*borde.Servicio).Intentar)),
+	delMotorConEspacio("rollback", consulta((*borde.Servicio).HacerRollback)),
+	delMotor("simular", consulta((*borde.Servicio).Simular)),
+	delMotor("lanzar", consulta((*borde.Servicio).Lanzar)),
+	delMotor("reservar", sinRespuesta((*borde.Servicio).Reservar)),
+	delMotor("liberar", sinRespuesta((*borde.Servicio).Liberar)),
+	delMotor("diagnosticar", consulta((*borde.Servicio).PreguntarLaCausa)),
+	delMotor("abandonar", sinRespuesta((*borde.Servicio).AbandonarIntento)),
+	delMotor("intento", consulta((*borde.Servicio).Intento)),
+	delMotor("intentos", consulta((*borde.Servicio).IntentosDeUnAmbiente)),
+	delMotor("despliegues", consulta((*borde.Servicio).DesplieguesDeUnAmbiente)),
+	delMotor("logs", consulta((*borde.Servicio).Logs)),
+)
+
+// registrar añade describir, que cuenta las operaciones y por eso no puede ser una fila más de la tabla.
+func registrar(ops ...operacion) []operacion {
+	nombres := make([]string, 0, len(ops)+1)
+	for _, o := range ops {
+		nombres = append(nombres, o.nombre)
+	}
+	nombres = append(nombres, nombreDescribir)
+	sort.Strings(nombres)
+	return append(ops, operacion{nombre: nombreDescribir, atender: atenderDescribir(nombres)})
 }
 
 func buscar(nombre string) (operacion, bool) {
@@ -50,41 +71,37 @@ func buscar(nombre string) (operacion, bool) {
 	return operacion{}, false
 }
 
-func consulta[P, R any](op func(*borde.Servicio, context.Context, P) (R, error)) atender {
-	return func(ctx context.Context, s *borde.Servicio, peticion []byte) (any, error) {
-		var p P
-		if err := decodificar(peticion, &p); err != nil {
+// descripcion es lo que dice este motor de sí mismo: la imagen del contenedor y quien invoca se versionan por
+// separado, y así se puede comprobar que se entienden.
+type descripcion struct {
+	VersionDelMotor      string
+	VersionesDelLenguaje []string
+	Operaciones          []string
+}
+
+type sinParametros struct{}
+
+func atenderDescribir(nombres []string) atender {
+	return func(_ context.Context, _ *borde.Servicio, params []byte) (any, error) {
+		var vacios sinParametros
+		if err := decodificar(params, &vacios); err != nil {
 			return nil, err
 		}
-		return op(s, ctx, p)
+		return descripcion{
+			VersionDelMotor:      version,
+			VersionesDelLenguaje: borde.VersionesSoportadas,
+			Operaciones:          nombres,
+		}, nil
 	}
 }
 
-// consultaResumida es una consulta cuya respuesta se resume antes de imprimirse: el borde publica el detalle
-// completo, pero la línea de comandos solo muestra lo que resumir deja.
-func consultaResumida[P, R, V any](
-	op func(*borde.Servicio, context.Context, P) (R, error), resumir func(R) V,
-) atender {
-	return consulta(func(s *borde.Servicio, ctx context.Context, p P) (V, error) {
-		r, err := op(s, ctx, p)
-		if err != nil {
-			var vacio V
-			return vacio, err
+func consulta[P, R any](op func(*borde.Servicio, context.Context, P) (R, error)) atender {
+	return func(ctx context.Context, s *borde.Servicio, params []byte) (any, error) {
+		var p P
+		if err := decodificar(params, &p); err != nil {
+			return nil, err
 		}
-		return resumir(r), nil
-	})
-}
-
-// atenderLogs atiende logs: un historial sin ningún intento no es un fallo, no hay logs que mostrar y así se
-// dice. Un historial que existe y no se puede leer sí lo es, y sigue su camino como error.
-func atenderLogs() atender {
-	logs := consultaResumida((*borde.Servicio).Logs, presentarLogs)
-	return func(ctx context.Context, s *borde.Servicio, peticion []byte) (any, error) {
-		respuesta, err := logs(ctx, s, peticion)
-		if errors.Is(err, borde.ErrHistorialSinIntentos) {
-			return vistaSoloMensaje{Mensaje: mensajeLogsSinHistorial}, nil
-		}
-		return respuesta, err
+		return op(s, ctx, p)
 	}
 }
 
@@ -98,11 +115,11 @@ func sinRespuesta[P any](op func(*borde.Servicio, context.Context, P) error) ate
 
 // decodificar es estricta: un campo que el lenguaje publicado no tiene es casi siempre un error de escritura,
 // y ignorarlo haría que el motor hiciera otra cosa de la que se pidió.
-func decodificar(peticion []byte, destino any) error {
-	d := json.NewDecoder(bytes.NewReader(peticion))
+func decodificar(params []byte, destino any) error {
+	d := json.NewDecoder(bytes.NewReader(params))
 	d.DisallowUnknownFields()
 	if err := d.Decode(destino); err != nil {
-		return fmt.Errorf("%w: %w", errEntrada, err)
+		return fmt.Errorf("%w: %w", errParametros, err)
 	}
 	return nil
 }
