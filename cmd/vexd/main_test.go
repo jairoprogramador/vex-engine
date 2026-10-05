@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -448,17 +449,58 @@ func TestElIdDeLaPeticionSeDevuelveEnElError(t *testing.T) {
 	require.JSONEq(t, `42`, string(r.error(t).ID))
 }
 
-func TestUnaFuenteQueNoExisteEsUnErrorInternoPorAhora(t *testing.T) {
+func TestUnaFuenteQueNoExisteEsUnaPeticionInvalida(t *testing.T) {
 	e := nuevoEntorno(t)
 
 	r := invocar(t, e.rutas, "intentar",
 		`{"Version":"1","Ambiente":"prod","Solicitante":"ana","FuenteDelProyecto":"/no/existe","FuenteDelPipeline":"/no/existe"}`)
 
-	require.Equal(t, salidaFallo, r.codigo)
+	require.Equal(t, salidaInvalida, r.codigo, "quien invoca lo puede corregir")
 	respuesta := r.error(t)
-	require.Equal(t, codigoInterno, respuesta.Error.Code)
-	require.Equal(t, "error interno", respuesta.Error.Message, "la causa no se cuenta a quien invoca")
-	require.NotEmpty(t, r.errores, "la causa va a la salida de error")
+	require.Equal(t, protocolo.CodigoParametrosInvalidos, respuesta.Error.Code)
+	require.Equal(t, tipoParametrosInvalidos, respuesta.Error.Data["tipo"])
+	require.Contains(t, respuesta.Error.Message, "/no/existe")
+	require.Empty(t, r.errores, "no es un error interno")
+}
+
+func TestSimularConUnaFuenteQueNoExisteEsUnaPeticionInvalida(t *testing.T) {
+	e := nuevoEntorno(t)
+
+	r := invocar(t, e.rutas, "simular",
+		`{"Version":"1","Ambiente":"prod","Solicitante":"ana","HastaPaso":"test","CopiaDeTrabajo":"/no/existe"}`)
+
+	require.Equal(t, salidaInvalida, r.codigo)
+	require.Equal(t, protocolo.CodigoParametrosInvalidos, r.error(t).Error.Code)
+}
+
+func TestUnPipelineQueNoPasaLaComprobacionEsRechazado(t *testing.T) {
+	e := nuevoEntornoConPipeline(t, func(dir string) {
+		escribir(t, dir, "config.yaml", "schema_version: 99\n")
+	})
+
+	r := invocar(t, e.rutas, "intentar", e.intento())
+
+	require.Equal(t, salidaFallo, r.codigo, "la petición era válida: lo que falla es el pipeline")
+	respuesta := r.error(t)
+	require.Equal(t, codigoRechazado, respuesta.Error.Code)
+	require.Equal(t, tipoRechazado, respuesta.Error.Data["tipo"])
+	require.Contains(t, respuesta.Error.Message, "config.yaml", "dice qué fichero falla")
+	require.Empty(t, r.errores)
+}
+
+func TestUnErrorInternoNoCuentaSuCausaPeroLaEscribeEnLaSalidaDeError(t *testing.T) {
+	var salida, errores bytes.Buffer
+	causa := errors.New("el disco /var/almacen se llenó")
+	f := clasificar(causa)
+	f.causa = causa
+
+	codigo := responder(protocolo.NuevoEmisor(&salida), &errores, protocolo.Peticion{ID: json.RawMessage(`"9"`), Method: "intentar"}, f)
+
+	require.Equal(t, salidaFallo, codigo)
+	require.Contains(t, salida.String(), `"error interno"`)
+	require.NotContains(t, salida.String(), "disco", "la causa no llega a quien invoca")
+	require.Contains(t, errores.String(), "el disco /var/almacen se llenó", "va a la salida de error")
+	require.Contains(t, errores.String(), "intentar")
 }
 
 func TestDescribir_NoNecesitaElMotor(t *testing.T) {

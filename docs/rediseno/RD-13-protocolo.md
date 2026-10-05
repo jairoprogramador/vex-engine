@@ -43,6 +43,11 @@ vex ◄─ {response} ──────────   vexd escribe UNA respuest
   - Si el intento ya se abrió, la respuesta es un `result` con el `Resultado` `cancelado` y la salida es `130`.
   - Si se cancela **antes** de abrirlo (aún se resolvían las fuentes), no hay intento: es el error `-32007`
     `cancelado`, salida `130`.
+- **Cancelar acaba con todo lo que lanzó el comando, no solo con el shell.** Cada comando corre en su propio
+  grupo de procesos: al cancelar recibe `SIGTERM` (así terraform puede soltar el bloqueo de su estado) y, pasado el
+  plazo de gracia (5 s, menor que los 10 s de `docker stop`), `SIGKILL` el grupo entero. Más señales no matan a
+  `vexd`: dejarían huérfano lo que lanzó y el intento sin cerrar. Por eso `vexd` siempre termina solo, como mucho
+  a los 5 s, con el intento `cancelado`.
 - Si quien invoca muere sin cancelar, el contenedor sigue vivo. Evitarlo es de quien lo lanzó (`--rm` y detener el
   contenedor al terminar), no del protocolo.
 - Una línea no puede pasar de un límite fijo (propuesta: 1 MiB); excederlo es petición inválida.
@@ -134,9 +139,18 @@ Todo lo demás, `0`.
 **Orden de clasificación.** `*historial.AmbienteOcupadoError` se comprueba con `errors.As` **antes** que los
 sentinelas: también cumple `errors.Is` contra los dos `ErrRechazado`, y si se mirara después perdería `data.intento`.
 
-**Errores de contextos ajenos.** Los de Definición, Suministro y Resolución (pipeline no válido, fuente que no
-existe…) se traducen **dentro de la aplicación de Ejecución y de Simulación** a su `ErrInvalido`/`ErrRechazado`
-publicado, conservando la causa. El adaptador no importa esos contextos: solo clasifica lo que el borde publica.
+**Errores de contextos ajenos.** Los de Definición, Suministro y Resolución los traduce, como un ACL, la
+`infraestructura` de Ejecución y de Simulación a su error de dominio (conservando la causa, así que `errors.Is` y
+`errors.As` siguen viendo el original), y la `aplicacion` de cada una lo lleva al `ErrInvalido`/`ErrRechazado`
+publicado. El adaptador de `cmd/vexd` no importa esos contextos: solo clasifica lo que el borde publica.
+
+| Origen | Se vuelve | Respuesta |
+|---|---|---|
+| fuente, commit o copia de trabajo que no están (`ErrNoExiste`), o que no se pueden pedir (`ErrInvalido`) | `ErrInvalido` | `-32602`, salida 2 |
+| pipeline que no pasa la comprobación (`ErrNoComprobado`), o variable que no existe (`ErrRechazado` de Resolución) | `ErrRechazado` | `-32002`, salida 1 |
+| cualquier otro | sin cambio | `-32000` interno, salida 1 |
+
+En `simular`, un pipeline que no pasa la comprobación no es un error sino el resultado (`Causa.Fallos`).
 
 Los códigos y `data.tipo` son **estables**: añadir uno es compatible, cambiar o reutilizar uno no.
 

@@ -22,7 +22,7 @@ func NuevosPipelines(p definicionpublicado.ParaEjecucion) *Pipelines {
 func (p *Pipelines) DeHoy(ctx context.Context, fuente string) (dominio.Pipeline, error) {
 	pipeline, err := p.pipelines.DeHoy(ctx, fuente)
 	if err != nil {
-		return dominio.Pipeline{}, fmt.Errorf("ejecución: el pipeline de %q: %w", fuente, err)
+		return dominio.Pipeline{}, delContextoDeArriba(fmt.Errorf("ejecución: el pipeline de %q: %w", fuente, err))
 	}
 	return pipelineDeDominio(pipeline)
 }
@@ -30,7 +30,7 @@ func (p *Pipelines) DeHoy(ctx context.Context, fuente string) (dominio.Pipeline,
 func (p *Pipelines) DeUnCommit(ctx context.Context, fuente, commit string) (dominio.Pipeline, error) {
 	pipeline, err := p.pipelines.DeUnCommit(ctx, fuente, commit)
 	if err != nil {
-		return dominio.Pipeline{}, fmt.Errorf("ejecución: el pipeline de %s@%s: %w", fuente, commit, err)
+		return dominio.Pipeline{}, delContextoDeArriba(fmt.Errorf("ejecución: el pipeline de %s@%s: %w", fuente, commit, err))
 	}
 	return pipelineDeDominio(pipeline)
 }

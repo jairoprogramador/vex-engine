@@ -33,7 +33,7 @@ func (s *Servicio) Simular(ctx context.Context, p publicado.PeticionDeSimulacion
 			resultado.Causa = &publicado.Causa{Fallos: traducirFallos(fallos.Fallos)}
 			return resultado, nil
 		}
-		return publicado.Resultado{}, err
+		return publicado.Resultado{}, traducir(err)
 	}
 
 	ambiente, err := pipeline.AmbientePorValor(p.Ambiente)
@@ -47,7 +47,7 @@ func (s *Servicio) Simular(ctx context.Context, p publicado.PeticionDeSimulacion
 
 	faltante, err := s.recorrerAmbiente(ctx, pipeline, ambiente, pasos, p.Metadatos)
 	if err != nil {
-		return publicado.Resultado{}, err
+		return publicado.Resultado{}, traducir(err)
 	}
 	if faltante != nil {
 		resultado.Estado = publicado.EstadoFallido

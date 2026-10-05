@@ -13,7 +13,8 @@
 // historial y se consulta con logs. En la salida de error va solo la causa de un error interno.
 //
 // Códigos de salida: 0 bien · 1 la operación falló, o el intento terminó fallido · 2 la petición o la
-// configuración son inválidas · 130 cancelado por señal o por la notificación cancelar.
+// configuración son inválidas · 130 cancelado por señal o por la notificación cancelar. Cancelar le pide a cada
+// comando que termine y, pasado el plazo de gracia, acaba con él y con lo que lanzó: más señales no matan a vexd.
 package main
 
 import (
@@ -42,10 +43,11 @@ const (
 )
 
 func main() {
-	// Una segunda señal mata el proceso: stop() devuelve el comportamiento por defecto tras la primera.
+	// La primera señal cancela. Las siguientes no matan a vexd: cada comando corre en su propio grupo de procesos,
+	// así que morir de golpe dejaría huérfano lo que lanzó y el intento sin cerrar. Cancelar tiene un plazo (los
+	// comandos que no terminan con SIGTERM mueren al acabarse el de gracia), así que vexd siempre acaba solo.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go func() { <-ctx.Done(); stop() }()
 
 	os.Exit(ejecutar(ctx, rutasDelEntorno(os.Getenv), os.Stdin, os.Stdout, os.Stderr))
 }

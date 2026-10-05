@@ -2,6 +2,8 @@ package aplicacion_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -43,6 +45,27 @@ func TestSimularCuandoLaComprobacionFalla(t *testing.T) {
 		Causa: &publicado.Causa{Fallos: []publicado.Fallo{{Invariante: "formato", Fichero: "config.yaml", Detalle: `schema_version "2" no se lee`}}},
 	}, resultado)
 	require.Zero(t, espacio.contador(), "nada se recorre si la comprobación falla")
+}
+
+func TestSimularLlevaLosErroresDelDominioAlLenguajePublicado(t *testing.T) {
+	invalido := fmt.Errorf("%w: el pipeline de p@c1 no está", dominio.ErrInvalido)
+	s, _, _ := nuevoServicio(dominio.Pipeline{}, invalido)
+
+	_, err := s.Simular(context.Background(), peticion("sand", "test"))
+
+	require.ErrorIs(t, err, publicado.ErrInvalido, "una fuente que no está donde se dice es una petición inválida")
+	require.ErrorIs(t, err, dominio.ErrInvalido, "y sigue siendo el error de dominio que la causó")
+	require.Equal(t, invalido.Error(), err.Error(), "sin cambiar lo que dice")
+}
+
+func TestSimularNoConvierteUnFalloDeVerdadEnUnaPeticionInvalida(t *testing.T) {
+	roto := errors.New("el disco se llenó")
+	s, _, _ := nuevoServicio(dominio.Pipeline{}, roto)
+
+	_, err := s.Simular(context.Background(), peticion("sand", "test"))
+
+	require.ErrorIs(t, err, roto)
+	require.NotErrorIs(t, err, publicado.ErrInvalido)
 }
 
 func pipelineDeUnAmbiente(nombre, valor string, variables []dominio.VariableDeclarada, pasos []dominio.Paso) dominio.Pipeline {

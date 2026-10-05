@@ -114,6 +114,10 @@ Un intento `fallido` **sí imprime su respuesta** en stdout, además de salir co
 Con `SIGTERM` o Ctrl-C, o enviando, en la misma entrada, la notificación `{"jsonrpc":"2.0","method":"cancelar"}`.
 **Cerrar la entrada no cancela**: un pipe la cierra nada más escribir, y solo quiere decir «no envío más».
 
+Cancelar le pide a cada comando que termine (`SIGTERM`) y acaba con él, y con todo lo que lanzó, a los 5 s si no lo
+hace. Pulsar Ctrl-C más veces no acelera nada: `vexd` no muere de golpe, para no dejar procesos huérfanos ni el
+ambiente ocupado.
+
 ## Cómo se escribe una petición
 
 Los campos de cada operación van en `params`. Reglas:
