@@ -190,8 +190,10 @@ func (s *Servicio) DesplieguesDeUnAmbiente(ctx context.Context, ambiente string)
 	if err != nil {
 		return nil, traducir(err)
 	}
-	var resultado []publicado.Despliegue
-	for _, d := range despliegues.Todos() {
+	todos := despliegues.Todos()
+	// Vacío y no nil, para que se serialice como [] y no como null.
+	resultado := make([]publicado.Despliegue, 0, len(todos))
+	for _, d := range todos {
 		resultado = append(resultado, despliegueAPublicado(d))
 	}
 	return resultado, nil

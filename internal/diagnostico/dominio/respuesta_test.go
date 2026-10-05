@@ -12,7 +12,7 @@ import (
 func TestRespuesta(t *testing.T) {
 	t.Run("con atribución da su forma, la atribución y el sustento", func(t *testing.T) {
 		atribucion := dominio.NuevaAtribucion([]dominio.Eje{dominio.Variables})
-		sustento := dominio.NuevoSustento(time.Time{}, nil)
+		sustento := dominio.NuevoSustento(dominio.IdIntento{}, time.Time{}, nil)
 		r := dominio.NuevaRespuestaConAtribucion(atribucion, sustento)
 
 		require.Equal(t, dominio.ConAtribucion, r.Forma())

@@ -9,10 +9,11 @@ import (
 )
 
 // logsDeUnIntento es lo que la línea de comandos muestra de la salida de los comandos de un intento: cuál es y,
-// por cada paso que corrió, lo que escribió cada comando. Es solo presentación: el Historial guarda, y el
+// de qué ambiente es y, por cada paso que corrió, lo que escribió cada comando. Es solo presentación: el Historial guarda, y el
 // borde publica, la salida completa.
 type logsDeUnIntento struct {
 	IntentoId string
+	Ambiente  string
 	Salidas   salidasPorPaso
 }
 
@@ -58,7 +59,7 @@ func (s salidasPorPaso) MarshalJSON() ([]byte, error) {
 // no tiene salidas y no aparece. Al texto se le quita el salto de línea final con que el comando terminó su
 // última línea.
 func presentarLogs(r borde.RespuestaDeLogs) logsDeUnIntento {
-	logs := logsDeUnIntento{IntentoId: r.Intento, Salidas: salidasPorPaso{}}
+	logs := logsDeUnIntento{IntentoId: r.Intento, Ambiente: r.Ambiente, Salidas: salidasPorPaso{}}
 	for _, s := range r.Salidas {
 		vista := vistaDeLog{
 			Comando:   s.Comando,

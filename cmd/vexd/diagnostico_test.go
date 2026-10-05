@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -20,25 +21,79 @@ func TestPresentarDiagnostico_SinReferenciaMuestraSoloElMensaje(t *testing.T) {
 	require.JSONEq(t, `{"Mensaje":"`+mensajeSinHistorial+`"}`, string(salida))
 }
 
-func TestPresentarDiagnostico_LasOtrasFormasNoLlevanMensaje(t *testing.T) {
-	casos := map[string]diagnosticopublicado.Respuesta{
-		"con atribución": {
-			Forma:      diagnosticopublicado.ConAtribucion,
-			Atribucion: []diagnosticopublicado.Eje{diagnosticopublicado.Codigo},
-		},
-		"no se atribuye": {Forma: diagnosticopublicado.NoSeAtribuye},
-	}
-	for nombre, r := range casos {
-		t.Run(nombre, func(t *testing.T) {
-			salida, err := json.Marshal(presentarDiagnostico(r))
+func TestPresentarDiagnostico_NoSeAtribuyeMuestraSoloUnMensaje(t *testing.T) {
+	r := diagnosticopublicado.Respuesta{Forma: diagnosticopublicado.NoSeAtribuye}
 
-			require.NoError(t, err)
-			var vista map[string]any
-			require.NoError(t, json.Unmarshal(salida, &vista))
-			require.ElementsMatch(t, []string{"Forma", "Atribucion", "Sustento"}, claves(vista))
-			require.Equal(t, string(r.Forma), vista["Forma"])
-		})
+	salida, err := json.Marshal(presentarDiagnostico(r))
+
+	require.NoError(t, err)
+	require.JSONEq(t, `{"Mensaje":"`+mensajeNoSeAtribuye+`"}`, string(salida))
+}
+
+func sustentoDeEjemplo() diagnosticopublicado.Sustento {
+	instante := time.Date(2026, 10, 4, 22, 4, 47, 0, time.UTC)
+	return diagnosticopublicado.Sustento{
+		IntentoQueFalla:            "fallido",
+		InstanteDelIntentoQueFalla: instante.Add(time.Hour),
+		EjesCambiados: []diagnosticopublicado.CambioDeEje{
+			{Eje: diagnosticopublicado.Codigo, Pasos: []string{"test"}},
+			{Eje: diagnosticopublicado.Instrucciones, Pasos: []string{"test"}},
+		},
+		Comparaciones: []diagnosticopublicado.Comparacion{{
+			Despliegue: "despliegue", Ambiente: "sand", Intento: "exitoso", Instante: instante,
+			CantidadDeIntentos: 3, HayCantidadDeIntentos: true,
+		}},
 	}
+}
+
+func TestPresentarDiagnostico_ConAtribucionEsCompacto(t *testing.T) {
+	r := diagnosticopublicado.Respuesta{Forma: diagnosticopublicado.ConAtribucion, Sustento: sustentoDeEjemplo()}
+
+	salida, err := json.Marshal(presentarDiagnostico(r))
+
+	require.NoError(t, err)
+	require.JSONEq(t, `{
+		"Ambiente": "sand",
+		"IntentoExitoso": {"Id": "exitoso", "Fecha": "2026-10-04T22:04:47Z"},
+		"IntentoFallido": {"Id": "fallido", "Fecha": "2026-10-04T23:04:47Z", "CantidadDeIntentos": 3},
+		"Sustento": {
+			"Codigo": {"Mensaje": "`+mensajeCodigoModificado+`", "Pasos": ["test"]},
+			"Instrucciones": {"Mensaje": "`+mensajeInstruccionesCambio+`", "Pasos": ["test"]}
+		}
+	}`, string(salida))
+}
+
+func TestPresentarDiagnostico_OmiteLoQueNoCambio(t *testing.T) {
+	sustento := sustentoDeEjemplo()
+	sustento.EjesCambiados = sustento.EjesCambiados[:1]
+	sustento.Comparaciones[0].HayCantidadDeIntentos = false
+
+	salida, err := json.Marshal(presentarDiagnostico(
+		diagnosticopublicado.Respuesta{Forma: diagnosticopublicado.ConAtribucion, Sustento: sustento}))
+
+	require.NoError(t, err)
+	var vista struct {
+		IntentoFallido map[string]any
+		Sustento       map[string]any
+	}
+	require.NoError(t, json.Unmarshal(salida, &vista))
+	require.ElementsMatch(t, []string{"Id", "Fecha"}, claves(vista.IntentoFallido))
+	require.Equal(t, []string{"Codigo"}, claves(vista.Sustento))
+}
+
+func TestPresentarDiagnostico_VariablesSoloConCambios(t *testing.T) {
+	sustento := sustentoDeEjemplo()
+	sustento.VariablesProducidasCambiadas = []diagnosticopublicado.CambioDeVariable{{Paso: "test", Nombre: "url"}}
+
+	salida, err := json.Marshal(presentarDiagnostico(
+		diagnosticopublicado.Respuesta{Forma: diagnosticopublicado.ConAtribucion, Sustento: sustento}))
+
+	require.NoError(t, err)
+	var vista struct {
+		Sustento struct{ Variables map[string]any }
+	}
+	require.NoError(t, json.Unmarshal(salida, &vista))
+	require.ElementsMatch(t, []string{"Mensaje", "ProducidasCambiadas"}, claves(vista.Sustento.Variables))
 }
 
 func TestDiagnosticar_SinHistorialPrevioMuestraSoloElMensaje(t *testing.T) {

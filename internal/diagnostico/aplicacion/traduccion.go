@@ -28,6 +28,7 @@ func ejesAPublicado(ejes []dominio.Eje) []publicado.Eje {
 
 func sustentoAPublicado(s dominio.Sustento) publicado.Sustento {
 	resultado := publicado.Sustento{
+		IntentoQueFalla:              s.IntentoQueFalla.String(),
 		InstanteDelIntentoQueFalla:   s.InstanteDelIntentoQueFalla,
 		VariablesDeclaradasCambiadas: cambiosDeVariableAPublicado(s.VariablesDeclaradasCambiadas),
 		VariablesProducidasCambiadas: cambiosDeVariableAPublicado(s.VariablesProducidasCambiadas),
@@ -62,6 +63,7 @@ func comparacionAPublicado(c dominio.Comparacion) publicado.Comparacion {
 		Ambiente:   c.Referencia().Ambiente().String(),
 		Razon:      publicado.RazonDeReferencia(c.Referencia().Razon()),
 		Instante:   c.Referencia().Instante(),
+		Intento:    c.IntentoDeLaReferencia().String(),
 	}
 	cantidad, hay := c.CantidadDeIntentos()
 	resultado.CantidadDeIntentos, resultado.HayCantidadDeIntentos = cantidad, hay

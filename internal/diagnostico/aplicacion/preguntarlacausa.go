@@ -52,7 +52,8 @@ func (s *Servicio) PreguntarLaCausa(ctx context.Context, p publicado.PeticionDeD
 		}
 		pasos := dominio.CompararPasos(ejesDelQueFalla, referencia.Ejes())
 		producidasCambiadas := dominio.CompararProducidas(producidasDelQueFalla, producidasDeLaReferencia)
-		comparacion := dominio.NuevaComparacion(referencia, pasos, producidasCambiadas)
+		comparacion := dominio.NuevaComparacion(referencia, pasos, producidasCambiadas).
+			ConIntentoDeLaReferencia(candidata.Despliegue.Intento)
 		if candidata.Razon == dominio.MismoAmbiente {
 			cantidad, err := s.d.Historial.CantidadDeIntentos(ctx, candidata.Despliegue.Id, intento.Id)
 			if err != nil {
@@ -64,7 +65,7 @@ func (s *Servicio) PreguntarLaCausa(ctx context.Context, p publicado.PeticionDeD
 	}
 
 	atribucion := dominio.Eliminacion(comparaciones)
-	sustento := dominio.NuevoSustento(intento.Instante, comparaciones)
+	sustento := dominio.NuevoSustento(intento.Id, intento.Instante, comparaciones)
 	return respuestaAPublicado(dominio.NuevaRespuestaConAtribucion(atribucion, sustento)), nil
 }
 

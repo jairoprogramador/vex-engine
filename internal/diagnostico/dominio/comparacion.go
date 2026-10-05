@@ -25,6 +25,7 @@ type Comparacion struct {
 	referencia                   Referencia
 	pasos                        []EstadoDePaso
 	variablesProducidasCambiadas []CambioDeVariable
+	intentoDeLaReferencia        IdIntento
 	cantidadDeIntentos           int
 	hayCantidadDeIntentos        bool
 }
@@ -39,6 +40,14 @@ func (c Comparacion) ConCantidadDeIntentos(cantidad int) Comparacion {
 	c.hayCantidadDeIntentos = true
 	return c
 }
+
+// ConIntentoDeLaReferencia devuelve la comparación con el intento del despliegue de referencia ya puesto.
+func (c Comparacion) ConIntentoDeLaReferencia(intento IdIntento) Comparacion {
+	c.intentoDeLaReferencia = intento
+	return c
+}
+
+func (c Comparacion) IntentoDeLaReferencia() IdIntento { return c.intentoDeLaReferencia }
 
 func (c Comparacion) Referencia() Referencia { return c.referencia }
 func (c Comparacion) Pasos() []EstadoDePaso  { return c.pasos }

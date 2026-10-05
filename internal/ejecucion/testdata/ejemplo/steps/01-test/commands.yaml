@@ -20,3 +20,7 @@
   description: usa la variable compartida
   cmd: echo var shared ${var.shared}
 
+- name: comando-test-05
+  description: usa la variable compartida
+  cmd: cat ${var.project_workdir}/README.md
+

@@ -84,7 +84,7 @@ func (c *contextosFalsos) AbandonarIntento(_ context.Context, intento string) er
 
 func (c *contextosFalsos) Intento(_ context.Context, id string) (historialpublicado.Intento, error) {
 	c.anotar("intento", id)
-	return historialpublicado.Intento{}, nil
+	return historialpublicado.Intento{Id: id, Apertura: historialpublicado.Apertura{Ambiente: "prod"}}, nil
 }
 
 func (c *contextosFalsos) IntentosDeUnAmbiente(_ context.Context, ambiente string) ([]historialpublicado.Intento, error) {
@@ -116,7 +116,7 @@ func (c *contextosFalsos) UltimoIntento(context.Context) (historialpublicado.Int
 	if c.ultimoIntento == "" {
 		return historialpublicado.Intento{}, false, nil
 	}
-	return historialpublicado.Intento{Id: c.ultimoIntento}, true, nil
+	return historialpublicado.Intento{Id: c.ultimoIntento, Apertura: historialpublicado.Apertura{Ambiente: "prod"}}, true, nil
 }
 
 func servicioConContextosFalsos() (*borde.Servicio, *contextosFalsos) {
@@ -214,6 +214,10 @@ func TestServicio_CadaOperacionRechazaUnaVersionNoSoportadaSinLlamarAlContexto(t
 	}
 }
 
+// consultasPrevias son las consultas al historial que una operación hace antes de la suya: los logs piden el
+// intento para decir de qué ambiente son.
+var consultasPrevias = map[string][]string{"logs": {"intento"}}
+
 func TestServicio_CadaOperacionLlegaASuContextoDeEntradaConSusDatos(t *testing.T) {
 	for _, op := range todasLasOperaciones() {
 		t.Run(op.nombre, func(t *testing.T) {
@@ -222,7 +226,7 @@ func TestServicio_CadaOperacionLlegaASuContextoDeEntradaConSusDatos(t *testing.T
 			err := op.invocar(servicio, "1")
 
 			require.NoError(t, err)
-			require.Equal(t, []string{op.llamado}, falsos.llamadas)
+			require.Equal(t, append(consultasPrevias[op.llamado], op.llamado), falsos.llamadas)
 			require.Equal(t, op.esperado, falsos.recibido[op.llamado])
 		})
 	}
@@ -237,6 +241,7 @@ func TestServicio_LogsSinIntentoConsultaElUltimoQueSeAbrio(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "int-9", respuesta.Intento, "la respuesta dice cuál intento es")
+	require.Equal(t, "prod", respuesta.Ambiente, "y de qué ambiente")
 	require.Equal(t, consultaDeLogs{Intento: "int-9", Filtro: historialpublicado.TodasLasSalidas}, falsos.recibido["logs"])
 }
 

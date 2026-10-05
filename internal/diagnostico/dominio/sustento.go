@@ -16,6 +16,7 @@ type CambioDeEje struct {
 // cambiaron, entre qué dos momentos, qué pasos se compararon por evidencia y las comparaciones hechas. Se
 // arma únicamente a partir de comparaciones ya construidas: es una agregación pura.
 type Sustento struct {
+	IntentoQueFalla              IdIntento
 	InstanteDelIntentoQueFalla   time.Time
 	EjesCambiados                []CambioDeEje
 	VariablesDeclaradasCambiadas []CambioDeVariable
@@ -24,7 +25,7 @@ type Sustento struct {
 	Comparaciones                []Comparacion
 }
 
-func NuevoSustento(instanteDelQueFalla time.Time, comparaciones []Comparacion) Sustento {
+func NuevoSustento(intentoQueFalla IdIntento, instanteDelQueFalla time.Time, comparaciones []Comparacion) Sustento {
 	cambiosPorEje := map[Eje]map[string]NombrePaso{}
 	var declaradas []CambioDeVariable
 	declaradasVistas := map[CambioDeVariable]bool{}
@@ -69,6 +70,7 @@ func NuevoSustento(instanteDelQueFalla time.Time, comparaciones []Comparacion) S
 	ordenarCambiosDeVariable(producidas)
 
 	return Sustento{
+		IntentoQueFalla:              intentoQueFalla,
 		InstanteDelIntentoQueFalla:   instanteDelQueFalla,
 		EjesCambiados:                ejesCambiados,
 		VariablesDeclaradasCambiadas: declaradas,

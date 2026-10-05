@@ -54,10 +54,12 @@ func (s *Servicio) DesplieguesDeUnAmbiente(
 // ErrPeticionInvalida: la petición tiene la forma del lenguaje publicado pero un valor que no es de él.
 var ErrPeticionInvalida = errors.New("borde: petición inválida")
 
-// RespuestaDeLogs es la salida de los comandos de un intento: cuál es, que si no se pidió uno es el último.
+// RespuestaDeLogs es la salida de los comandos de un intento: cuál es y de qué ambiente, que si no se pidió
+// uno es el último.
 type RespuestaDeLogs struct {
-	Intento string
-	Salidas []historialpublicado.Salida
+	Intento  string
+	Ambiente string
+	Salidas  []historialpublicado.Salida
 }
 
 // Logs comprueba la versión de la petición (DEC-05.6) y consulta la salida de los comandos de un intento: el de
@@ -70,22 +72,30 @@ func (s *Servicio) Logs(ctx context.Context, p PeticionDeLogs) (RespuestaDeLogs,
 	if err != nil {
 		return RespuestaDeLogs{}, err
 	}
-	intento := p.Intento
-	if intento == "" {
-		ultimo, hay, err := s.d.Historial.UltimoIntento(ctx)
-		if err != nil {
-			return RespuestaDeLogs{}, err
-		}
-		if !hay {
-			return RespuestaDeLogs{}, fmt.Errorf("%w: el historial no tiene ningún intento", historialpublicado.ErrNoExiste)
-		}
-		intento = ultimo.Id
-	}
-	salidas, err := s.d.Historial.SalidasDeUnIntento(ctx, intento, filtro)
+	intento, err := s.intentoDeLosLogs(ctx, p.Intento)
 	if err != nil {
 		return RespuestaDeLogs{}, err
 	}
-	return RespuestaDeLogs{Intento: intento, Salidas: salidas}, nil
+	salidas, err := s.d.Historial.SalidasDeUnIntento(ctx, intento.Id, filtro)
+	if err != nil {
+		return RespuestaDeLogs{}, err
+	}
+	return RespuestaDeLogs{Intento: intento.Id, Ambiente: intento.Apertura.Ambiente, Salidas: salidas}, nil
+}
+
+// intentoDeLosLogs es el intento pedido, o el último que se abrió si no se pidió ninguno.
+func (s *Servicio) intentoDeLosLogs(ctx context.Context, id string) (historialpublicado.Intento, error) {
+	if id != "" {
+		return s.d.Historial.Intento(ctx, id)
+	}
+	ultimo, hay, err := s.d.Historial.UltimoIntento(ctx)
+	if err != nil {
+		return historialpublicado.Intento{}, err
+	}
+	if !hay {
+		return historialpublicado.Intento{}, fmt.Errorf("%w: el historial no tiene ningún intento", historialpublicado.ErrNoExiste)
+	}
+	return ultimo, nil
 }
 
 func filtroDeSalidas(resultado string) (historialpublicado.FiltroDeSalidas, error) {

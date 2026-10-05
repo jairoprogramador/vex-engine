@@ -38,6 +38,7 @@ type Comparacion struct {
 	Ambiente                    string
 	Razon                       RazonDeReferencia
 	Instante                    time.Time
+	Intento                     string
 	PasosComparadosPorEvidencia []string
 	CantidadDeIntentos          int
 	HayCantidadDeIntentos       bool
@@ -45,6 +46,7 @@ type Comparacion struct {
 
 // Sustento es lo que se sabe de cada cambio: nunca autores ni commits (DEC-07.7).
 type Sustento struct {
+	IntentoQueFalla              string
 	InstanteDelIntentoQueFalla   time.Time
 	EjesCambiados                []CambioDeEje
 	VariablesDeclaradasCambiadas []CambioDeVariable
