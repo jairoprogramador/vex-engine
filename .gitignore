@@ -1,6 +1,15 @@
 # Created by https://www.toptal.com/developers/gitignore/api/go,linux,macos,windows,intellij,visualstudiocode
 # Edit at https://www.toptal.com/developers/gitignore?templates=go,linux,macos,windows,intellij,visualstudiocode
 
+specs
+.idea
+.mcp.json
+vex-comandos-cli.md
+vex-estructura-eventos.md
+vex-plan-registro-local.md
+vex-plan-revision.md
+registro-de-despliegue-v0.1.md
+
 ### Go ###
 # If you prefer the allow list template instead of the deny list, see community template:
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
@@ -137,4 +146,8 @@ go.work.sum
 
 # env file
 .env
-vexd
+
+# el binario compilado en la raíz. Anclado a `/`: sin la barra, el patrón
+# también casa con el DIRECTORIO cmd/vexd/, así que cualquier archivo nuevo que
+# se añadiera ahí quedaría fuera del repo sin aviso.
+/vexd

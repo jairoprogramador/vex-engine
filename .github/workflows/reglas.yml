@@ -1,0 +1,33 @@
+name: Motor
+
+# El motor (internal/, cmd/vexd) y su regla de dependencias (docs/rediseno/RD-01).
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  reglas:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Compilar
+        run: go build ./...
+
+      - name: Analizar
+        run: go vet ./...
+
+      - name: Probar
+        run: go test ./...
+
+      - name: Regla de dependencias
+        run: |
+          go list -f '{{.ImportPath}}{{range .Imports}} {{.}}{{end}}' ./... \
+            | awk -v mod="$(go list -m)" -f docs/modelo/reglas-dependencias.awk

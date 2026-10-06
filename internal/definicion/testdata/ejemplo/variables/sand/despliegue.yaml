@@ -1,0 +1,12 @@
+- name: instancia
+  value: ${var.project_name}${var.project_id}-${var.environment}
+
+- name: espacio
+  description: usa otra variable declarada en este mismo fichero
+  value: ${var.instancia}-${var.project_team}
+
+- name: replicas
+  value: "1"
+
+- name: puerto
+  value: 8080

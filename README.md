@@ -96,14 +96,17 @@ Donde `step` es **hasta dónde** quieres ejecutar y `env` es **en qué entorno**
 
 ### Steps disponibles
 
-Cada step incluye la ejecución de todos los anteriores. Si ejecutas `deploy`, se ejecutan `test → supply → package → deploy`.
+Cada step incluye la ejecución de todos los anteriores. Si ejecutas `deploy`, se ejecutan `test → acr → supply → package → deploy`.
 
-| Step | Qué hace |
-| :--- | :--- |
-| `test` | Ejecuta pruebas: compilación, tests unitarios, análisis de seguridad, etc. |
-| `supply` | Aprovisiona infraestructura (ej: Terraform apply). |
-| `package` | Empaqueta el proyecto (ej: build de imagen Docker). |
-| `deploy` | Despliega la aplicación en el entorno indicado. |
+| Step | Qué hace | Ámbito |
+| :--- | :--- | :--- |
+| `test` | Ejecuta pruebas: compilación, tests unitarios, análisis de seguridad, etc. | `project` |
+| `acr` | Aprovisiona el registro de contenedores, común a todos los ambientes. | `project` |
+| `supply` | Aprovisiona la infraestructura del ambiente (ej: Terraform apply). | `environment` |
+| `package` | Empaqueta el proyecto (ej: build de imagen Docker). | `environment` |
+| `deploy` | Despliega la aplicación en el entorno indicado. | `environment` |
+
+Los nombres y el número de steps los define la plantilla: el motor no impone ninguno. Estos son los de las plantillas oficiales.
 
 ### Entornos
 
@@ -130,20 +133,42 @@ vexe deploy prod
 
 ## Control de estado inteligente
 
-`vexe` no re-ejecuta pasos innecesariamente. Usa un sistema de **fingerprints** (SHA-256) que compara el estado actual del proyecto, las variables y las instrucciones de la plantilla para decidir qué necesita ejecutarse.
+`vexe` no re-ejecuta pasos innecesariamente. Calcula una **huella** (SHA-256) de todo lo que un step declara —sus comandos, su configuración, sus archivos auxiliares y sus variables— y la compara con la del último resultado registrado de ese step. Si nada cambió, el step **revive** su resultado en vez de volver a ejecutarse.
 
-Las reglas varían según el step:
+Lo que se comprueba **lo decide la plantilla, no el motor**. Cada step lo declara en su propio `config.yaml`:
 
-| Step | Se re-ejecuta si... |
+```yaml
+# steps/02-acr/config.yaml
+scope: project                 # dónde vive su estado
+rules:
+  - state_changed: [pipeline]  # re-ejecutar si cambió lo que este step declara
+  - max_age: 24h               # y además, si pasaron 24 horas
+```
+
+### Ámbito: `project` o `environment`
+
+Un step declara **exactamente uno**, y es lo que decide con quién comparte su resultado:
+
+| Ámbito | Significado | Ejemplo |
+| :--- | :--- | :--- |
+| `project` | el trabajo es común a todos los ambientes | crear el registro de contenedores, correr los tests |
+| `environment` | el trabajo es propio del ambiente en ejecución | provisionar el cluster de `prod`, desplegar en `sand` |
+
+Un step de ámbito `project` se ejecuta **una vez para todo el proyecto** y todos los ambientes leen su resultado. Si un step necesita hacer las dos cosas, se parte en dos steps.
+
+### Reglas
+
+| Regla | Se re-ejecuta si... |
 | :--- | :--- |
-| `test` | El código del proyecto cambió, o pasaron más de 30 días desde la última ejecución. |
-| `supply` | La firma del ambiente cambió, o nunca se ejecutó antes. |
-| `package` | El código del proyecto cambió. |
-| `deploy` | El código del proyecto o el ambiente cambiaron, o es la primera ejecución. |
+| `state_changed: [pipeline]` | cambió algo de lo que el step declara: sus comandos, su `config.yaml`, sus plantillas o sus variables |
+| `state_changed: [pipeline, project]` | además, si cambió el código del proyecto. Es lo que hace la forma corta `state_changed` |
+| `max_age: <duración>` | pasó ese tiempo desde el último resultado, haya cambiado algo o no |
 
-Además, cualquier cambio en las **variables o instrucciones de la plantilla** fuerza la re-ejecución del step afectado, sin importar cuál sea.
+Las reglas se combinan con **OR**: basta que una se cumpla. Un step **sin `config.yaml` se ejecuta siempre**, que es el default seguro — ejecutar de más nunca produce un despliegue que no ocurrió.
 
 Esto significa menos tiempo esperando, menos errores por ejecuciones duplicadas y despliegues predecibles.
+
+> El modelo declarado sustituye a una tabla de reglas fija por nombre de step. El diseño completo, con sus decisiones y alternativas descartadas, está en [`specs/`](specs/README.md).
 
 ## Inicio rápido
 

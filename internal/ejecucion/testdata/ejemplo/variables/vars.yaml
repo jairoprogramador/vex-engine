@@ -1,0 +1,3 @@
+- name: "shared"
+  description: "Define mi var shared"
+  value: 2
