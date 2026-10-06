@@ -1,0 +1,13 @@
+schema_version: 1
+steps:
+  test:
+    rules: [ instructions, code, variables ]
+    max_age: 1h
+  acr:
+    rules: [ instructions, code, variables ]
+  supply:
+    rules: [ instructions, variables ]
+  package:
+    rules: [ code, variables ]
+  deploy:
+    rules: [ code, variables ]

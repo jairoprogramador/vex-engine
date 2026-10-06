@@ -1,0 +1,3 @@
+- name: "deploy"
+  description: "Define mi var deploy"
+  value: 2

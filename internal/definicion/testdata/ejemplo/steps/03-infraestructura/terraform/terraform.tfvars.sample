@@ -1,0 +1,2 @@
+# Un ejemplo que no está en templates: ${var.lo_que_sea} no es del motor, y no se comprueba.
+nodos = ${var.lo_que_sea}

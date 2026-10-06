@@ -1,0 +1,22 @@
+- name: comando-supply-01
+  description: usa la variable producida por el paso anterior y la variable estándar del ambiente
+  workdir: terraform
+  cmd: cat terraform.tfvars
+  templates:
+    - terraform.tfvars
+
+- name: comando-supply-02
+  description: produce la variable que consume el siguiente paso
+  cmd: echo azure_resource_group_name=gruporecursovar
+  outputs:
+    - name: azure_resource_group_name
+      description: nombre de grupo de recurso
+      probe: 'azure_resource_group_name=(\S+)'
+
+- name: comando-supply-03
+  description: usa la variable configurada
+  cmd: echo var ${var.supply}
+
+- name: comando-supply-04
+  description: usa la variable compartida
+  cmd: echo var shared ${var.shared}

@@ -1,0 +1,3 @@
+- name: "test"
+  description: "Define mi var test"
+  value: 2

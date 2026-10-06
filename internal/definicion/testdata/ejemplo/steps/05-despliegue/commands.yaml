@@ -1,0 +1,16 @@
+- name: credenciales
+  cmd: az aks get-credentials --name ${var.cluster_nombre} --resource-group ${var.project_name}-${var.environment}
+
+- name: aplicar
+  cmd: kubectl apply -f .
+  workdir: ./k8s
+  templates:
+    - deployment.yaml
+    - service.yaml
+
+- name: mostrar
+  description: la dirección donde quedó el servicio
+  cmd: kubectl get services -n ${var.espacio} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}'
+  outputs:
+    - name: direccion
+      probe: ^(\d+\.\d+\.\d+\.\d+)$

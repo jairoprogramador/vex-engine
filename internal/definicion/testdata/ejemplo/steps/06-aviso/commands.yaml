@@ -1,0 +1,4 @@
+# Usa una variable compartida y otra declarada en el fichero de otro paso: las dos son de un ámbito que este
+# paso ve, y ninguna es suya.
+- name: avisar
+  cmd: curl -X POST "$AVISOS_URL" -d "${var.project_name} ${var.project_version} en ${var.espacio} con ${var.servidor}"

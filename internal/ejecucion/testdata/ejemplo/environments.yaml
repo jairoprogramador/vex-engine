@@ -1,0 +1,11 @@
+- name: sandbox
+  description: ephemeral environments for feature development and testing
+  value: sand
+
+- name: staging
+  description: stable pre-production environment for validation
+  value: stag
+
+- name: production
+  description: live environment with real users
+  value: prod

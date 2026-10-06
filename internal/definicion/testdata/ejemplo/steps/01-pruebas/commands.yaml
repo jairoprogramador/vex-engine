@@ -1,0 +1,6 @@
+- name: verificar
+  description: compila y pasa las pruebas del proyecto
+  cmd: mvn clean verify
+  outputs:
+    - description: una aserción; sin name no produce ninguna variable, y dice cuándo el comando fue bien
+      probe: BUILD SUCCESS

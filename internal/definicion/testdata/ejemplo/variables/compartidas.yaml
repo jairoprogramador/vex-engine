@@ -1,0 +1,13 @@
+# Las variables de este fichero son del ámbito compartido: las ve todo paso, en cualquier ambiente. El nombre
+# del fichero solo organiza, porque una variable pertenece a un ámbito y no a un paso.
+- name: registro_sku
+  description: el plan del registro, el mismo en todos los ambientes
+  value: Basic
+
+- name: registro
+  description: otro nombre para una variable de salida compartida, que produce el paso registro
+  value: ${var.registro_nombre}
+
+- name: servidor
+  description: el servidor del registro, que produce una variable de salida compartida
+  value: ${var.registro_servidor}

@@ -1,0 +1,8 @@
+- name: construir
+  description: usa la salida del registro sin declararla, porque la produce un paso anterior
+  cmd: az acr build --registry ${var.registro_nombre} --image ${var.project_name}:${var.project_version} --file ${var.step_workdir}/docker/Dockerfile ${var.project_workdir}
+  templates:
+    - docker/Dockerfile
+
+- name: esperar
+  cmd: sh ${var.step_workdir}/scripts/esperar.sh ${var.step_name}
