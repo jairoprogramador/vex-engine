@@ -87,6 +87,22 @@ func TestHacerRollback_CierraConElDestinoComoPadre(t *testing.T) {
 	require.Equal(t, "dep-1", d.historial.destinoCerrado)
 }
 
+func TestHacerRollback_UnErrorQueImpideSeguirCierraElIntentoComoFallidoConElDestino(t *testing.T) {
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas", "02-despliegue")
+	d.historial.destinoParaRollback = destinoDePrueba(t)
+	d.variables.errInterpolar = errors.New("variable no disponible")
+	servicio := aplicacion.NuevoServicio(deps)
+
+	_, err := servicio.HacerRollback(context.Background(), publicado.PeticionDeRollback{
+		Version: "1", Despliegue: "dep-1", Solicitante: "ana",
+	}, nil)
+
+	require.ErrorContains(t, err, "variable no disponible")
+	require.True(t, d.historial.cerrado, "un rollback roto no puede dejar el ambiente ocupado")
+	require.Equal(t, dominio.Fallido, d.historial.desenlaceCerrado)
+	require.Equal(t, "dep-1", d.historial.destinoCerrado)
+}
+
 func TestHacerRollback_PropagaElErrorSiElDestinoNoSePuedeResolver(t *testing.T) {
 	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
 	d.historial.errDestinoParaRollback = errors.New("no se pudo resolver el despliegue")

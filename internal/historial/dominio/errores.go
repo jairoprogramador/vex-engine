@@ -16,6 +16,10 @@ var (
 	// se escribió nada.
 	ErrEscrituraConcurrente = errors.New("historial: otras escrituras ganaron en cada intento")
 
+	// ErrDuenoVivo: el intento que se iba a dar por interrumpido escribió mientras se decidía, así que su proceso
+	// vive y no se toca.
+	ErrDuenoVivo = errors.New("historial: el intento que ocupa el ambiente sigue vivo")
+
 	// ErrNoExiste: lo que se pide no está en el historial.
 	ErrNoExiste = errors.New("historial: no existe")
 )

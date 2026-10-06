@@ -47,6 +47,7 @@ const (
 	familiaReservas     = "reservas"
 	familiaLanzamientos = "lanzamientos"
 	familiaSalidas      = "salidas"
+	familiaLatidos      = "latidos"
 )
 
 // segmento convierte un nombre en un segmento de ruta seguro en cualquier sistema: letras y dígitos ASCII,

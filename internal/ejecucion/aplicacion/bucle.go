@@ -26,7 +26,8 @@ type contextoDelIntento struct {
 // intentar»): por cada paso, decide, hace y registra. Nil significa que el intento llegó a un desenlace —
 // exitoso, fallido o cancelado (EJ-3) — y quien llama debe cerrarlo. Un error significa que algo impidió
 // seguir sin que el intento llegara a un desenlace: el Historial no aceptó un registro (EJ-4) u otro puerto
-// falló, y quien llama NO debe cerrarlo — queda sin desenlace, tal como pide EJ-4.
+// falló. Quien llama lo cierra igualmente, como fallido (cerrarPorError), para no dejar el ambiente ocupado; si
+// el Historial no responde, ese cierre falla también y el intento queda sin desenlace, tal como describe EJ-4.
 func (s *Servicio) recorrer(ctx context.Context, c contextoDelIntento, intento *dominio.IntentoEnCurso) error {
 	s.emitir(ctx, dominio.EventoDeProgreso{Tipo: dominio.IntentoIniciado, Intento: c.id})
 	for {

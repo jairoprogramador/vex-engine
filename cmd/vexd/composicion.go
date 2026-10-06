@@ -13,6 +13,7 @@ import (
 	ejecucioninfraestructura "github.com/jairoprogramador/vex-engine/internal/ejecucion/infraestructura"
 	historialaplicacion "github.com/jairoprogramador/vex-engine/internal/historial/aplicacion"
 	historialinfraestructura "github.com/jairoprogramador/vex-engine/internal/historial/infraestructura"
+	historialpublicado "github.com/jairoprogramador/vex-engine/internal/historial/publicado"
 	lanzamientoaplicacion "github.com/jairoprogramador/vex-engine/internal/lanzamiento/aplicacion"
 	lanzamientoinfraestructura "github.com/jairoprogramador/vex-engine/internal/lanzamiento/infraestructura"
 	resolucionaplicacion "github.com/jairoprogramador/vex-engine/internal/resolucion/aplicacion"
@@ -59,8 +60,11 @@ func componer(r rutas, progreso ejecuciondominio.Progreso) (*borde.Servicio, err
 		Lanzamientos: historialinfraestructura.NuevosLanzamientos(almacen),
 		Reservas:     historialinfraestructura.NuevasReservas(almacen),
 		Salidas:      historialinfraestructura.NuevasSalidas(almacen),
+		Latidos:      historialinfraestructura.NuevosLatidos(almacen),
 		Reloj:        historialinfraestructura.RelojDelSistema{},
 		Identidades:  historialinfraestructura.IdentidadesUUID{},
+
+		VentanaDeVida: historialpublicado.VentanaDeVida,
 	})
 
 	suministro := suministroaplicacion.NuevoServicio(suministroaplicacion.Dependencias{

@@ -22,8 +22,10 @@ no se re-ejecutó y por qué.
 | **EJ-1** | *Intentar hasta un paso en un ambiente* | 1. Abre el intento en el Historial, que lo rechaza si el ambiente está ocupado (`DEC-07.8`). 2. Pide el pipeline comprobado y el material: de hoy, de un commit o de una copia de trabajo. Con una copia de trabajo, el intento nunca llega a despliegue (`DEC-10.7`). 3. Pone su material en el espacio de trabajo. 4. **Por cada paso, en orden, hasta el pedido**: decide si se re-ejecuta; si sí, interpola, ejecuta sus comandos y entrega a Resolución lo que produjeron; si no, deja la razón y la evidencia. Cada paso que se ejecuta deja un registro **al empezar**, antes de su primer comando, y otro **al terminar** (`DEC-09.7`). 5. Si un comando falla, cierra el intento como **fallido**. Si llega al final, lo cierra como **exitoso**, y el Historial crea el despliegue si se hicieron todos los pasos del pipeline (`DEC-07.9`) |
 | **EJ-2** | *Rollback a un destino* | Como EJ-1, pero con el material y las declaraciones del **commit** del destino (`DEC-03.9`), con todos los pasos del pipeline, y cerrando con el destino, que será el padre del despliegue nuevo |
 | **EJ-3** | *Cancelación* | Llega la orden de cancelar: el comando en curso se detiene y el intento se cierra como **cancelado**, aunque la cancelación haya hecho fallar el comando |
-| **EJ-4** | *El Historial no acepta un registro* | El almacén no responde, o el intento fue abandonado: se detiene antes del siguiente paso, y en el historial compartido queda sin desenlace (`DEC-05.9`, `DEC-07.8`) |
+| **EJ-4** | *El Historial no acepta un registro* | Se detiene antes del siguiente paso e intenta cerrar el intento como **fallido**. Si el almacén no responde, o el intento fue abandonado, el cierre tampoco se puede escribir y en el historial compartido queda sin desenlace (`DEC-05.9`, `DEC-07.8`) |
 | **EJ-5** | *El espacio de trabajo no está disponible* | El intento no empieza (`DEC-06.18`) |
+| **EJ-6** | *Un error impide seguir* | Con el intento ya abierto, algo falla que no es un comando: interpolar una variable que no está, un puerto que no responde. El intento se cierra como **fallido** —o como **cancelado**, si la causa fue la cancelación— y quien invocó recibe el error. El ambiente no queda ocupado. Si el cierre no se puede escribir, vale EJ-4 |
+| **EJ-7** | *El proceso muere sin cerrar el intento* | Nadie puede escribir el cierre: `kill -9`, falta de memoria, una máquina que se apaga. Mientras vivía, el intento escribía **latidos** desde que abrió; al morir dejan de crecer. El siguiente intento que encuentre el ambiente ocupado lo observa, lo cierra como **fallido** con causa **interrumpido** y ocupa el ambiente (`historial.md`, «Si el dueño del ambiente murió») |
 
 ---
 
@@ -38,7 +40,8 @@ invocación (`DEC-09.2`).
 |---|---|
 | orden | los pasos se hacen en el orden del pipeline, y ninguno después del pedido |
 | nada sin escribir | un paso no empieza si el registro del anterior no está escrito (`DEC-05.9`) |
-| un fallo cierra | si un comando de un paso falla, no empieza ningún paso más y el desenlace es **fallido** |
+| un fallo cierra | si un comando de un paso falla, o un error impide seguir (EJ-6), no empieza ningún paso más y el desenlace es **fallido** |
+| un proceso vivo late | desde que el intento abre hasta que cierra, su proceso escribe un latido cada pocos segundos, en paralelo a los comandos: es lo que distingue un intento largo de uno muerto (EJ-7) |
 | la cancelación gana | si se pidió cancelar, el desenlace es **cancelado**, aunque la cancelación haya hecho fallar un comando |
 | un solo desenlace | exitoso, fallido o cancelado, y una sola vez |
 

@@ -8,11 +8,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	historialpublicado "github.com/jairoprogramador/vex-engine/internal/historial/publicado"
 )
 
 // Cada contenedor es un proceso vexd: comparten el almacén y el espacio de trabajo, y no se hablan entre sí. Estas
@@ -88,6 +92,55 @@ func TestProcesos_DosVexdEnElMismoAmbienteUnoGanaYElOtroNoTocaSuEspacio(t *testi
 	final.resultado(t, &resultado)
 	require.Equal(t, "exitoso", resultado.Estado)
 	require.Equal(t, resultado.Intento, rechazo.Error.Data["intento"], "el que ocupaba el ambiente era el primero")
+}
+
+// Un contenedor que muere sin cerrar su intento (kill -9, falta de memoria, se apaga la máquina) no puede dejar
+// el ambiente bloqueado: el siguiente intento que lo encuentre ocupado y sin latidos lo recupera.
+func TestProcesos_UnVexdMuertoConKillNoBloqueaElAmbienteParaSiempre(t *testing.T) {
+	if testing.Short() {
+		t.Skip("espera la ventana de vida real del motor")
+	}
+	carpeta := t.TempDir()
+	listo, pidDelComando := filepath.Join(carpeta, "listo"), filepath.Join(carpeta, "pid")
+	e := nuevoEntornoConPipeline(t, func(dir string) {
+		// El primer intento se queda dormido; los siguientes encuentran la marca y terminan enseguida. exec deja
+		// al propio sleep con el pid guardado: matar a vexd no lo mata, y la prueba no debe dejarlo suelto.
+		escribir(t, dir, "steps/05-deploy/commands.yaml", "- name: comando-deploy-lento\n  description: se duerme la primera vez\n"+
+			"  cmd: if [ -e "+listo+" ]; then true; else echo $$ > "+pidDelComando+"; touch "+listo+"; exec sleep 120; fi\n")
+	})
+	t.Cleanup(func() {
+		if datos, err := os.ReadFile(pidDelComando); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(datos))); err == nil {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	})
+	primero := lanzarVexd(t, e.rutas, "intentar", e.intento())
+	require.Eventually(t, func() bool { _, err := os.Stat(listo); return err == nil },
+		60*time.Second, 20*time.Millisecond, "el primer intento no llegó a su comando lento")
+	require.NoError(t, primero.cmd.Process.Kill(), "kill -9: ni cierra el intento ni limpia nada")
+	primero.esperar(t)
+
+	// Acaba de morir: su último latido es reciente, así que el ambiente se ve ocupado enseguida y sin esperar.
+	inmediato := lanzarVexd(t, e.rutas, "intentar", e.intento()).esperar(t)
+	require.Equal(t, salidaFallo, inmediato.codigo, inmediato.salida)
+	require.Equal(t, codigoAmbienteOcupado, inmediato.error(t).Error.Code)
+
+	// Pasada la ventana de vida sin un solo latido más, el siguiente lo da por muerto, lo cierra y sigue.
+	time.Sleep(historialpublicado.VentanaDeVida)
+	siguiente := lanzarVexd(t, e.rutas, "intentar", e.intento()).esperar(t)
+	require.Equal(t, salidaBien, siguiente.codigo, siguiente.salida+siguiente.errores)
+	var resultado struct{ Intento, Estado string }
+	siguiente.resultado(t, &resultado)
+	require.Equal(t, "exitoso", resultado.Estado)
+
+	var intentos []struct{ Id, Estado, Causa string }
+	invocar(t, e.rutas, "intentos", `{"Version":"1","Ambiente":"prod"}`).resultado(t, &intentos)
+	require.Len(t, intentos, 2)
+	require.Equal(t, "fallido", intentos[0].Estado, "el que murió cuenta como un error")
+	require.Equal(t, "interrumpido", intentos[0].Causa, "y dice por qué")
+	require.Equal(t, resultado.Intento, intentos[1].Id)
+	require.Equal(t, "exitoso", intentos[1].Estado)
 }
 
 func TestProcesos_AmbientesDistintosCorrenEnParaleloSinPisarse(t *testing.T) {

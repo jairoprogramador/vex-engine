@@ -61,6 +61,7 @@ func montarSistema(t *testing.T) *sistema {
 		Lanzamientos: historialinfraestructura.NuevosLanzamientos(almacen),
 		Reservas:     historialinfraestructura.NuevasReservas(almacen),
 		Salidas:      historialinfraestructura.NuevasSalidas(almacen),
+		Latidos:      historialinfraestructura.NuevosLatidos(almacen),
 		Reloj:        historialinfraestructura.RelojDelSistema{},
 		Identidades:  historialinfraestructura.IdentidadesUUID{},
 	})

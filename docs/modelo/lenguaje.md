@@ -141,6 +141,9 @@ La memoria del negocio: qué se ha desplegado, cuándo, con qué y con qué resu
 | **intento** *(aquí)* | un hecho: una ejecución de uno o varios pasos de un pipeline en un ambiente, ya ocurrida. Tiene identificador propio, sabe cuál fue el anterior y quién lo pidió |
 | **estado** | cómo terminó un intento, según sus registros: **exitoso · fallido · cancelado**. Una cancelación **no es un fallo de nadie** |
 | **sin desenlace** | un intento que tiene registros y ninguno que diga cómo terminó. **No es un estado**: es la ausencia del registro que lo da. El historial no sabe por qué falta (la máquina pudo morir, o el intento sigue en otra) |
+| **interrumpido** | la **causa** de un intento cuyo proceso murió sin cerrarlo y que otro intento cerró como **fallido** al encontrar el ambiente ocupado y sin latidos. Es un fallo, pero no de los comandos ni del pipeline: por eso Diagnóstico no le busca causa. **No es un estado** |
+| **causa** | por qué un intento terminó sin que un comando lo decidiera: `error` (algo impidió seguir, EJ-6) o `interrumpido`. Vacía si el desenlace salió de los propios comandos |
+| **latido** | la señal de vida de un intento en curso: su proceso la escribe cada pocos segundos, aunque su comando no escriba nada. Quien encuentra el ambiente ocupado la observa para saber si el dueño murió |
 | **abandonado** | un intento sin desenlace que alguien dio por abandonado. Libera su ambiente y ya no acepta registros. **No es un estado** (IT-07 `DEC-07.8`) |
 | **ocupación** | qué intento tiene un ambiente en curso. Un ambiente tiene como mucho una (IT-07 `DEC-07.8`) |
 | **despliegue** | un intento **exitoso de todos** los pasos de un pipeline en un ambiente. Tiene identificador propio, distinto del de su intento, y sabe cuál es su intento y cuál su **padre**. Solo nace de un intento hecho con commits: un intento con una copia de trabajo nunca llega a despliegue (IT-10 `DEC-10.7`) |
@@ -177,8 +180,9 @@ publica**, ni hacia otros contextos ni hacia fuera (IT-04 `DEC-04.7`).
 
 **Un registro no está escrito hasta que se puede leer desde cualquier máquina** (IT-05 `DEC-05.9`,
 IT-06 `DEC-06.18`). Si por debajo es un fichero o una base de datos queda escondido. Si un registro no se
-puede escribir, el intento se detiene antes del siguiente paso y, en el historial compartido, queda sin
-desenlace: no se hace en el mundo nada que no pueda quedar escrito.
+puede escribir, el intento se detiene antes del siguiente paso y se cierra como fallido; y si ni siquiera el
+cierre se puede escribir, queda en el historial compartido sin desenlace: no se hace en el mundo nada que no
+pueda quedar escrito.
 
 **Tres reglas de forma que hay que saber decir:**
 

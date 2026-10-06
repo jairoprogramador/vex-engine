@@ -223,8 +223,10 @@ vexd_demo intentar "{ \"Version\": \"1\", \"Ambiente\": \"prod\", \"Solicitante\
 lo que un paso declara, solo se re-ejecuta ese paso (con todos sus comandos). Qué mira cada paso lo decide su
 `rules` en `config.yaml`.
 
-**Un ambiente, un intento a la vez.** Si hay otro intento sin desenlace en el mismo ambiente, falla con `-32004`
-(salida 1) y dice cuál es en `data.intento` (véase `abandonar`).
+**Un ambiente, un intento a la vez.** Si hay otro intento en curso en el mismo ambiente, falla con `-32004`
+(salida 1) y dice cuál es en `data.intento`. Si ese intento murió sin cerrarse (`kill -9`, falta de memoria), no
+hace falta `abandonar`: el siguiente intento lo detecta —no late desde hace más de la ventana de vida, unos 15 s—,
+lo cierra como `fallido` con `Causa: "interrumpido"` y ocupa el ambiente.
 
 ### `rollback` — volver a un despliegue anterior
 
@@ -555,7 +557,7 @@ tocar los repos.
 | `-32001` «versión no soportada» | Falta `"Version": "1"` en `params` |
 | `-32000` «error interno» | Mira stderr: ahí va la causa |
 | `simulación: … "" no es un commit` | `simular` con `Fuente` necesita `Commit` completo; o usa `CopiaDeTrabajo` |
-| `-32004` «el ambiente "prod" tiene en curso el intento …» | Hay un intento sin desenlace: espera, o `abandonar` |
+| `-32004` «el ambiente "prod" tiene en curso el intento …» | Hay un intento en curso: espera. Si su proceso murió, se recupera solo pasados ~15 s sin latidos; también puedes `abandonar` |
 | El intento no ejecuta nada | Nada cambió respecto al anterior; edita algo y haz commit |
 | Cambié un fichero del pipeline y no se nota | Falta el commit (salvo con `CopiaDeTrabajo`) |
 | `Estado: fallido` sin más | Mira `logs` con `"Resultado": "fallido"`: es la salida del comando que falló |

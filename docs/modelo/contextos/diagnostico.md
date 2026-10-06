@@ -48,7 +48,7 @@ un valor.
 | **ES-4** | *Un paso no se re-ejecutó* | dentro de cualquier escenario | para ese paso, los recursos del registro al que apunta su evidencia, que puede venir de otro ambiente si el paso no se re-ejecuta entre ambientes | la comparación contra los recursos con los que ese paso se hizo de verdad |
 | **ES-5** | *Nada cambió en ningún eje* | programador | como ES-1 y ES-2 | *«ninguno de los tres ejes cambió»*: la causa no está en ellos. Es un hecho, no un fallo del core. Si cambió alguna variable producida, aparece en el sustento |
 | **ES-6** | *No hay contra qué comparar* | cualquiera | no existe ningún despliegue anterior al intento, o la referencia es un despliegue del propio intento | *«no hay historial previo al intento actual que se pretende diagnosticar»*, sin atribución |
-| **ES-7** | *Intento sin desenlace o cancelado* | cualquiera | — | no se atribuye causa: una cancelación no es un fallo de nadie, y de un intento sin desenlace no se sabe cómo terminó |
+| **ES-7** | *Intento sin desenlace, cancelado o interrumpido* | cualquiera | — | no se atribuye causa: una cancelación no es un fallo de nadie, de un intento sin desenlace no se sabe cómo terminó, y uno interrumpido falló porque su proceso murió, no por nada que el pipeline haya cambiado |
 | **ES-8** | *¿Cuántas veces se intentó?* | programador | el intento que falla y la referencia del mismo ambiente | la cantidad de intentos desde ese despliegue hasta el que falla, como número |
 
 **El sustento**, en todos los escenarios, dice:
@@ -143,7 +143,7 @@ Diagnóstico le pide al Historial*, dicho en el lenguaje del core.
 
 1. Determina el intento que falla: el que se indica, o el de un lanzamiento. Si no se indica ninguno, el
    último intento del ambiente (`DEC-06.16`).
-2. Si ese intento está cancelado o sin desenlace, responde **no se atribuye**.
+2. Si ese intento está cancelado, sin desenlace o interrumpido, responde **no se atribuye**.
 3. Elige la referencia. Si no hay ninguna anterior al intento, responde **sin referencia**, con el mensaje
    *«no hay historial previo al intento actual que se pretende diagnosticar»*.
 4. Pide los ejes de cada paso, a través del ACL.

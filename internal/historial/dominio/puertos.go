@@ -47,6 +47,20 @@ type Salidas interface {
 	Anadir(ctx context.Context, intento IdIntento, previas int, salida Salida) error
 }
 
+// Latidos es la señal de vida de un intento en curso: una secuencia por intento, que solo escribe el proceso que
+// lo lleva a cabo, mientras vive. Quien encuentra el ambiente ocupado la mira dos veces: si no creció, el
+// dueño murió. Por eso es una familia aparte y no registros del intento: no son un hecho del negocio, y no
+// compiten con sus registros. Añadir escribe un latido después de los previos que se leyeron, y devuelve
+// ErrConflicto si alguien añadió otro desde entonces.
+type Latidos interface {
+	Cantidad(ctx context.Context, intento IdIntento) (int, error)
+	// Ultimo es el instante, según el reloj de quien lo escribió, del último latido; false si no hay ninguno.
+	// Solo sirve para saltarse la espera cuando está claro que el dueño vive: nunca decide que murió, porque los
+	// relojes de dos máquinas no tienen por qué coincidir.
+	Ultimo(ctx context.Context, intento IdIntento) (time.Time, bool, error)
+	Anadir(ctx context.Context, intento IdIntento, previos int, instante time.Time) error
+}
+
 // Reloj da el instante de cada registro.
 type Reloj interface {
 	Ahora() time.Time

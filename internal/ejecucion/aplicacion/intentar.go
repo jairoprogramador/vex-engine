@@ -12,7 +12,8 @@ import (
 // que nunca llega a despliegue (DEC-10.7); abre el intento en el Historial, que lo rechaza si el ambiente está
 // ocupado (DEC-07.8); solo entonces pone el material del pipeline en el espacio de trabajo, que borraría el de
 // otro intento si el ambiente estuviera ocupado (EJ-5 si no se puede: el intento se abandona y el ambiente
-// queda libre); y recorre sus pasos con el bucle explícito.
+// queda libre); y recorre sus pasos con el bucle explícito. Si un error impide seguir una vez empezado, el
+// intento se cierra como fallido y el error se devuelve (cerrarPorError).
 func (s *Servicio) Intentar(
 	ctx context.Context, p publicado.PeticionDeIntento, variablesDeEntorno publicado.Entorno,
 ) (resultado publicado.Resultado, err error) {
@@ -62,6 +63,10 @@ func (s *Servicio) Intentar(
 		return publicado.Resultado{}, traducir(err)
 	}
 
+	// Desde que el ambiente está ocupado, el intento late: así, si este proceso muere, otro intento sabrá que
+	// puede liberarlo (latirMientras). Late también mientras rehace el espacio de trabajo, que puede tardar.
+	defer s.latirMientras(ctx, id)()
+
 	// Primero el Historial, que decide quién ocupa el ambiente, y solo entonces el espacio de trabajo: rehacerlo
 	// borra los directorios de los pasos, y si otro intento tiene el ambiente, serían los suyos.
 	if err := s.d.EspacioDeTrabajo.RehacerParteDelMotor(ctx, ubicacion, pipeline.Pasos); err != nil {
@@ -81,7 +86,7 @@ func (s *Servicio) Intentar(
 		),
 	}
 	if err := s.recorrer(ctx, c, intento); err != nil {
-		return publicado.Resultado{}, traducir(err)
+		return publicado.Resultado{}, traducir(s.cerrarPorError(ctx, id, intento, "", err))
 	}
 	return s.cerrar(ctx, id, intento, "")
 }

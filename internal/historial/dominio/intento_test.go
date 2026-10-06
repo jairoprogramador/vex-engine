@@ -310,3 +310,60 @@ func TestUltimaVezDeUnPaso_EsElUltimoRegistroEnSuAmbito(t *testing.T) {
 		require.False(t, ok)
 	})
 }
+
+func TestIntento_LaCausaSoloExplicaUnFallo(t *testing.T) {
+	casos := []struct {
+		nombre string
+		cierre dominio.Cierre
+		valido bool
+	}{
+		{"fallido sin causa", dominio.Cierre{Estado: dominio.Fallido}, true},
+		{"fallido por error", dominio.Cierre{Estado: dominio.Fallido, Causa: dominio.CausaError}, true},
+		{"fallido interrumpido", dominio.Cierre{Estado: dominio.Fallido, Causa: dominio.CausaInterrumpido}, true},
+		{"cancelado con causa", dominio.Cierre{Estado: dominio.Cancelado, Causa: dominio.CausaError}, false},
+		{"exitoso con causa", dominio.Cierre{Estado: dominio.Exitoso, Causa: dominio.CausaInterrumpido}, false},
+		{"causa que no existe", dominio.Cierre{Estado: dominio.Fallido, Causa: "misterio"}, false},
+	}
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			i := abierto(t, "i1", aperturaEn("staging"))
+			err := i.Cerrar(c.cierre, en(3), dominio.NuevosDesplieguesDeUnAmbiente("staging"))
+			if c.valido {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, dominio.ErrRechazado)
+			require.True(t, i.SinDesenlace(), "un cierre rechazado no se escribe")
+		})
+	}
+}
+
+func TestIntento_DarPorInterrumpidoLoCierraComoFallidoConSuCausa(t *testing.T) {
+	i := abierto(t, "i1", aperturaEn("staging"))
+	hacer(t, i, 1, "test")
+
+	require.NoError(t, i.DarPorInterrumpido(len(i.Registros()), en(5), dominio.NuevosDesplieguesDeUnAmbiente("staging")))
+
+	cierre, ok := i.Cierre()
+	require.True(t, ok)
+	require.Equal(t, dominio.Cierre{Estado: dominio.Fallido, Causa: dominio.CausaInterrumpido}, cierre)
+}
+
+func TestIntento_DarPorInterrumpidoAbandonaAlQueNiLlegoAAbrirse(t *testing.T) {
+	i := dominio.NuevoIntento("i1")
+
+	require.NoError(t, i.DarPorInterrumpido(0, en(5), dominio.NuevosDesplieguesDeUnAmbiente("staging")))
+
+	require.True(t, i.Abandonado())
+}
+
+func TestIntento_NoSeDaPorInterrumpidoAlQueEscribioMientrasSeDecidia(t *testing.T) {
+	i := abierto(t, "i1", aperturaEn("staging"))
+	vistos := len(i.Registros())
+	hacer(t, i, 1, "test") // el dueño escribió después de la observación
+
+	err := i.DarPorInterrumpido(vistos, en(5), dominio.NuevosDesplieguesDeUnAmbiente("staging"))
+
+	require.ErrorIs(t, err, dominio.ErrDuenoVivo)
+	require.True(t, i.SinDesenlace())
+}

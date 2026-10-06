@@ -96,18 +96,41 @@ func (h *Historial) RegistrarNoReejecucion(
 	return nil
 }
 
+func (h *Historial) IntervaloDeLatido() time.Duration { return historialpublicado.IntervaloDeLatido }
+
+func (h *Historial) Latir(ctx context.Context, intento string) error {
+	if err := h.historial.RegistrarLatido(ctx, intento); err != nil {
+		return fmt.Errorf("ejecución: registrar el latido del intento %q: %w", intento, err)
+	}
+	return nil
+}
+
 func (h *Historial) CerrarIntento(
-	ctx context.Context, intento string, desenlace dominio.Desenlace, destino string,
+	ctx context.Context, intento string, desenlace dominio.Desenlace, causa dominio.Causa, destino string,
 ) (string, bool, error) {
 	estado, err := estadoAPublicado(desenlace)
 	if err != nil {
 		return "", false, err
 	}
-	despliegue, huboDespliegue, err := h.historial.CerrarIntento(ctx, intento, estado, destino)
+	causaPublicada, err := causaAPublicado(causa)
+	if err != nil {
+		return "", false, err
+	}
+	despliegue, huboDespliegue, err := h.historial.CerrarIntento(ctx, intento, estado, causaPublicada, destino)
 	if err != nil {
 		return "", false, fmt.Errorf("ejecución: cerrar el intento %q: %w", intento, err)
 	}
 	return despliegue.Id, huboDespliegue, nil
+}
+
+func causaAPublicado(causa dominio.Causa) (historialpublicado.CausaDeCierre, error) {
+	switch causa {
+	case "":
+		return "", nil
+	case dominio.CausaError:
+		return historialpublicado.CierrePorError, nil
+	}
+	return "", fmt.Errorf("ejecución: causa de cierre desconocida: %q", causa)
 }
 
 func (h *Historial) UltimaVezDeUnPaso(

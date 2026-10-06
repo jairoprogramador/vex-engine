@@ -14,6 +14,34 @@ const (
 	Cancelado Estado = "cancelado"
 )
 
+// Causa es por qué un intento terminó sin que un comando lo decidiera; vacía si el desenlace salió de los propios
+// comandos. Es lo que se lee de un intento: CausaInterrumpido solo la escribe el propio Historial.
+type Causa string
+
+const (
+	// CausaError: algo impidió seguir —interpolar, un puerto que falló— sin que ningún comando fallara.
+	CausaError Causa = "error"
+	// CausaInterrumpido: el proceso del intento murió sin cerrarlo, y otro intento lo cerró al encontrar el
+	// ambiente ocupado y sin señal de vida. Es un fallo, pero no de los comandos ni del pipeline.
+	CausaInterrumpido Causa = "interrumpido"
+)
+
+// CausaDeCierre es la causa que quien ejecuta un intento puede pedir al cerrarlo: solo que un error le impidió
+// seguir. Vacía si el desenlace salió de los comandos. No existe la de «interrumpido»: no se puede pedir.
+type CausaDeCierre string
+
+// CierrePorError: un error impidió seguir, sin que ningún comando fallara.
+const CierrePorError CausaDeCierre = "error"
+
+const (
+	// IntervaloDeLatido es cada cuánto escribe el proceso de un intento en curso que sigue vivo (RegistrarLatido).
+	IntervaloDeLatido = 5 * time.Second
+	// VentanaDeVida es cuánto observa quien encuentra el ambiente ocupado si el dueño sigue latiendo antes de dar
+	// su intento por interrumpido: el triple del intervalo, para que un latido tardío no haga pasar por muerto a un
+	// proceso vivo. La fija el Historial junto al intervalo para que no puedan desacordarse.
+	VentanaDeVida = 3 * IntervaloDeLatido
+)
+
 // Contenido es lo que dice un registro, con el contexto al que pertenece. El Historial no lo interpreta.
 type Contenido struct {
 	Contexto string
@@ -89,7 +117,9 @@ type Intento struct {
 	Instante  time.Time // el de la apertura
 	Registros []RegistroDePaso
 	// Estado está vacío si el intento no tiene desenlace.
-	Estado     Estado
+	Estado Estado
+	// Causa es por qué terminó, si no fue por un comando: vacía en el caso normal.
+	Causa      Causa
 	Destino    string // el despliegue al que volvió, si fue un rollback
 	Abandonado bool
 }

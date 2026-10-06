@@ -92,7 +92,7 @@ func TestAdaptadorDeHistorial_AbrirRegistrarYCerrarUnIntentoExitoso(t *testing.T
 	require.NoError(t, adaptador.RegistrarComienzo(ctx, id, "01-pruebas", recursos))
 	require.NoError(t, adaptador.RegistrarFinal(ctx, id, "01-pruebas", true, recursos))
 
-	despliegue, hubo, err := adaptador.CerrarIntento(ctx, id, dominio.Exitoso, "")
+	despliegue, hubo, err := adaptador.CerrarIntento(ctx, id, dominio.Exitoso, "", "")
 	require.NoError(t, err)
 	require.True(t, hubo)
 	require.NotEmpty(t, despliegue)
@@ -188,7 +188,7 @@ func TestAdaptadorDeHistorial_UltimaVezDeUnaNoReejecucionSigueElSaltoDeEvidencia
 	recursos := recursosDePrueba(t, "c1", "i1")
 	require.NoError(t, adaptador.RegistrarComienzo(ctx, id1, "01-pruebas", recursos))
 	require.NoError(t, adaptador.RegistrarFinal(ctx, id1, "01-pruebas", true, recursos))
-	_, _, err = adaptador.CerrarIntento(ctx, id1, dominio.Exitoso, "")
+	_, _, err = adaptador.CerrarIntento(ctx, id1, dominio.Exitoso, "", "")
 	require.NoError(t, err)
 
 	id2, err := adaptador.AbrirIntento(ctx, aperturaDePrueba(t, "prod"))
@@ -212,7 +212,7 @@ func TestAdaptadorDeHistorial_DespliegueParaRollbackDaLasDosFuentes(t *testing.T
 	recursos := recursosDePrueba(t, "c1", "i1")
 	require.NoError(t, adaptador.RegistrarComienzo(ctx, id, "01-pruebas", recursos))
 	require.NoError(t, adaptador.RegistrarFinal(ctx, id, "01-pruebas", true, recursos))
-	despliegue, hubo, err := adaptador.CerrarIntento(ctx, id, dominio.Exitoso, "")
+	despliegue, hubo, err := adaptador.CerrarIntento(ctx, id, dominio.Exitoso, "", "")
 	require.NoError(t, err)
 	require.True(t, hubo)
 
@@ -235,7 +235,7 @@ func TestAdaptadorDeHistorial_ElDetalleDistingueElPasoPrecargadoDelEjecutado(t *
 	require.NoError(t, err)
 	require.NoError(t, adaptador.RegistrarComienzo(ctx, primero, "01-pruebas", recursos))
 	require.NoError(t, adaptador.RegistrarFinal(ctx, primero, "01-pruebas", true, recursos))
-	_, _, err = adaptador.CerrarIntento(ctx, primero, dominio.Exitoso, "")
+	_, _, err = adaptador.CerrarIntento(ctx, primero, dominio.Exitoso, "", "")
 	require.NoError(t, err)
 
 	aperturaConDosPasos := aperturaDePrueba(t, "prod")
@@ -247,7 +247,7 @@ func TestAdaptadorDeHistorial_ElDetalleDistingueElPasoPrecargadoDelEjecutado(t *
 	require.NoError(t, adaptador.RegistrarNoReejecucion(ctx, segundo, "01-pruebas", evidencia, recursos))
 	require.NoError(t, adaptador.RegistrarComienzo(ctx, segundo, "02-acr", recursos))
 	require.NoError(t, adaptador.RegistrarFinal(ctx, segundo, "02-acr", false, recursos))
-	_, _, err = adaptador.CerrarIntento(ctx, segundo, dominio.Fallido, "")
+	_, _, err = adaptador.CerrarIntento(ctx, segundo, dominio.Fallido, "", "")
 	require.NoError(t, err)
 
 	detalle, err := adaptador.DetalleDelIntento(ctx, segundo)

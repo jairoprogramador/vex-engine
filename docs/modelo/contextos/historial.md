@@ -56,11 +56,11 @@ los registros que ese agregado ya tiene.
 
 | Agregado | Qué es | Invariantes que protege |
 |---|---|---|
-| **Intento** | una apertura, con los pasos del pipeline y hasta cuál se pide; los registros de sus pasos; y, si llega, un cierre o un abandono | una sola apertura · como mucho un cierre · **ningún registro después del cierre o del abandono** · por cada paso pedido, un comienzo y, si llega, un final, o bien una no re-ejecución; ningún final sin comienzo (`DEC-09.7`) · el estado sale del cierre, y sin cierre está **sin desenlace** (`DEC-05.8`) · solo se abandona si está sin desenlace (`DEC-07.8`) |
+| **Intento** | una apertura, con los pasos del pipeline y hasta cuál se pide; los registros de sus pasos; y, si llega, un cierre o un abandono | una sola apertura · como mucho un cierre · **ningún registro después del cierre o del abandono** · por cada paso pedido, un comienzo y, si llega, un final, o bien una no re-ejecución; ningún final sin comienzo (`DEC-09.7`) · el estado sale del cierre, y sin cierre está **sin desenlace** (`DEC-05.8`) · solo se abandona si está sin desenlace (`DEC-07.8`) · **una causa solo explica un fallo**: `error` o `interrumpido`, y solo en un intento fallido · **se da por interrumpido solo si no escribió** desde que se observó que no latía: si escribió mientras tanto, estaba vivo y no se cierra |
 | **Despliegue** | un intento exitoso de todos sus pasos, con identidad propia y un padre | su intento está cerrado como exitoso y tiene, en **todos** los pasos del pipeline, un final exitoso o una no re-ejecución (`DEC-07.9`, `DEC-09.7`) · su padre es un despliegue anterior del mismo ambiente, o ninguno si es el primero · su intento se hizo con commits: un intento con una copia de trabajo nunca llega a despliegue (`DEC-10.7`) · no admite grados |
 | **Lanzamiento** | un despliegue que se hace visible, con fecha | su despliegue existe y es de ese ambiente |
 | **Reserva** | que el dueño del negocio reserva o libera un ambiente | ninguna más allá de su propio registro |
-| **Ocupación** | qué intento tiene un ambiente en curso | **como mucho una ocupación vigente por ambiente**: se ocupa al abrir un intento y se libera con su cierre o su abandono (`DEC-07.8`, `DEC-07.9`) |
+| **Ocupación** | qué intento tiene un ambiente en curso | **como mucho una ocupación vigente por ambiente**: se ocupa al abrir un intento y se libera con su cierre o su abandono (`DEC-07.8`, `DEC-07.9`) · **un dueño muerto no la retiene**: quien encuentra el ambiente ocupado y ve que el intento no late —ni latidos ni registros nuevos durante la **ventana de vida**— da al dueño por interrumpido (lo decide el **Intento**, ver arriba; o lo abandona, si ni llegó a abrirse) y ocupa el ambiente |
 
 **El despliegue lo crea el Historial**, no quien ejecuta (`DEC-07.3`). Cuando Ejecución cierra un
 intento como exitoso, el **Intento** comprueba que tiene todos sus pasos y actúa de factoría del
@@ -92,7 +92,8 @@ Lanzamiento.
 ### Repositorios
 
 Uno por agregado: **intentos**, **despliegues**, **lanzamientos** y **reservas**, y uno de **salidas**, que
-guarda la de cada comando de un intento en su propia secuencia y no cambia lo que el intento dice de sí mismo. Solo **añaden** y
+guarda la de cada comando de un intento en su propia secuencia y no cambia lo que el intento dice de sí mismo, y uno de **latidos**, que
+guarda la señal de vida de cada intento en su propia secuencia: no es un hecho del negocio, no forma parte de sus registros, y por eso no es un agregado. Lo que se observa de ella (**señal de vida**: cuántos latidos y registros, y cuándo fue el último latido) es un objeto de valor del dominio. Solo **añaden** y
 **recorren** (`DEC-07.5`). Por debajo, todos escriben en el mismo sitio, detrás de la interfaz del
 Historial, y *sincronizar* vive ahí (`DEC-06.18`).
 
@@ -103,11 +104,37 @@ condicional por agregado**: añadir un registro solo si nadie añadió otro a es
 lanzamientos no tomen la misma versión (IT-10 `DEC-10.8`) y que la máquina de un intento abandonado no pueda
 seguir escribiendo (IT-07 `DEC-07.8`).
 
+### Si el dueño del ambiente murió
+
+Un intento sin desenlace puede haber muerto, o seguir corriendo en otra máquina: el Historial no puede saberlo
+mirando solo sus registros, y los relojes de dos máquinas no tienen por qué coincidir. Por eso no compara
+instantes para decidir que murió: **observa**.
+
+- Mientras vive, el proceso de un intento escribe un **latido** cada pocos segundos, aunque su comando no escriba
+  nada. Los latidos son una secuencia propia por intento: no son un hecho del negocio ni forman parte de sus
+  registros.
+- El Historial fija a la vez el **intervalo entre latidos** y la **ventana de vida** (el triple), y los publica
+  juntos: Ejecución late con el intervalo que él publica, así que no pueden desacordarse.
+- Quien encuentra el ambiente ocupado cuenta los latidos y los registros del dueño, espera la **ventana de vida**
+  (el triple del intervalo entre latidos) y vuelve a contar. Si ninguno creció, el dueño murió.
+- Si el último latido es más reciente que la ventana, se da al dueño por vivo **sin esperar**. Ahí sí se mira el
+  reloj, pero solo para ahorrar la espera: **nunca para declarar una muerte**. Un reloj desfasado hace, como mucho,
+  que un huérfano tarde más en recuperarse; jamás que se libere uno vivo.
+- Dar por muerto escribe un cierre **fallido** con causa **interrumpido**, protegido por la misma escritura
+  condicional de siempre: si el dueño escribe mientras se decide, no se cierra. Si varios intentos recuperan a la
+  vez, solo uno ocupa el ambiente.
+- Un intento de una versión que no latía parece muerto aunque corra: solo importa si dos versiones del motor
+  comparten almacén a la vez.
+
+Es lo que garantiza que un ambiente no queda bloqueado para siempre por un proceso caído (`kill -9`, falta de
+memoria, una máquina que se apaga). `abandonar` sigue existiendo para quien no quiere esperar. Un intento
+que ya terminó no acepta latidos (`DEC-07.8`).
+
 ### Lo que publica
 
 | Hacia | Qué |
 |---|---|
-| **Ejecución** | abrir un intento, que se rechaza si el ambiente está ocupado · registrar un paso · registrar la salida de un comando · cerrar un intento · la última vez de un paso en su ámbito · un despliegue y su intento |
+| **Ejecución** | abrir un intento, que se rechaza si el ambiente está ocupado · registrar un paso · registrar la salida de un comando · cerrar un intento, con la causa que puede pedir (solo `error`; `interrumpido` no se pide) · registrar el latido de un intento en curso, con el intervalo y la ventana de vida que el Historial publica · la última vez de un paso en su ámbito · un despliegue y su intento |
 | **Resolución** | registrar el hash de una variable · la última vez de una variable · **por la relación reservada**: el valor ofuscado |
 | **Lanzamiento** | registrar un lanzamiento · registrar una reserva · el último despliegue y la última reserva de un ambiente · el evento *despliegue registrado* |
 | **Diagnóstico** | las consultas de su tabla de requisitos |

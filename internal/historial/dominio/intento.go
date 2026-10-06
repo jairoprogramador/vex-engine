@@ -32,10 +32,37 @@ type Apertura struct {
 	HashDelCodigo HashDelCodigo
 }
 
+// Causa es por qué un intento terminó sin que un comando lo decidiera. Está vacía cuando el desenlace salió de
+// los propios comandos (un paso exitoso, un comando que falló, una cancelación).
+type Causa string
+
+const (
+	// CausaError: algo impidió seguir —interpolar, un puerto que falló— sin que ningún comando fallara.
+	CausaError Causa = "error"
+	// CausaInterrumpido: el proceso del intento murió sin cerrarlo, y otro intento lo cerró al encontrar el
+	// ambiente ocupado y sin latidos.
+	CausaInterrumpido Causa = "interrumpido"
+)
+
 // Cierre es cómo terminó un intento y, si es un rollback, a qué despliegue volvió.
 type Cierre struct {
 	Estado  Estado
+	Causa   Causa
 	Destino IdDespliegue
+}
+
+// validar: una causa solo explica un fallo —un intento exitoso o cancelado no la tiene— y solo hay dos.
+func (c Cierre) validar() error {
+	switch c.Causa {
+	case "":
+		return nil
+	case CausaError, CausaInterrumpido:
+		if c.Estado != Fallido {
+			return rechazo("la causa %q solo la tiene un intento fallido, no uno %s", c.Causa, c.Estado)
+		}
+		return nil
+	}
+	return rechazo("la causa %q no existe", c.Causa)
 }
 
 // RegistroDeIntento es un hecho de un intento. Cada tipo usa sus campos, y el resto queda vacío.
@@ -149,12 +176,31 @@ func (i *Intento) Cerrar(cierre Cierre, instante time.Time, despliegues *Desplie
 	if despliegues == nil || despliegues.ambiente != a.Ambiente {
 		return rechazo("el intento %s se cierra contra los despliegues de su ambiente, %q", i.id, a.Ambiente)
 	}
+	if err := cierre.validar(); err != nil {
+		return err
+	}
 	if cierre.Destino != "" {
 		if _, ok := despliegues.Buscar(cierre.Destino); !ok {
 			return rechazo("el destino %s no es un despliegue de %q", cierre.Destino, a.Ambiente)
 		}
 	}
 	return i.anadir(RegistroDeIntento{Tipo: TipoCierre, Instante: instante, Cierre: cierre})
+}
+
+// DarPorInterrumpido cierra el intento cuyo proceso murió: como fallido con CausaInterrumpido, o lo abandona si ni
+// llegó a abrirse y no hay nada que cerrar. registrosVistos es lo que se observó antes de decidir que murió: si ya
+// tiene más, su proceso escribió mientras tanto, estaba vivo, y devuelve ErrDuenoVivo sin tocarlo. Solo el Historial
+// llama a esto, tras observar que no hubo señal de vida durante la ventana (SenalDeVida).
+func (i *Intento) DarPorInterrumpido(
+	registrosVistos int, instante time.Time, despliegues *DesplieguesDeUnAmbiente,
+) error {
+	if len(i.registros) > registrosVistos {
+		return ErrDuenoVivo
+	}
+	if _, abierto := i.Apertura(); !abierto {
+		return i.Abandonar(instante)
+	}
+	return i.Cerrar(Cierre{Estado: Fallido, Causa: CausaInterrumpido}, instante, despliegues)
 }
 
 // Desplegar es la factoría del despliegue (IT-07 DEC-07.3). Si el intento llega a despliegue, lo añade a los

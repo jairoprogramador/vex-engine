@@ -58,7 +58,7 @@ func desplegar(t *testing.T, h *historialaplicacion.Servicio, ctx context.Contex
 	require.NoError(t, err)
 	require.NoError(t, h.RegistrarComienzo(ctx, id, "deploy", nada))
 	require.NoError(t, h.RegistrarFinal(ctx, id, "deploy", true, nada))
-	d, hay, err := h.CerrarIntento(ctx, id, historialpublicado.Exitoso, "")
+	d, hay, err := h.CerrarIntento(ctx, id, historialpublicado.Exitoso, "", "")
 	require.NoError(t, err)
 	require.True(t, hay)
 	return d.Id

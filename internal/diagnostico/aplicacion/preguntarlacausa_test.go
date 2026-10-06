@@ -191,6 +191,40 @@ func TestPreguntarLaCausa_ES7_CanceladoOSinDesenlace(t *testing.T) {
 	}
 }
 
+func TestPreguntarLaCausa_ES7_UnIntentoInterrumpidoNoSeAtribuye(t *testing.T) {
+	h := nuevoHistorialFalso()
+	// Falló, pero porque su proceso murió: buscarle causa en el código o las variables sería inventarla.
+	h.intentos["i-falla"] = dominio.IntentoDeDiagnostico{
+		Id: idIntento(t, "i-falla"), Ambiente: ambiente(t, "prod"), Instante: time.Now(),
+		Estado: dominio.Fallido, Interrumpido: true,
+	}
+
+	r, err := nuevoServicio(h).PreguntarLaCausa(context.Background(), publicado.PeticionDeDiagnostico{Intento: "i-falla"})
+
+	require.NoError(t, err)
+	require.Equal(t, publicado.NoSeAtribuye, r.Forma)
+	require.False(t, h.llamadoEjesDelIntento)
+	require.False(t, h.llamadoReferencia)
+}
+
+func TestIntentoDeDiagnostico_NoSeAtribuye(t *testing.T) {
+	casos := map[string]struct {
+		intento dominio.IntentoDeDiagnostico
+		quiere  bool
+	}{
+		"sin desenlace":            {dominio.IntentoDeDiagnostico{}, true},
+		"cancelado":                {dominio.IntentoDeDiagnostico{Estado: dominio.Cancelado}, true},
+		"fallido e interrumpido":   {dominio.IntentoDeDiagnostico{Estado: dominio.Fallido, Interrumpido: true}, true},
+		"fallido por sus comandos": {dominio.IntentoDeDiagnostico{Estado: dominio.Fallido}, false},
+		"exitoso":                  {dominio.IntentoDeDiagnostico{Estado: dominio.Exitoso}, false},
+	}
+	for nombre, c := range casos {
+		t.Run(nombre, func(t *testing.T) {
+			require.Equal(t, c.quiere, c.intento.NoSeAtribuye())
+		})
+	}
+}
+
 func TestPreguntarLaCausa_ES8_CantidadDeIntentos(t *testing.T) {
 	h := nuevoHistorialFalso()
 	t0 := time.Now().Add(-2 * time.Hour)

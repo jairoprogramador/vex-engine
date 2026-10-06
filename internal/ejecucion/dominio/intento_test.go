@@ -107,6 +107,43 @@ func TestCancelarEsIdempotente(t *testing.T) {
 	require.Equal(t, dominio.Cancelado, desenlace)
 }
 
+func TestUnErrorQueImpideSeguirDaElIntentoPorFallidoYNoDaMasPasos(t *testing.T) {
+	intento, err := dominio.NuevoIntentoEnCurso("prod", pasos(t, "01-pruebas", "02-despliegue"), "")
+	require.NoError(t, err)
+
+	intento.Fallar()
+
+	_, ok := intento.SiguientePaso()
+	require.False(t, ok)
+	desenlace, hay := intento.Desenlace()
+	require.True(t, hay)
+	require.Equal(t, dominio.Fallido, desenlace)
+	require.Error(t, intento.Completar("01-pruebas", true), "un intento que ya se detuvo no acepta más pasos")
+}
+
+func TestLaCancelacionGanaAUnErrorQueImpideSeguir(t *testing.T) {
+	intento, err := dominio.NuevoIntentoEnCurso("prod", pasos(t, "01-pruebas"), "")
+	require.NoError(t, err)
+
+	intento.Fallar()
+	intento.Cancelar()
+
+	desenlace, _ := intento.Desenlace()
+	require.Equal(t, dominio.Cancelado, desenlace)
+}
+
+func TestFallarEsIdempotente(t *testing.T) {
+	intento, err := dominio.NuevoIntentoEnCurso("prod", pasos(t, "01-pruebas"), "")
+	require.NoError(t, err)
+
+	intento.Fallar()
+	intento.Fallar()
+
+	desenlace, hay := intento.Desenlace()
+	require.True(t, hay)
+	require.Equal(t, dominio.Fallido, desenlace)
+}
+
 func TestUnIntentoSinTerminarNoTieneDesenlace(t *testing.T) {
 	intento, err := dominio.NuevoIntentoEnCurso("prod", pasos(t, "01-pruebas", "02-despliegue"), "")
 	require.NoError(t, err)
