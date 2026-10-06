@@ -35,7 +35,7 @@ func nuevasDependenciasDePrueba(t *testing.T, nombresDePasos ...string) (aplicac
 	}
 
 	d := &dependenciasDePrueba{
-		pipelines:        &pipelinesFalsos{pipeline: dominio.Pipeline{Commit: "c-pipeline", Pasos: pasos}},
+		pipelines:        &pipelinesFalsos{pipeline: dominio.Pipeline{Commit: "c-pipeline", Ambientes: []string{"prod"}, Pasos: pasos}},
 		fuentes:          &fuentesFalsas{material: dominio.Material{Directorio: "/material", Hash: hashDelCodigo, Commit: "c-proyecto"}},
 		variables:        &variablesFalsas{},
 		historial:        nuevoHistorialFalso(t),

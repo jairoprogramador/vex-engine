@@ -39,6 +39,11 @@ func (s *Servicio) Intentar(
 		return publicado.Resultado{}, traducir(err)
 	}
 
+	// Un ambiente que el pipeline no declara se rechaza antes de ubicar nada ni abrir el intento.
+	if err := pipeline.ComprobarAmbiente(p.Ambiente); err != nil {
+		return publicado.Resultado{}, traducir(err)
+	}
+
 	// Con una copia de trabajo, la fuente del proyecto puede venir vacía: es ella quien lo identifica.
 	fuenteDelProyecto := p.FuenteDelProyecto
 	if esCopiaDeTrabajo {
