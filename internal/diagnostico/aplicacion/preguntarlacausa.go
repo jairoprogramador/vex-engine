@@ -29,7 +29,7 @@ func (s *Servicio) PreguntarLaCausa(ctx context.Context, p publicado.PeticionDeD
 		return publicado.Respuesta{}, traducir(err)
 	}
 
-	if intento.Estado.SinDesenlace() || intento.Estado == dominio.Cancelado {
+	if intento.NoSeAtribuye() {
 		return respuestaAPublicado(dominio.RespuestaNoSeAtribuye()), nil
 	}
 

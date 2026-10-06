@@ -69,7 +69,7 @@ configuración son inválidas (incluida una versión no soportada) · `130` canc
 | **Preguntar la causa** de un fallo | `diagnostico.PeticionDeDiagnostico` | `{Ambiente, IntentoExitoso, IntentoFallido, Sustento}`; sin diagnóstico que dar, solo `{SinDiagnostico}` con el motivo | Diagnóstico |
 | **Dar por abandonado** un intento | `borde.PeticionDeAbandono` | — | Historial |
 | **Consultar un intento** | `borde.PeticionDeConsultaDeIntento` | `historial.Intento` | Historial |
-| **Consultar los intentos** de un ambiente | `borde.PeticionDeIntentosDeUnAmbiente` | `[]ResumenDeIntento`: `Id`, `Ambiente`, `Solicitante`, `HastaPaso`, `Estado` (vacío si no tiene desenlace) | Historial |
+| **Consultar los intentos** de un ambiente | `borde.PeticionDeIntentosDeUnAmbiente` | `[]ResumenDeIntento`: `Id`, `Ambiente`, `Solicitante`, `HastaPaso`, `Estado` (vacío si no tiene desenlace), `Causa` (por qué terminó si no fue por un comando: `error` o `interrumpido`; vacía en el caso normal) | Historial |
 | **Consultar los despliegues** de un ambiente | `borde.PeticionDeDesplieguesDeUnAmbiente` | `[]historial.Despliegue` | Historial |
 | **Consultar los logs** de un intento | `borde.PeticionDeLogs` | `borde.RespuestaDeLogs` | Historial |
 | **Describir** el motor | — | `{VersionDelMotor, VersionesDelLenguaje, Operaciones}` | (ninguno: no usa el motor) |

@@ -12,6 +12,7 @@ type resumenDeIntento struct {
 	Solicitante string
 	HastaPaso   string
 	Estado      historialpublicado.Estado // vacío si el intento no tiene desenlace
+	Causa       historialpublicado.Causa  // por qué terminó, si no fue por un comando; vacía en el caso normal
 }
 
 func resumir(i historialpublicado.Intento) resumenDeIntento {
@@ -21,6 +22,7 @@ func resumir(i historialpublicado.Intento) resumenDeIntento {
 		Solicitante: i.Apertura.Solicitante,
 		HastaPaso:   i.Apertura.HastaPaso,
 		Estado:      i.Estado,
+		Causa:       i.Causa,
 	}
 }
 

@@ -105,6 +105,7 @@ func intentoDeDominio(i historialpublicado.Intento) (dominio.IntentoDeDiagnostic
 	}
 	return dominio.IntentoDeDiagnostico{
 		Id: id, Ambiente: ambiente, Instante: i.Instante, Estado: dominio.EstadoDeIntento(i.Estado),
+		Interrumpido: i.Causa == historialpublicado.CausaInterrumpido,
 	}, nil
 }
 

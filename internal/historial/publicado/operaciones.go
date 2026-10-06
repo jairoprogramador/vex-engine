@@ -8,7 +8,8 @@ import "context"
 // ParaEjecucion es lo que usa Ejecución de Pipeline.
 type ParaEjecucion interface {
 	// AbrirIntento ocupa el ambiente y abre el intento, y devuelve su identidad. Si el ambiente tiene otro
-	// intento en curso, devuelve *AmbienteOcupadoError.
+	// intento en curso, devuelve *AmbienteOcupadoError, salvo que ese intento esté interrumpido: sin latidos
+	// nuevos durante la ventana de vida, se cierra como fallido (CausaInterrumpido) y el ambiente se ocupa.
 	AbrirIntento(ctx context.Context, apertura Apertura) (string, error)
 	RegistrarComienzo(ctx context.Context, intento, paso string, contenido Contenido) error
 	RegistrarFinal(ctx context.Context, intento, paso string, exitoso bool, contenido Contenido) error
@@ -17,9 +18,13 @@ type ParaEjecucion interface {
 	// RegistrarSalida guarda lo que escribió un comando de un paso al terminar, aparte de los registros del
 	// intento. Se registra también la de un comando que falló.
 	RegistrarSalida(ctx context.Context, intento, paso, comando string, exitoso bool, texto string) error
-	// CerrarIntento registra el desenlace y, si el intento llega a despliegue, lo crea y lo anuncia. El
-	// destino de un rollback será su padre. Repetir el mismo cierre no escribe otro: completa lo que faltara.
-	CerrarIntento(ctx context.Context, intento string, estado Estado, destino string) (Despliegue, bool, error)
+	// RegistrarLatido deja constancia de que el proceso del intento sigue vivo. Quien encuentra el ambiente
+	// ocupado y ve que no hay latidos nuevos da el intento por interrumpido y lo cierra.
+	RegistrarLatido(ctx context.Context, intento string) error
+	// CerrarIntento registra el desenlace y, si el intento llega a despliegue, lo crea y lo anuncia. causa es
+	// por qué terminó si no fue por un comando (vacía en el caso normal). El destino de un rollback será su
+	// padre. Repetir el mismo cierre no escribe otro: completa lo que faltara.
+	CerrarIntento(ctx context.Context, intento string, estado Estado, causa Causa, destino string) (Despliegue, bool, error)
 	// AbandonarIntento da por abandonado un intento sin desenlace y libera su ambiente. Ejecución lo usa para el
 	// que abrió y no llegó a empezar; quien invoca lo usa para uno que se quedó colgado (ParaBorde).
 	AbandonarIntento(ctx context.Context, intento string) error

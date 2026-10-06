@@ -22,6 +22,12 @@ func (d Desenlace) String() string {
 	return "desenlace desconocido"
 }
 
+// Causa es por qué un intento termina sin que un comando lo decida; vacía si el desenlace salió de los comandos.
+type Causa string
+
+// CausaError: algo impidió seguir —interpolar, un puerto que falló— sin que ningún comando fallara (EJ-6).
+const CausaError Causa = "error"
+
 // IntentoEnCurso es el intento mientras se lleva a cabo (DEC-09.2): recorre sus pasos en orden y hace cumplir,
 // por construcción, las cinco invariantes del modelo (docs/modelo/contextos/ejecucion.md, «Agregado: Intento en
 // curso»):
@@ -29,7 +35,8 @@ func (d Desenlace) String() string {
 //   - orden: SiguientePaso() solo puede dar el paso que toca, y Completar exige que sea ese.
 //   - nada sin escribir: el agregado no hace I/O — es la aplicación quien solo llama a Completar después de
 //     confirmar el registro del paso en el Historial, así que un paso siguiente es inalcanzable sin él.
-//   - un fallo cierra: Completar(paso, false) fija el fallo, y desde ahí SiguientePaso() no vuelve a dar nada.
+//   - un fallo cierra: Completar(paso, false) fija el fallo —o Fallar(), si lo que impide seguir es un error y
+//     no un comando—, y desde ahí SiguientePaso() no vuelve a dar nada.
 //   - la cancelación gana: Cancelar() se puede llamar en cualquier momento, incluso después de un fallo que
 //     ella misma provocó, y Desenlace() la prioriza siempre.
 //   - un solo desenlace: Desenlace() es una función pura sobre un estado que, una vez fijado, no cambia.
@@ -102,6 +109,11 @@ func (i *IntentoEnCurso) Completar(paso string, exitoso bool) error {
 	}
 	return nil
 }
+
+// Fallar da el intento por fallido cuando lo que impide seguir no es un comando que salió mal sino un error
+// (interpolar, un puerto que falla): sin él, el intento quedaría sin desenlace y su ambiente ocupado. Como
+// Cancelar, se puede llamar en cualquier momento, y la cancelación sigue ganando en Desenlace().
+func (i *IntentoEnCurso) Fallar() { i.fallo = true }
 
 // Cancelar pide la cancelación. Es idempotente y se puede llamar en cualquier momento — incluso después de que
 // ella misma haya hecho fallar el paso en curso — porque la cancelación siempre gana en Desenlace().

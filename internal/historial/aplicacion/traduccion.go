@@ -77,6 +77,7 @@ func intentoAPublicado(i *dominio.Intento) (publicado.Intento, bool) {
 	}
 	if cierre, ok := i.Cierre(); ok {
 		resultado.Estado = estadosPublicados[cierre.Estado]
+		resultado.Causa = publicado.Causa(cierre.Causa)
 		resultado.Destino = string(cierre.Destino)
 	}
 	for _, r := range registros {

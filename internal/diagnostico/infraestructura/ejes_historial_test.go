@@ -171,7 +171,7 @@ func TestEjesDelIntento_SigueLaEvidenciaEntreAmbientes(t *testing.T) {
 	recursosOriginales := recursosDePrueba(t, "c1", "i1")
 	require.NoError(t, ejecucion.RegistrarComienzo(ctx, idStag, "deploy", recursosOriginales))
 	require.NoError(t, ejecucion.RegistrarFinal(ctx, idStag, "deploy", true, recursosOriginales))
-	_, _, err = ejecucion.CerrarIntento(ctx, idStag, ejecuciondominio.Exitoso, "")
+	_, _, err = ejecucion.CerrarIntento(ctx, idStag, ejecuciondominio.Exitoso, "", "")
 	require.NoError(t, err)
 
 	idProd, err := ejecucion.AbrirIntento(ctx, aperturaDePrueba(t, "prod", nil))
@@ -198,7 +198,7 @@ func TestReferencia_ArmaLaReferenciaDesdeUnDespliegue(t *testing.T) {
 	recursos := recursosDePrueba(t, "c1", "i1")
 	require.NoError(t, ejecucion.RegistrarComienzo(ctx, id, "deploy", recursos))
 	require.NoError(t, ejecucion.RegistrarFinal(ctx, id, "deploy", true, recursos))
-	despliegueId, hubo, err := ejecucion.CerrarIntento(ctx, id, ejecuciondominio.Exitoso, "")
+	despliegueId, hubo, err := ejecucion.CerrarIntento(ctx, id, ejecuciondominio.Exitoso, "", "")
 	require.NoError(t, err)
 	require.True(t, hubo)
 

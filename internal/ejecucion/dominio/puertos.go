@@ -87,9 +87,13 @@ type Historial interface {
 	// RegistrarSalida guarda lo que escribió un comando de un paso al terminar, y si salió bien. Se guarda
 	// también la de un comando que falló o que se canceló.
 	RegistrarSalida(ctx context.Context, intento, paso, comando string, exitoso bool, texto string) error
-	// CerrarIntento registra el desenlace y, si el intento llega a despliegue, lo crea. destino es el
-	// despliegue padre de un rollback, y vacío si no lo es.
-	CerrarIntento(ctx context.Context, intento string, desenlace Desenlace, destino string) (despliegue string, huboDespliegue bool, err error)
+	// Latir deja constancia de que el proceso del intento sigue vivo. Es lo que permite a otro intento saber, si
+	// encuentra el ambiente ocupado, que el dueño murió y puede cerrarlo.
+	Latir(ctx context.Context, intento string) error
+	// CerrarIntento registra el desenlace y, si el intento llega a despliegue, lo crea. causa es por qué terminó
+	// si no fue por un comando (vacía en el caso normal). destino es el despliegue padre de un rollback, y vacío
+	// si no lo es.
+	CerrarIntento(ctx context.Context, intento string, desenlace Desenlace, causa Causa, destino string) (despliegue string, huboDespliegue bool, err error)
 	// AbandonarIntento da por abandonado un intento que se abrió y no llegó a empezar —el espacio de trabajo no
 	// se pudo preparar, EJ-5—, y libera su ambiente. No es un intento fallido: nunca ejecutó nada.
 	AbandonarIntento(ctx context.Context, intento string) error

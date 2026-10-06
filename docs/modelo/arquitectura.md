@@ -99,8 +99,8 @@ versionar cada frontera por separado, y eso no aporta ninguna traducción que la
   ya hizo en el mundo no se pierde si el proceso muere. Un intento que tiene registros y ninguno que
   diga cómo terminó está **sin desenlace**: es un hecho, y el core no le atribuye causa (`DEC-05.8`).
 - **Cada registro se lleva al almacén en cuanto se escribe**: para los demás, un hecho no existe
-  hasta que está llevado. Si no se puede llevar, el intento se detiene antes del siguiente paso y, en
-  el historial compartido, queda sin desenlace. Por eso el aviso de un despliegue se entrega
+  hasta que está llevado. Si no se puede llevar, el intento se detiene antes del siguiente paso y se cierra
+  como fallido; si ni el cierre se puede llevar, queda en el historial compartido sin desenlace. Por eso el aviso de un despliegue se entrega
   **después** de llevar su registro, y toda invocación trae el historial antes de leerlo (`DEC-05.9`). Si por debajo es un fichero que se lleva o una base de
   datos queda escondido detrás de la interfaz del Historial: un registro no está escrito hasta que se
   puede leer desde cualquier máquina (IT-06 `DEC-06.18`).

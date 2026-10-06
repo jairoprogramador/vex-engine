@@ -38,6 +38,7 @@ type evidenciaJSON struct {
 
 type cierreJSON struct {
 	Estado  string `json:"estado"`
+	Causa   string `json:"causa,omitempty"`
 	Destino string `json:"destino,omitempty"`
 }
 
@@ -86,6 +87,11 @@ type lanzamientoJSON struct {
 	Despliegue string         `json:"despliegue"`
 	Instante   time.Time      `json:"instante"`
 	Contenido  *contenidoJSON `json:"contenido,omitempty"`
+}
+
+type latidoJSON struct {
+	Formato  int       `json:"formato"`
+	Instante time.Time `json:"instante"`
 }
 
 type reservaJSON struct {
@@ -140,7 +146,9 @@ func codificarRegistroDeIntento(r dominio.RegistroDeIntento) ([]byte, error) {
 	case dominio.TipoValor:
 		j.ValorOfuscado = ofuscar(r.Valor)
 	case dominio.TipoCierre:
-		j.Cierre = &cierreJSON{Estado: r.Cierre.Estado.String(), Destino: string(r.Cierre.Destino)}
+		j.Cierre = &cierreJSON{
+			Estado: r.Cierre.Estado.String(), Causa: string(r.Cierre.Causa), Destino: string(r.Cierre.Destino),
+		}
 	}
 	return json.Marshal(j)
 }
@@ -192,7 +200,9 @@ func decodificarRegistroDeIntento(datos []byte) (dominio.RegistroDeIntento, erro
 		if !ok {
 			return dominio.RegistroDeIntento{}, fmt.Errorf("decodificar: estado desconocido: %q", c.Estado)
 		}
-		r.Cierre = dominio.Cierre{Estado: estado, Destino: dominio.IdDespliegue(c.Destino)}
+		r.Cierre = dominio.Cierre{
+			Estado: estado, Causa: dominio.Causa(c.Causa), Destino: dominio.IdDespliegue(c.Destino),
+		}
 	}
 	return r, nil
 }
@@ -273,6 +283,10 @@ func decodificarSalida(datos []byte) (dominio.Salida, error) {
 		Paso: dominio.NombrePaso(j.Paso), Comando: j.Comando, Exitoso: j.Exitoso,
 		Texto: string(j.Salida), Instante: j.Instante,
 	}, nil
+}
+
+func codificarLatido(instante time.Time) ([]byte, error) {
+	return json.Marshal(latidoJSON{Formato: formatoDeRegistro, Instante: instante})
 }
 
 func decodificar(datos []byte, destino any, formato *int) error {

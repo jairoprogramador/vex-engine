@@ -24,23 +24,7 @@ func (s *Servicio) AbrirIntento(ctx context.Context, a publicado.Apertura) (stri
 		return "", traducir(err)
 	}
 
-	err = conReintento(ctx, func() error {
-		ocupacion, err := s.d.Ocupaciones.DeUnAmbiente(ctx, apertura.Ambiente)
-		if err != nil {
-			return err
-		}
-		var anterior *dominio.Intento
-		if ultima, ok := ocupacion.Ultima(); ok {
-			if anterior, err = s.d.Intentos.Intento(ctx, ultima.Intento); err != nil {
-				return err
-			}
-		}
-		if err := ocupacion.Ocupar(id, instante, anterior); err != nil {
-			return err
-		}
-		return s.d.Ocupaciones.Anadir(ctx, ocupacion)
-	})
-	if err != nil {
+	if err := s.ocupar(ctx, apertura.Ambiente, id, instante); err != nil {
 		return "", traducir(err)
 	}
 
@@ -120,11 +104,17 @@ func (s *Servicio) GuardarValor(ctx context.Context, intento, paso, nombre, valo
 // cierre y el despliegue son dos agregados y dos escrituras. Si la segunda no llega, repetir el mismo cierre
 // no escribe otro y completa el despliegue.
 func (s *Servicio) CerrarIntento(
-	ctx context.Context, id string, estado publicado.Estado, destino string,
+	ctx context.Context, id string, estado publicado.Estado, causa publicado.Causa, destino string,
 ) (publicado.Despliegue, bool, error) {
-	cierre := dominio.Cierre{Estado: estadoDeDominio(estado), Destino: dominio.IdDespliegue(destino)}
+	causaDeDominio, err := causaQueSePuedePedir(causa)
+	if err != nil {
+		return publicado.Despliegue{}, false, traducir(err)
+	}
+	cierre := dominio.Cierre{
+		Estado: estadoDeDominio(estado), Causa: causaDeDominio, Destino: dominio.IdDespliegue(destino),
+	}
 	var intento *dominio.Intento
-	err := conReintento(ctx, func() error {
+	err = conReintento(ctx, func() error {
 		var err error
 		if intento, err = s.leerIntento(ctx, dominio.IdIntento(id)); err != nil {
 			return err

@@ -20,8 +20,14 @@ type Dependencias struct {
 	Lanzamientos dominio.Lanzamientos
 	Reservas     dominio.Reservas
 	Salidas      dominio.Salidas
+	Latidos      dominio.Latidos
 	Reloj        dominio.Reloj
 	Identidades  dominio.Identidades
+
+	// VentanaDeVida es cuánto observa quien encuentra el ambiente ocupado si el dueño sigue latiendo. Tiene que
+	// ser mayor que el intervalo entre latidos de Ejecución —tres veces, para tolerar un latido tardío—. Cero
+	// desactiva la recuperación: un ambiente ocupado lo sigue estando hasta que alguien abandone el intento.
+	VentanaDeVida time.Duration
 }
 
 // Servicio atiende todo lo que el Historial publica y la relación reservada. Cada escritura lee su agregado,

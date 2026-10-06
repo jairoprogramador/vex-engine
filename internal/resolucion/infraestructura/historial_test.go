@@ -97,7 +97,7 @@ func TestAdaptadorDeHistorial_ValoresDeLaUltimaVezUsaLaRelacionReservadaYConserv
 		ctx, id1, "supply", "n", dominio.CalcularHashDeVariable("un-valor"), dominio.OrigenProducida, dominio.AmbitoCompartido()))
 	require.NoError(t, adaptador.GuardarValor(ctx, id1, "supply", "n", "un-valor"))
 	require.NoError(t, h.RegistrarFinal(ctx, id1, "supply", true, nada))
-	_, _, err = h.CerrarIntento(ctx, id1, historialpublicado.Exitoso, "")
+	_, _, err = h.CerrarIntento(ctx, id1, historialpublicado.Exitoso, "", "")
 	require.NoError(t, err)
 
 	id2, err := h.AbrirIntento(ctx, aperturaDeUnSoloPaso("prod"))

@@ -60,7 +60,7 @@ los registros que ese agregado ya tiene.
 | **Despliegue** | un intento exitoso de todos sus pasos, con identidad propia y un padre | su intento está cerrado como exitoso y tiene, en **todos** los pasos del pipeline, un final exitoso o una no re-ejecución (`DEC-07.9`, `DEC-09.7`) · su padre es un despliegue anterior del mismo ambiente, o ninguno si es el primero · su intento se hizo con commits: un intento con una copia de trabajo nunca llega a despliegue (`DEC-10.7`) · no admite grados |
 | **Lanzamiento** | un despliegue que se hace visible, con fecha | su despliegue existe y es de ese ambiente |
 | **Reserva** | que el dueño del negocio reserva o libera un ambiente | ninguna más allá de su propio registro |
-| **Ocupación** | qué intento tiene un ambiente en curso | **como mucho una ocupación vigente por ambiente**: se ocupa al abrir un intento y se libera con su cierre o su abandono (`DEC-07.8`, `DEC-07.9`) |
+| **Ocupación** | qué intento tiene un ambiente en curso | **como mucho una ocupación vigente por ambiente**: se ocupa al abrir un intento y se libera con su cierre o su abandono (`DEC-07.8`, `DEC-07.9`) · **un dueño muerto no la retiene**: quien encuentra el ambiente ocupado y ve que el intento no late —ni latidos ni registros nuevos durante la **ventana de vida**— lo cierra como fallido con causa **interrumpido** (o lo abandona, si ni llegó a abrirse) y ocupa el ambiente |
 
 **El despliegue lo crea el Historial**, no quien ejecuta (`DEC-07.3`). Cuando Ejecución cierra un
 intento como exitoso, el **Intento** comprueba que tiene todos sus pasos y actúa de factoría del
@@ -102,6 +102,29 @@ condicional por agregado**: añadir un registro solo si nadie añadió otro a es
 (`RD-02` §9). Es lo que hace que la **Ocupación** solo tenga éxito si el ambiente está libre, que dos
 lanzamientos no tomen la misma versión (IT-10 `DEC-10.8`) y que la máquina de un intento abandonado no pueda
 seguir escribiendo (IT-07 `DEC-07.8`).
+
+### Si el dueño del ambiente murió
+
+Un intento sin desenlace puede haber muerto, o seguir corriendo en otra máquina: el Historial no puede saberlo
+mirando solo sus registros, y los relojes de dos máquinas no tienen por qué coincidir. Por eso no compara
+instantes para decidir que murió: **observa**.
+
+- Mientras vive, el proceso de un intento escribe un **latido** cada pocos segundos, aunque su comando no escriba
+  nada. Los latidos son una secuencia propia por intento: no son un hecho del negocio ni forman parte de sus
+  registros.
+- Quien encuentra el ambiente ocupado cuenta los latidos y los registros del dueño, espera la **ventana de vida**
+  (el triple del intervalo entre latidos) y vuelve a contar. Si ninguno creció, el dueño murió.
+- Si el último latido es más reciente que la ventana, se da al dueño por vivo **sin esperar**. Ahí sí se mira el
+  reloj, pero solo para ahorrar la espera: **nunca para declarar una muerte**. Un reloj desfasado hace, como mucho,
+  que un huérfano tarde más en recuperarse; jamás que se libere uno vivo.
+- Dar por muerto escribe un cierre **fallido** con causa **interrumpido**, protegido por la misma escritura
+  condicional de siempre: si el dueño escribe mientras se decide, no se cierra. Si varios intentos recuperan a la
+  vez, solo uno ocupa el ambiente.
+- Un intento de una versión que no latía parece muerto aunque corra: solo importa si dos versiones del motor
+  comparten almacén a la vez.
+
+Es lo que garantiza que un ambiente no queda bloqueado para siempre por un proceso caído (`kill -9`, falta de
+memoria, una máquina que se apaga). `abandonar` sigue existiendo para quien no quiere esperar.
 
 ### Lo que publica
 

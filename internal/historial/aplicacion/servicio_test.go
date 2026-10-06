@@ -40,6 +40,7 @@ func historialSobre(almacen infraestructura.Almacen) *aplicacion.Servicio {
 		Lanzamientos: infraestructura.NuevosLanzamientos(almacen),
 		Reservas:     infraestructura.NuevasReservas(almacen),
 		Salidas:      infraestructura.NuevasSalidas(almacen),
+		Latidos:      infraestructura.NuevosLatidos(almacen),
 		Reloj:        &relojQueAvanza{ahora: t0},
 		Identidades:  infraestructura.IdentidadesUUID{},
 	})
@@ -85,7 +86,7 @@ func intentar(
 			break
 		}
 	}
-	d, hay, err := h.CerrarIntento(ctx, id, estado, destino)
+	d, hay, err := h.CerrarIntento(ctx, id, estado, "", destino)
 	require.NoError(t, err)
 	return id, d, hay
 }
@@ -146,7 +147,7 @@ func TestAbrirIntento_EnUnAmbienteOcupadoSeRechazaDiciendoCual(t *testing.T) {
 	_, err = h.AbrirIntento(ctx, apertura("prod"))
 	require.NoError(t, err, "otro ambiente está libre")
 
-	_, _, err = h.CerrarIntento(ctx, primero, publicado.Fallido, "")
+	_, _, err = h.CerrarIntento(ctx, primero, publicado.Fallido, "", "")
 	require.NoError(t, err)
 	_, err = h.AbrirIntento(ctx, apertura("staging"))
 	require.NoError(t, err, "el cierre libera el ambiente")
@@ -194,7 +195,7 @@ func TestAbandonarIntento_LaMaquinaDelIntentoNoSigueEscribiendo(t *testing.T) {
 	require.NoError(t, desdeElPortal.AbandonarIntento(ctx, id))
 
 	require.ErrorIs(t, enLaMaquina.RegistrarComienzo(ctx, id, "deploy", nada), publicado.ErrRechazado)
-	_, _, err = enLaMaquina.CerrarIntento(ctx, id, publicado.Exitoso, "")
+	_, _, err = enLaMaquina.CerrarIntento(ctx, id, publicado.Exitoso, "", "")
 	require.ErrorIs(t, err, publicado.ErrRechazado)
 }
 
@@ -243,7 +244,7 @@ func TestCerrarIntento_ElDestinoDeUnRollbackEsElPadre(t *testing.T) {
 	id, err := h.AbrirIntento(ctx, apertura("staging"))
 	require.NoError(t, err)
 	hacerPasos(t, h, ctx, id, "supply", "deploy")
-	_, _, err = h.CerrarIntento(ctx, id, publicado.Exitoso, deProd.Id)
+	_, _, err = h.CerrarIntento(ctx, id, publicado.Exitoso, "", deProd.Id)
 	require.ErrorIs(t, err, publicado.ErrRechazado, "el destino es de otro ambiente")
 	intento, err := h.Intento(ctx, id)
 	require.NoError(t, err)
@@ -255,13 +256,13 @@ func TestCerrarIntento_RepetirElMismoCierreNoEscribeOtro(t *testing.T) {
 	escucha := escuchar(t, h)
 	id, d, _ := intentar(t, h, ctx, apertura("staging"), publicado.Exitoso, "")
 
-	otra, hay, err := h.CerrarIntento(ctx, id, publicado.Exitoso, "")
+	otra, hay, err := h.CerrarIntento(ctx, id, publicado.Exitoso, "", "")
 	require.NoError(t, err)
 	require.True(t, hay)
 	require.Equal(t, d, otra)
 	require.Len(t, escucha.eventos, 1)
 
-	_, _, err = h.CerrarIntento(ctx, id, publicado.Fallido, "")
+	_, _, err = h.CerrarIntento(ctx, id, publicado.Fallido, "", "")
 	require.ErrorIs(t, err, publicado.ErrRechazado, "como mucho un cierre")
 	despliegues, err := h.DesplieguesDeUnAmbiente(ctx, "staging")
 	require.NoError(t, err)
@@ -285,7 +286,7 @@ func TestRegistrarNoReejecucion_LaEvidenciaApuntaAUnFinalExitoso(t *testing.T) {
 	require.NoError(t,
 		h.RegistrarNoReejecucion(ctx, id, "supply", publicado.Evidencia{Intento: enStaging, Paso: "supply"}, razon))
 	hacerPasos(t, h, ctx, id, "deploy")
-	_, hay, err := h.CerrarIntento(ctx, id, publicado.Exitoso, "")
+	_, hay, err := h.CerrarIntento(ctx, id, publicado.Exitoso, "", "")
 	require.NoError(t, err)
 	require.True(t, hay, "un paso que no se re-ejecutó cuenta como hecho")
 }
@@ -424,7 +425,7 @@ func TestNadaDeLoPublicadoContieneUnValor(t *testing.T) {
 	require.NoError(t, h.GuardarValor(ctx, id, "supply", "DB_PASSWORD", secreto))
 	require.NoError(t, h.RegistrarFinal(ctx, id, "supply", true, nada))
 	hacerPasos(t, h, ctx, id, "deploy")
-	d, _, err := h.CerrarIntento(ctx, id, publicado.Exitoso, "")
+	d, _, err := h.CerrarIntento(ctx, id, publicado.Exitoso, "", "")
 	require.NoError(t, err)
 
 	intento, err := h.Intento(ctx, id)

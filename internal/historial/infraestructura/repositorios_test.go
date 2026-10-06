@@ -183,3 +183,82 @@ func TestSalidas_SeGuardanAparteYSeLeenEnOrden(t *testing.T) {
 	require.Empty(t, intentos, "no toca la secuencia de los intentos")
 	require.ErrorIs(t, salidas.Anadir(ctx, "i1", 1, segunda), dominio.ErrConflicto, "escritura condicional")
 }
+
+func TestIntentos_LaCausaDelCierreSobreviveAlAlmacen(t *testing.T) {
+	ctx := contexto()
+	almacen, err := NuevoAlmacenLocal(t.TempDir())
+	require.NoError(t, err)
+	nada := dominio.Contenido{}
+	intentos := NuevosIntentos(almacen)
+
+	i := dominio.NuevoIntento("i1")
+	require.NoError(t, i.Abrir(aperturaDePrueba(), en(0), nada))
+	require.NoError(t, i.Comenzar("supply", en(1), nada))
+	require.NoError(t, i.Cerrar(dominio.Cierre{Estado: dominio.Fallido, Causa: dominio.CausaInterrumpido}, en(2),
+		dominio.NuevosDesplieguesDeUnAmbiente("staging")))
+	require.NoError(t, intentos.Anadir(ctx, i))
+
+	leido, err := intentos.Intento(ctx, "i1")
+
+	require.NoError(t, err)
+	cierre, hay := leido.Cierre()
+	require.True(t, hay)
+	require.Equal(t, dominio.Cierre{Estado: dominio.Fallido, Causa: dominio.CausaInterrumpido}, cierre)
+	require.True(t, leido.Terminado())
+}
+
+func TestIntentos_UnCierreSinCausaSeLeeSinCausa(t *testing.T) {
+	ctx := contexto()
+	almacen := NuevoAlmacenEnMemoria()
+	intentos := NuevosIntentos(almacen)
+	i := dominio.NuevoIntento("i1")
+	require.NoError(t, i.Abrir(aperturaDePrueba(), en(0), dominio.Contenido{}))
+	require.NoError(t, i.Cerrar(dominio.Cierre{Estado: dominio.Fallido}, en(1), dominio.NuevosDesplieguesDeUnAmbiente("staging")))
+	require.NoError(t, intentos.Anadir(ctx, i))
+
+	leido, err := intentos.Intento(ctx, "i1")
+
+	require.NoError(t, err)
+	cierre, _ := leido.Cierre()
+	require.Empty(t, cierre.Causa, "los intentos de antes de la causa se leen igual: el campo es opcional")
+}
+
+func TestLatidos_SeAñadenEnOrdenYSeDetectaElConflicto(t *testing.T) {
+	for nombre, nuevo := range map[string]func(*testing.T) Almacen{
+		"memoria": func(*testing.T) Almacen { return NuevoAlmacenEnMemoria() },
+		"disco": func(t *testing.T) Almacen {
+			a, err := NuevoAlmacenLocal(t.TempDir())
+			require.NoError(t, err)
+			return a
+		},
+	} {
+		t.Run(nombre, func(t *testing.T) {
+			ctx := contexto()
+			latidos := NuevosLatidos(nuevo(t))
+
+			cantidad, err := latidos.Cantidad(ctx, "i1")
+			require.NoError(t, err)
+			require.Zero(t, cantidad)
+			_, hay, err := latidos.Ultimo(ctx, "i1")
+			require.NoError(t, err)
+			require.False(t, hay, "sin latidos no hay último")
+
+			require.NoError(t, latidos.Anadir(ctx, "i1", 0, en(1)))
+			require.NoError(t, latidos.Anadir(ctx, "i1", 1, en(2)))
+			require.ErrorIs(t, latidos.Anadir(ctx, "i1", 1, en(3)), dominio.ErrConflicto,
+				"dos escritores no pisan la misma posición")
+
+			cantidad, err = latidos.Cantidad(ctx, "i1")
+			require.NoError(t, err)
+			require.Equal(t, 2, cantidad)
+			ultimo, hay, err := latidos.Ultimo(ctx, "i1")
+			require.NoError(t, err)
+			require.True(t, hay)
+			require.Equal(t, en(2), ultimo)
+
+			otro, err := latidos.Cantidad(ctx, "i2")
+			require.NoError(t, err)
+			require.Zero(t, otro, "cada intento tiene su propia secuencia")
+		})
+	}
+}

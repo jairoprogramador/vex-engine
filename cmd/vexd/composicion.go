@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/jairoprogramador/vex-engine/internal/borde"
 	definicionaplicacion "github.com/jairoprogramador/vex-engine/internal/definicion/aplicacion"
@@ -21,6 +22,15 @@ import (
 	simulacioninfraestructura "github.com/jairoprogramador/vex-engine/internal/simulacion/infraestructura"
 	suministroaplicacion "github.com/jairoprogramador/vex-engine/internal/suministro/aplicacion"
 	suministroinfraestructura "github.com/jairoprogramador/vex-engine/internal/suministro/infraestructura"
+)
+
+const (
+	// intervaloDeLatido es cada cuánto deja un intento en curso constancia de que su proceso vive.
+	intervaloDeLatido = 5 * time.Second
+	// ventanaDeVida es cuánto observa quien encuentra el ambiente ocupado si el dueño sigue latiendo antes de dar
+	// su intento por interrumpido. Es el triple del intervalo: un latido tardío no hace pasar por muerto a un
+	// proceso vivo. Los dos números son un solo acuerdo entre Historial y Ejecución, y por eso se fijan juntos aquí.
+	ventanaDeVida = 3 * intervaloDeLatido
 )
 
 // rutas son los tres lugares del disco que da quien invoca (DEC-06.18): el almacén del Historial, el espacio
@@ -59,8 +69,11 @@ func componer(r rutas, progreso ejecuciondominio.Progreso) (*borde.Servicio, err
 		Lanzamientos: historialinfraestructura.NuevosLanzamientos(almacen),
 		Reservas:     historialinfraestructura.NuevasReservas(almacen),
 		Salidas:      historialinfraestructura.NuevasSalidas(almacen),
+		Latidos:      historialinfraestructura.NuevosLatidos(almacen),
 		Reloj:        historialinfraestructura.RelojDelSistema{},
 		Identidades:  historialinfraestructura.IdentidadesUUID{},
+
+		VentanaDeVida: ventanaDeVida,
 	})
 
 	suministro := suministroaplicacion.NuevoServicio(suministroaplicacion.Dependencias{
@@ -83,6 +96,7 @@ func componer(r rutas, progreso ejecuciondominio.Progreso) (*borde.Servicio, err
 		Comandos:              ejecucioninfraestructura.NuevosComandos(),
 		EspacioDeTrabajo:      ejecucioninfraestructura.NuevoEspacioDeTrabajo(r.espacio),
 		Progreso:              progreso,
+		IntervaloDeLatido:     intervaloDeLatido,
 		NombreDeLaHerramienta: "vexd",
 	})
 	simulacion := simulacionaplicacion.NuevoServicio(simulacionaplicacion.Dependencias{

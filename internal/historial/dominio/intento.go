@@ -32,9 +32,22 @@ type Apertura struct {
 	HashDelCodigo HashDelCodigo
 }
 
+// Causa es por qué un intento terminó sin que un comando lo decidiera. Está vacía cuando el desenlace salió de
+// los propios comandos (un paso exitoso, un comando que falló, una cancelación).
+type Causa string
+
+const (
+	// CausaError: algo impidió seguir —interpolar, un puerto que falló— sin que ningún comando fallara.
+	CausaError Causa = "error"
+	// CausaInterrumpido: el proceso del intento murió sin cerrarlo, y otro intento lo cerró al encontrar el
+	// ambiente ocupado y sin latidos.
+	CausaInterrumpido Causa = "interrumpido"
+)
+
 // Cierre es cómo terminó un intento y, si es un rollback, a qué despliegue volvió.
 type Cierre struct {
 	Estado  Estado
+	Causa   Causa
 	Destino IdDespliegue
 }
 

@@ -14,6 +14,18 @@ const (
 	Cancelado Estado = "cancelado"
 )
 
+// Causa es por qué un intento terminó sin que un comando lo decidiera; vacía si el desenlace salió de los propios
+// comandos. Un intento puede cerrarse con CausaError; CausaInterrumpido la pone el propio Historial.
+type Causa string
+
+const (
+	// CausaError: algo impidió seguir —interpolar, un puerto que falló— sin que ningún comando fallara.
+	CausaError Causa = "error"
+	// CausaInterrumpido: el proceso del intento murió sin cerrarlo, y otro intento lo cerró al encontrar el
+	// ambiente ocupado y sin señal de vida. Es un fallo, pero no de los comandos ni del pipeline.
+	CausaInterrumpido Causa = "interrumpido"
+)
+
 // Contenido es lo que dice un registro, con el contexto al que pertenece. El Historial no lo interpreta.
 type Contenido struct {
 	Contexto string
@@ -89,7 +101,9 @@ type Intento struct {
 	Instante  time.Time // el de la apertura
 	Registros []RegistroDePaso
 	// Estado está vacío si el intento no tiene desenlace.
-	Estado     Estado
+	Estado Estado
+	// Causa es por qué terminó, si no fue por un comando: vacía en el caso normal.
+	Causa      Causa
 	Destino    string // el despliegue al que volvió, si fue un rollback
 	Abandonado bool
 }

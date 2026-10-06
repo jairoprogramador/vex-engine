@@ -76,15 +76,31 @@ type variablesFalsas struct {
 	err            error
 	noReejecutados []string
 	producidas     []string
+
+	// errInterpolar hace fallar solo a Interpolar —no a declarar variables—, que es lo que pasa cuando un
+	// comando usa una variable que no está disponible: el paso ya empezó cuando se descubre.
+	errInterpolar error
+	// alUsarVariables, si no es nil, se llama la primera vez que se pide algo a Resolución, para cancelar el
+	// ctx a mitad de un paso, como haría una cancelación de verdad.
+	alUsarVariables func()
 }
 
 func (v *variablesFalsas) DeclararVariablesDeUnPaso(
 	context.Context, string, string, dominio.Ambito, string, string, map[string]string,
 ) error {
+	if v.alUsarVariables != nil {
+		v.alUsarVariables()
+	}
 	return v.err
 }
 
 func (v *variablesFalsas) Interpolar(_ context.Context, _, _ string, _ dominio.Ambito, texto string) (string, error) {
+	if v.alUsarVariables != nil {
+		v.alUsarVariables()
+	}
+	if v.errInterpolar != nil {
+		return "", v.errInterpolar
+	}
 	return texto, v.err
 }
 
@@ -138,6 +154,12 @@ type historialFalso struct {
 	registros        []registroDeHistorial
 	salidas          []salidaRegistrada
 
+	latidos      int
+	errLatir     error
+	causaCerrada dominio.Causa
+
+	// errCerrar simula un almacén que no responde al cerrar: el intento no llega a cerrarse.
+	errCerrar         error
 	cerrado           bool
 	desenlaceCerrado  dominio.Desenlace
 	destinoCerrado    string
@@ -214,13 +236,30 @@ func (h *historialFalso) RegistrarNoReejecucion(
 	return nil
 }
 
+func (h *historialFalso) cantidadDeLatidos() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.latidos
+}
+
+func (h *historialFalso) Latir(context.Context, string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.latidos++
+	return h.errLatir
+}
+
 func (h *historialFalso) CerrarIntento(
-	_ context.Context, _ string, desenlace dominio.Desenlace, destino string,
+	_ context.Context, _ string, desenlace dominio.Desenlace, causa dominio.Causa, destino string,
 ) (string, bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.errCerrar != nil {
+		return "", false, h.errCerrar
+	}
 	h.cerrado = true
 	h.desenlaceCerrado = desenlace
+	h.causaCerrada = causa
 	h.destinoCerrado = destino
 	return h.despliegueACerrar, h.despliegueACerrar != "", nil
 }

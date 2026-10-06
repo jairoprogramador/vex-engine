@@ -22,6 +22,15 @@ type IntentoDeDiagnostico struct {
 	Ambiente Ambiente
 	Instante time.Time
 	Estado   EstadoDeIntento
+	// Interrumpido: su proceso murió sin cerrarlo y otro intento lo cerró como fallido. Falló, pero no por el
+	// pipeline: buscarle causa en el código o las variables daría un diagnóstico engañoso.
+	Interrumpido bool
+}
+
+// NoSeAtribuye: ES-7. Un intento sin desenlace, cancelado o interrumpido no tiene causa que buscar: de uno no se
+// sabe cómo terminó, y los otros dos no fallaron por nada que el pipeline haya cambiado.
+func (i IntentoDeDiagnostico) NoSeAtribuye() bool {
+	return i.Estado.SinDesenlace() || i.Estado == Cancelado || i.Interrumpido
 }
 
 // Historial es lo que la aplicación necesita del Historial, en el lenguaje de este dominio. Todo el I/O

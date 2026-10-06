@@ -22,6 +22,33 @@ func (s *Servicio) abandonar(ctx context.Context, id string, causa error) error 
 	return causa
 }
 
+// cerrarPorError cierra un intento que ya empezó y al que un error impidió seguir —interpolar una variable que
+// no está, un puerto que falla, un registro que el Historial no acepta—: como fallido, o como cancelado si la
+// causa fue la cancelación, que siempre gana (DEC-09.2). Sin él, el intento quedaría sin desenlace y su
+// ambiente ocupado hasta que alguien lo abandonara a mano. Devuelve la causa, que es lo que hay que contarle a
+// quien invocó; si además el cierre no se pudo escribir, lo dice. Cuando el almacén no responde, o el intento
+// ya fue abandonado, cerrar falla también y el intento queda sin desenlace (EJ-4).
+func (s *Servicio) cerrarPorError(
+	ctx context.Context, id string, intento *dominio.IntentoEnCurso, destino string, causa error,
+) error {
+	// Si la causa fue la cancelación, ella ya lo explica: el intento es cancelado y no lleva otra causa.
+	causaDeCierre := dominio.CausaError
+	if ctx.Err() != nil {
+		intento.Cancelar()
+		causaDeCierre = ""
+	} else {
+		intento.Fallar()
+	}
+	desenlace, _ := intento.Desenlace() // siempre lo hay: se acaba de fijar uno de los dos
+	// context.WithoutCancel: cerrar es la consecuencia del error, no algo que una cancelación deba impedir.
+	if _, _, err := s.d.Historial.CerrarIntento(context.WithoutCancel(ctx), id, desenlace, causaDeCierre, destino); err != nil {
+		return errors.Join(causa, fmt.Errorf(
+			"ejecución: el intento %q no pudo seguir y no se pudo cerrar como %s: queda sin desenlace y el ambiente sigue ocupado hasta que se abandone: %w",
+			id, desenlace, err))
+	}
+	return causa
+}
+
 // cerrar registra el desenlace del intento y, si llega a despliegue, deja su identidad en el resultado —
 // nunca la tiene si el intento se hizo con una copia de trabajo (DEC-10.7) o no terminó exitoso.
 func (s *Servicio) cerrar(ctx context.Context, id string, intento *dominio.IntentoEnCurso, destino string) (publicado.Resultado, error) {
@@ -31,7 +58,7 @@ func (s *Servicio) cerrar(ctx context.Context, id string, intento *dominio.Inten
 	}
 	// context.WithoutCancel: un intento cancelado (EJ-3) tiene que poder cerrarse como cancelado — cerrar es la
 	// consecuencia de la cancelación, no algo que ella misma deba impedir.
-	despliegue, _, err := s.d.Historial.CerrarIntento(context.WithoutCancel(ctx), id, desenlace, destino)
+	despliegue, _, err := s.d.Historial.CerrarIntento(context.WithoutCancel(ctx), id, desenlace, "", destino)
 	if err != nil {
 		return publicado.Resultado{}, fmt.Errorf("ejecución: cerrar el intento %q: %w", id, err)
 	}

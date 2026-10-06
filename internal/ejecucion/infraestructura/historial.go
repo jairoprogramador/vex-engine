@@ -96,14 +96,22 @@ func (h *Historial) RegistrarNoReejecucion(
 	return nil
 }
 
+func (h *Historial) Latir(ctx context.Context, intento string) error {
+	if err := h.historial.RegistrarLatido(ctx, intento); err != nil {
+		return fmt.Errorf("ejecución: registrar el latido del intento %q: %w", intento, err)
+	}
+	return nil
+}
+
 func (h *Historial) CerrarIntento(
-	ctx context.Context, intento string, desenlace dominio.Desenlace, destino string,
+	ctx context.Context, intento string, desenlace dominio.Desenlace, causa dominio.Causa, destino string,
 ) (string, bool, error) {
 	estado, err := estadoAPublicado(desenlace)
 	if err != nil {
 		return "", false, err
 	}
-	despliegue, huboDespliegue, err := h.historial.CerrarIntento(ctx, intento, estado, destino)
+	despliegue, huboDespliegue, err := h.historial.CerrarIntento(
+		ctx, intento, estado, historialpublicado.Causa(causa), destino)
 	if err != nil {
 		return "", false, fmt.Errorf("ejecución: cerrar el intento %q: %w", intento, err)
 	}

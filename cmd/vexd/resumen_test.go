@@ -27,7 +27,7 @@ func TestResumir_TomaLoDeLaAperturaYElEstado(t *testing.T) {
 
 	require.NoError(t, err)
 	require.JSONEq(t,
-		`{"Id":"i-1","Ambiente":"sand","Solicitante":"jailux","HastaPaso":"test","Estado":"exitoso"}`,
+		`{"Id":"i-1","Ambiente":"sand","Solicitante":"jailux","HastaPaso":"test","Estado":"exitoso","Causa":""}`,
 		string(salida))
 }
 
@@ -35,7 +35,20 @@ func TestResumir_UnIntentoSinDesenlaceTieneElEstadoVacio(t *testing.T) {
 	salida, err := json.Marshal(resumir(historialpublicado.Intento{Id: "i-2"}))
 
 	require.NoError(t, err)
-	require.JSONEq(t, `{"Id":"i-2","Ambiente":"","Solicitante":"","HastaPaso":"","Estado":""}`, string(salida))
+	require.JSONEq(t, `{"Id":"i-2","Ambiente":"","Solicitante":"","HastaPaso":"","Estado":"","Causa":""}`, string(salida))
+}
+
+func TestResumir_UnIntentoInterrumpidoDiceSuCausa(t *testing.T) {
+	intento := historialpublicado.Intento{
+		Id: "i-3", Estado: historialpublicado.Fallido, Causa: historialpublicado.CausaInterrumpido,
+	}
+
+	salida, err := json.Marshal(resumir(intento))
+
+	require.NoError(t, err)
+	require.JSONEq(t,
+		`{"Id":"i-3","Ambiente":"","Solicitante":"","HastaPaso":"","Estado":"fallido","Causa":"interrumpido"}`,
+		string(salida))
 }
 
 func TestResumirTodos_SinIntentosEsUnaListaVacia(t *testing.T) {
@@ -79,7 +92,7 @@ func TestIntentos_RespondeLaEstructuraCompactaYIntentoElDetalleCompleto(t *testi
 	var intentos []map[string]any
 	lista.resultado(t, &intentos)
 	require.Len(t, intentos, 1)
-	require.ElementsMatch(t, []string{"Id", "Ambiente", "Solicitante", "HastaPaso", "Estado"}, claves(intentos[0]),
+	require.ElementsMatch(t, []string{"Id", "Ambiente", "Solicitante", "HastaPaso", "Estado", "Causa"}, claves(intentos[0]),
 		"la lista trae el resumen de cada intento, no el intento entero")
 	require.Equal(t, intento, intentos[0]["Id"])
 	require.Equal(t, "prod", intentos[0]["Ambiente"])

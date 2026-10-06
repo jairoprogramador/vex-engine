@@ -58,6 +58,8 @@ func (s *Servicio) HacerRollback(
 		return publicado.Resultado{}, traducir(err)
 	}
 
+	defer s.latirMientras(ctx, id)() // ver Intentar
+
 	// Primero el Historial, que decide quién ocupa el ambiente, y solo entonces el espacio de trabajo (ver Intentar).
 	if err := s.d.EspacioDeTrabajo.RehacerParteDelMotor(ctx, ubicacion, pipeline.Pasos); err != nil {
 		return publicado.Resultado{}, traducir(s.abandonar(ctx, id, err))
@@ -76,7 +78,7 @@ func (s *Servicio) HacerRollback(
 		),
 	}
 	if err := s.recorrer(ctx, c, intento); err != nil {
-		return publicado.Resultado{}, traducir(err)
+		return publicado.Resultado{}, traducir(s.cerrarPorError(ctx, id, intento, destino.Despliegue(), err))
 	}
 	return s.cerrar(ctx, id, intento, destino.Despliegue())
 }

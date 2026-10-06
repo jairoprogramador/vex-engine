@@ -3,11 +3,12 @@ package infraestructura
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jairoprogramador/vex-engine/internal/historial/dominio"
 )
 
-// Los seis repositorios sobre un Almacen. Todos escriben en el mismo sitio, detrás de la interfaz del
+// Los siete repositorios sobre un Almacen. Todos escriben en el mismo sitio, detrás de la interfaz del
 // Historial (IT-06 DEC-06.18). Cada agregado es una secuencia, y Anadir escribe sus registros nuevos a partir
 // de los que se leyeron: si alguien añadió otro antes, el almacén devuelve dominio.ErrConflicto.
 
@@ -23,6 +24,8 @@ type ReservasEnAlmacen struct{ almacen Almacen }
 
 type SalidasEnAlmacen struct{ almacen Almacen }
 
+type LatidosEnAlmacen struct{ almacen Almacen }
+
 var (
 	_ dominio.Intentos     = IntentosEnAlmacen{}
 	_ dominio.Despliegues  = DesplieguesEnAlmacen{}
@@ -30,6 +33,7 @@ var (
 	_ dominio.Lanzamientos = LanzamientosEnAlmacen{}
 	_ dominio.Reservas     = ReservasEnAlmacen{}
 	_ dominio.Salidas      = SalidasEnAlmacen{}
+	_ dominio.Latidos      = LatidosEnAlmacen{}
 )
 
 func NuevosIntentos(a Almacen) IntentosEnAlmacen         { return IntentosEnAlmacen{almacen: a} }
@@ -38,6 +42,7 @@ func NuevasOcupaciones(a Almacen) OcupacionesEnAlmacen   { return OcupacionesEnA
 func NuevosLanzamientos(a Almacen) LanzamientosEnAlmacen { return LanzamientosEnAlmacen{almacen: a} }
 func NuevasReservas(a Almacen) ReservasEnAlmacen         { return ReservasEnAlmacen{almacen: a} }
 func NuevasSalidas(a Almacen) SalidasEnAlmacen           { return SalidasEnAlmacen{almacen: a} }
+func NuevosLatidos(a Almacen) LatidosEnAlmacen           { return LatidosEnAlmacen{almacen: a} }
 
 func (r IntentosEnAlmacen) Intento(ctx context.Context, id dominio.IdIntento) (*dominio.Intento, error) {
 	registros, err := leer(ctx, r.almacen, Secuencia{Familia: familiaIntentos, Nombre: string(id)},
@@ -171,6 +176,34 @@ func (r SalidasEnAlmacen) Anadir(
 ) error {
 	return anadir(ctx, r.almacen, Secuencia{Familia: familiaSalidas, Nombre: string(intento)},
 		previas, []dominio.Salida{salida}, codificarSalida)
+}
+
+// Cantidad cuenta los latidos sin decodificarlos: solo importa si creció.
+func (r LatidosEnAlmacen) Cantidad(ctx context.Context, intento dominio.IdIntento) (int, error) {
+	datos, err := r.almacen.Leer(ctx, Secuencia{Familia: familiaLatidos, Nombre: string(intento)})
+	if err != nil {
+		return 0, err
+	}
+	return len(datos), nil
+}
+
+func (r LatidosEnAlmacen) Ultimo(ctx context.Context, intento dominio.IdIntento) (time.Time, bool, error) {
+	datos, err := r.almacen.Leer(ctx, Secuencia{Familia: familiaLatidos, Nombre: string(intento)})
+	if err != nil || len(datos) == 0 {
+		return time.Time{}, false, err
+	}
+	var j latidoJSON
+	if err := decodificar(datos[len(datos)-1], &j, &j.Formato); err != nil {
+		return time.Time{}, false, fmt.Errorf("secuencia %s, último latido: %w", Secuencia{Familia: familiaLatidos, Nombre: string(intento)}, err)
+	}
+	return j.Instante, true, nil
+}
+
+func (r LatidosEnAlmacen) Anadir(
+	ctx context.Context, intento dominio.IdIntento, previos int, instante time.Time,
+) error {
+	return anadir(ctx, r.almacen, Secuencia{Familia: familiaLatidos, Nombre: string(intento)},
+		previos, []time.Time{instante}, codificarLatido)
 }
 
 func leer[T any](
