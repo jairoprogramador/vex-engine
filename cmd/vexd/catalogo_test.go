@@ -9,11 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jairoprogramador/vex-engine/internal/borde"
+	definicionpublicado "github.com/jairoprogramador/vex-engine/internal/definicion/publicado"
 	diagnosticopublicado "github.com/jairoprogramador/vex-engine/internal/diagnostico/publicado"
 	ejecucionpublicado "github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
 	historialpublicado "github.com/jairoprogramador/vex-engine/internal/historial/publicado"
 	lanzamientopublicado "github.com/jairoprogramador/vex-engine/internal/lanzamiento/publicado"
 	"github.com/jairoprogramador/vex-engine/internal/protocolo"
+	resolucionpublicado "github.com/jairoprogramador/vex-engine/internal/resolucion/publicado"
 	simulacionpublicado "github.com/jairoprogramador/vex-engine/internal/simulacion/publicado"
 )
 
@@ -33,7 +35,7 @@ func TestClasificar(t *testing.T) {
 		"versión no soportada":                {borde.ErrVersionNoSoportada, codigoVersionNoSoportada, tipoVersionNoSoportada, salidaInvalida},
 		"configuración del proceso":           {errConfiguracion, codigoConfiguracionInvalida, tipoConfiguracionInvalida, salidaInvalida},
 		"no existe en el historial":           {historialpublicado.ErrNoExiste, codigoNoExiste, tipoNoExiste, salidaFallo},
-		"historial sin intentos":              {borde.ErrHistorialSinIntentos, codigoNoExiste, tipoNoExiste, salidaFallo},
+		"historial sin intentos":              {borde.ErrHistorialSinIntentos, codigoHistorialSinIntentos, tipoHistorialSinIntentos, salidaFallo},
 		"otras escrituras ganaron siempre":    {historialpublicado.ErrEscrituraConcurrente, codigoEscrituraConcurrente, tipoEscrituraConcurrente, salidaFallo},
 		"rechazado por ejecución":             {ejecucionpublicado.ErrRechazado, codigoRechazado, tipoRechazado, salidaFallo},
 		"rechazado por el historial":          {historialpublicado.ErrRechazado, codigoRechazado, tipoRechazado, salidaFallo},
@@ -61,7 +63,42 @@ func TestClasificar_UnAmbienteOcupadoDiceElIntentoAunqueTambienSeaUnRechazo(t *t
 	require.Equal(t, codigoAmbienteOcupado, f.codigo)
 	require.Equal(t, tipoAmbienteOcupado, f.tipo)
 	require.Equal(t, salidaFallo, f.salida)
-	require.Equal(t, map[string]string{"tipo": tipoAmbienteOcupado, "ambiente": "prod", "intento": "01a1"}, f.aError().Data)
+	require.Equal(t, map[string]any{"tipo": tipoAmbienteOcupado, "ambiente": "prod", "intento": "01a1"}, f.aError().Data)
+}
+
+func TestClasificar_UnIntentoQueNoExisteSigueSiendoNoExisteYNoSeConfundeConUnHistorialVacio(t *testing.T) {
+	inexistente := fmt.Errorf("%w: el intento x", historialpublicado.ErrNoExiste)
+
+	f := clasificar(inexistente)
+
+	require.Equal(t, codigoNoExiste, f.codigo)
+	require.Equal(t, tipoNoExiste, f.tipo)
+	require.NotEqual(t, clasificar(borde.ErrHistorialSinIntentos).tipo, f.tipo, "vex los distingue sin leer el texto")
+}
+
+func TestClasificar_UnPipelineQueNoPasaLaComprobacionDiceSusFallosComoDatos(t *testing.T) {
+	fallos := definicionpublicado.NuevosFallosDeComprobacion([]definicionpublicado.Fallo{
+		{Invariante: "formato", Fichero: "config.yaml", Detalle: "no se lee"},
+		{Invariante: "pasos", Fichero: "steps/01-test/commands.yaml", Paso: "test", Detalle: "sin comandos"},
+	}, "")
+
+	f := clasificar(errors.Join(ejecucionpublicado.ErrRechazado, fallos))
+
+	require.Equal(t, codigoRechazado, f.codigo)
+	require.Equal(t, fallos.Fallos, f.aError().Data.(map[string]any)["fallos"], "datos, para que vex arme su mensaje")
+}
+
+func TestClasificar_UnaVariableQueNoExisteDiceCualComoDato(t *testing.T) {
+	f := clasificar(errors.Join(ejecucionpublicado.ErrRechazado, &resolucionpublicado.VariableNoEncontradaError{Nombre: "deploy"}))
+
+	require.Equal(t, codigoRechazado, f.codigo)
+	require.Equal(t, "deploy", f.aError().Data.(map[string]any)["variable"])
+}
+
+func TestClasificar_UnRechazoSinDetallesNoInventaNingunDato(t *testing.T) {
+	f := clasificar(ejecucionpublicado.ErrRechazado)
+
+	require.Equal(t, map[string]any{"tipo": tipoRechazado}, f.aError().Data)
 }
 
 func TestClasificar_UnErrorInternoNoCuentaSuCausa(t *testing.T) {

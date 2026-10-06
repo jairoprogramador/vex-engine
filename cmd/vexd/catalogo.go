@@ -5,11 +5,13 @@ import (
 	"errors"
 
 	"github.com/jairoprogramador/vex-engine/internal/borde"
+	definicionpublicado "github.com/jairoprogramador/vex-engine/internal/definicion/publicado"
 	diagnosticopublicado "github.com/jairoprogramador/vex-engine/internal/diagnostico/publicado"
 	ejecucionpublicado "github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
 	historialpublicado "github.com/jairoprogramador/vex-engine/internal/historial/publicado"
 	lanzamientopublicado "github.com/jairoprogramador/vex-engine/internal/lanzamiento/publicado"
 	"github.com/jairoprogramador/vex-engine/internal/protocolo"
+	resolucionpublicado "github.com/jairoprogramador/vex-engine/internal/resolucion/publicado"
 	simulacionpublicado "github.com/jairoprogramador/vex-engine/internal/simulacion/publicado"
 )
 
@@ -25,6 +27,7 @@ const (
 	codigoConfiguracionInvalida = -32006
 	codigoCancelado             = -32007
 	codigoEscrituraConcurrente  = -32008
+	codigoHistorialSinIntentos  = -32009
 )
 
 // Tipos de error: el nombre estable que un cliente puede comparar, en data.tipo.
@@ -38,6 +41,7 @@ const (
 	tipoConfiguracionInvalida = "configuracion_invalida"
 	tipoCancelado             = "cancelado"
 	tipoEscrituraConcurrente  = "escritura_concurrente"
+	tipoHistorialSinIntentos  = "historial_sin_intentos"
 	tipoInterno               = "interno"
 	tipoOperacionDesconocida  = "operacion_desconocida"
 	tipoPeticionInvalida      = "peticion_invalida"
@@ -57,7 +61,7 @@ type fallo struct {
 	tipo    string
 	salida  int
 	mensaje string
-	datos   map[string]string
+	datos   map[string]any
 	// causa es el error original, que solo se escribe en la salida de error y solo si es interno.
 	causa error
 }
@@ -65,7 +69,7 @@ type fallo struct {
 // aError es el error de la respuesta. Un error interno no cuenta su causa: va a la salida de error, no a quien
 // invoca.
 func (f fallo) aError() protocolo.Error {
-	datos := map[string]string{"tipo": f.tipo}
+	datos := map[string]any{"tipo": f.tipo}
 	for clave, valor := range f.datos {
 		datos[clave] = valor
 	}
@@ -80,7 +84,7 @@ func clasificar(err error) fallo {
 	switch {
 	case errors.As(err, &ocupado):
 		return fallo{codigo: codigoAmbienteOcupado, tipo: tipoAmbienteOcupado, salida: salidaFallo, mensaje: err.Error(),
-			datos: map[string]string{"ambiente": ocupado.Ambiente, "intento": ocupado.Intento}}
+			datos: map[string]any{"ambiente": ocupado.Ambiente, "intento": ocupado.Intento}}
 	case errors.Is(err, errConfiguracion):
 		return fallo{codigo: codigoConfiguracionInvalida, tipo: tipoConfiguracionInvalida, salida: salidaInvalida, mensaje: err.Error()}
 	case errors.Is(err, borde.ErrVersionNoSoportada):
@@ -89,10 +93,14 @@ func clasificar(err error) fallo {
 		return fallo{codigo: protocolo.CodigoParametrosInvalidos, tipo: tipoParametrosInvalidos, salida: salidaInvalida, mensaje: err.Error()}
 	case errors.Is(err, historialpublicado.ErrEscrituraConcurrente):
 		return fallo{codigo: codigoEscrituraConcurrente, tipo: tipoEscrituraConcurrente, salida: salidaFallo, mensaje: err.Error()}
+	case errors.Is(err, borde.ErrHistorialSinIntentos):
+		// Es un ErrNoExiste, pero vex tiene que poder distinguir «aún no hay intentos» de «ese intento no existe»
+		// sin leer el texto: por eso, un tipo propio.
+		return fallo{codigo: codigoHistorialSinIntentos, tipo: tipoHistorialSinIntentos, salida: salidaFallo, mensaje: err.Error()}
 	case errors.Is(err, historialpublicado.ErrNoExiste):
 		return fallo{codigo: codigoNoExiste, tipo: tipoNoExiste, salida: salidaFallo, mensaje: err.Error()}
 	case errors.Is(err, ejecucionpublicado.ErrRechazado), errors.Is(err, historialpublicado.ErrRechazado):
-		return fallo{codigo: codigoRechazado, tipo: tipoRechazado, salida: salidaFallo, mensaje: err.Error()}
+		return fallo{codigo: codigoRechazado, tipo: tipoRechazado, salida: salidaFallo, mensaje: err.Error(), datos: detallesDelRechazo(err)}
 	case errors.Is(err, ejecucionpublicado.ErrNoDisponible):
 		return fallo{codigo: codigoNoDisponible, tipo: tipoNoDisponible, salida: salidaFallo, mensaje: err.Error()}
 	case errors.Is(err, context.Canceled):
@@ -100,6 +108,32 @@ func clasificar(err error) fallo {
 	default:
 		return fallo{codigo: codigoInterno, tipo: tipoInterno, salida: salidaFallo, mensaje: "error interno"}
 	}
+}
+
+// detallesDelRechazo son los datos que el rechazo ya trae, para que quien presenta (vex) arme su mensaje sin leer
+// el texto: los fallos de la comprobación de un pipeline (qué fichero, qué paso, qué invariante), o la variable que
+// no existe. Si no trae ninguno, no hay datos: no se inventa nada.
+func detallesDelRechazo(err error) map[string]any {
+	var datos map[string]any
+	poner := func(clave string, valor any) {
+		if datos == nil {
+			datos = map[string]any{}
+		}
+		datos[clave] = valor
+	}
+	var fallos *definicionpublicado.FallosDeComprobacion
+	if errors.As(err, &fallos) {
+		lista := fallos.Fallos
+		if lista == nil {
+			lista = []definicionpublicado.Fallo{}
+		}
+		poner("fallos", lista)
+	}
+	var falta *resolucionpublicado.VariableNoEncontradaError
+	if errors.As(err, &falta) {
+		poner("variable", falta.Nombre)
+	}
+	return datos
 }
 
 // tipoDelProtocolo es el data.tipo de un error que puso internal/protocolo.

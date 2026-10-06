@@ -25,7 +25,7 @@ De ahí salen las decisiones:
 | P-4 | Un único adaptador (stdio). `vexd` no tiene subcomandos ni flags de operación. |
 | P-5 | Los directorios (almacén, espacio, material) son configuración del proceso, **solo** por variables `VEX_*`; no van en la petición (`DEC-06.18`) ni hay flags. Los valores por defecto los fija la imagen (`ENV` del `Dockerfile`); quien lanza el contenedor solo elige qué monta en cada ruta. |
 | P-6 | La petición puede llevar **variables de entorno para los comandos**, en un miembro propio (`entorno`). El motor no gestiona secretos (`DEC-08.8`): son variables que pueden o no ser sensibles. |
-| P-7 | Presentación para humanos (resúmenes, colores, tablas) **no es del motor**: es de `vex`. |
+| P-7 | **El motor no lleva texto para el usuario final**: ni mensajes, ni resúmenes, ni colores, ni tablas. Responde datos estructurados, y errores y motivos **técnicos y estables** (`data.tipo`, `SinDiagnostico`), para que `vex` los distinga y diga lo que quiera, más amable, en su idioma. Una lista sin elementos es `[]`, no un mensaje. |
 
 ## Ciclo de vida
 
@@ -81,7 +81,10 @@ vex ◄─ {response} ──────────   vexd escribe UNA respuest
 
 ### Respuesta
 
-Éxito — `result` es lo que hoy devuelve el borde, **completo** (sin resumir):
+Éxito — `result` es lo que devuelve el borde, **completo**, con dos excepciones que responden una estructura
+compacta: `intentos` (de cada intento, `Id`, `Ambiente`, `Solicitante`, `HastaPaso`, `Estado`; el detalle de uno se
+pide con `intento`) y `diagnosticar` (de un vistazo: contra qué se comparó, qué intento falla y qué cambió; sin diagnóstico que dar, solo `SinDiagnostico` con el
+motivo: si el campo está, no hay diagnóstico). **Ninguna lleva texto para el usuario final**:
 
 ```json
 {"jsonrpc":"2.0","id":"1","result":{"…":"Resultado"}}
@@ -145,7 +148,8 @@ por separado: `vex` puede comprobar compatibilidad antes de enviar nada.
 | `-32602` | `parametros_invalidos` | campo desconocido o `ErrPeticionInvalida`, `*.ErrInvalido` | 2 |
 | `-32001` | `version_no_soportada` | `borde.ErrVersionNoSoportada` | 2 |
 | `-32002` | `rechazado` | `ejecucion.ErrRechazado`, `historial.ErrRechazado` | 1 |
-| `-32003` | `no_existe` | `historial.ErrNoExiste`, incluido `borde.ErrHistorialSinIntentos` (`logs` sin ningún intento: ya no es un mensaje con salida 0, el motor no tiene texto para humanos) | 1 |
+| `-32003` | `no_existe` | `historial.ErrNoExiste`: lo consultado no está (un intento que no existe…) | 1 |
+| `-32009` | `historial_sin_intentos` | `borde.ErrHistorialSinIntentos`: `logs` sin pedir intento, y el historial no tiene ninguno. Es un caso de `no_existe` con tipo propio, para que `vex` lo distinga de «ese intento no existe» sin leer el texto | 1 |
 | `-32004` | `ambiente_ocupado` | `*historial.AmbienteOcupadoError` (`data.intento`) | 1 |
 | `-32005` | `no_disponible` | `ejecucion.ErrNoDisponible` | 1 |
 | `-32006` | `configuracion_invalida` | falta una variable `VEX_*` obligatoria, o su directorio no existe | 2 |
@@ -171,6 +175,14 @@ publicado. El adaptador de `cmd/vexd` no importa esos contextos: solo clasifica 
 | cualquier otro | sin cambio | `-32000` interno, salida 1 |
 
 En `simular`, un pipeline que no pasa la comprobación no es un error sino el resultado (`Causa.Fallos`).
+
+**Datos del error.** Además de `tipo`, `data` lleva lo que el motor ya sabe y `vex` necesita para armar su mensaje, sin
+que tenga que leer `message` (que es texto técnico, para quien depura):
+
+| `tipo` | Datos |
+|---|---|
+| `ambiente_ocupado` | `ambiente`, `intento` (el que lo ocupa) |
+| `rechazado` | `fallos`: lista de `{Invariante, Fichero, Paso, Ambiente, Detalle}` si es un pipeline que no pasa la comprobación; `variable`: el nombre, si un texto usa una que no existe. Solo están si el rechazo los trae |
 
 Los códigos y `data.tipo` son **estables**: añadir uno es compatible, cambiar o reutilizar uno no.
 

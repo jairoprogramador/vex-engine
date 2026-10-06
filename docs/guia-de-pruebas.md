@@ -125,7 +125,8 @@ echo '{"jsonrpc":"2.0","id":"1","method":"intentar","params":{ … },"entorno":{
 | `-32602` | `parametros_invalidos` | Un campo que la operación no tiene, un valor que no vale, `entorno` con valor |
 | `-32001` | `version_no_soportada` | `Version` vacía o distinta de `"1"` |
 | `-32002` | `rechazado` | Lo pedido rompe una regla del motor |
-| `-32003` | `no_existe` | Lo consultado no está en el historial (incluido `logs` sin ningún intento) |
+| `-32003` | `no_existe` | Lo consultado no está en el historial (un intento que no existe…) |
+| `-32009` | `historial_sin_intentos` | `logs` sin pedir un intento, y el historial no tiene ninguno. Es un `no_existe` con tipo propio, para distinguirlo de «ese intento no existe» |
 | `-32004` | `ambiente_ocupado` | Hay otro intento en el ambiente; `data.intento` dice cuál |
 | `-32005` | `no_disponible` | El espacio de trabajo del ambiente no se alcanzó; el intento no empezó |
 | `-32006` | `configuracion_invalida` | Falta una variable `VEX_*` obligatoria, o su directorio no existe; el mensaje nombra la variable |
@@ -133,7 +134,13 @@ echo '{"jsonrpc":"2.0","id":"1","method":"intentar","params":{ … },"entorno":{
 | `-32008` | `escritura_concurrente` | Otros procesos escribieron a la vez, una y otra vez, y no se pudo escribir. No se escribió nada: volver a pedirlo es seguro |
 | `-32000` | `interno` | Cualquier otro; la causa va a stderr |
 
-Los códigos y los `tipo` son estables.
+Los códigos y los `tipo` son estables. `message` es texto técnico, para quien depura: quien presenta el error al usuario
+(`vex`) se guía por `code` y `data`, que además de `tipo` lleva lo que el motor ya sabe:
+
+| `tipo` | `data` |
+|---|---|
+| `ambiente_ocupado` | `ambiente` e `intento` (el que lo ocupa) |
+| `rechazado` | `fallos` (lista de `{Invariante, Fichero, Paso, Ambiente, Detalle}`) si un pipeline no pasa la comprobación, o `variable` (el nombre) si un texto usa una que no existe. Solo si el rechazo los trae |
 
 ### Códigos de salida
 
@@ -308,11 +315,33 @@ a lanzar en cuanto un despliegue queda listo.
 
 \* Uno de los dos, nunca los dos.
 
-**Respuesta**: `Forma` es `con_atribucion`, `sin_referencia` o `no_se_atribuye`. Con `sin_referencia`, `Mensaje`
-dice que no hay historial previo al intento que se diagnostica. Con atribución, `Atribucion` lista
-los ejes que cambiaron (`codigo`, `instrucciones`, `variables`) y `Sustento` el detalle: en qué pasos, y con qué
-despliegue se comparó (`Comparaciones`, con la `Razon`: `mismo_ambiente` o
-`elegida_por_el_usuario`). Nunca lleva valores de variables, autores ni commits.
+**Respuesta**, compacta, de uno de dos tipos:
+
+- **Con atribución** (el intento falla y hay con qué compararlo): de un vistazo, contra qué intento exitoso se
+  comparó, qué intento falla y qué cambió. Cada eje de `Sustento` aparece solo si cambió.
+
+  ```json
+  {
+    "Ambiente": "sand",
+    "IntentoExitoso": {"Id": "01a1…", "Fecha": "2026-10-05T23:42:55Z"},
+    "IntentoFallido": {"Id": "01a1…", "Fecha": "2026-10-05T23:42:55Z", "CantidadDeIntentos": 1},
+    "Sustento": {"Instrucciones": {"Pasos": ["deploy"]}}
+  }
+  ```
+
+  `Sustento` puede traer `Codigo`, `Instrucciones` y `Variables` (con `DeclaradasCambiadas` y `ProducidasCambiadas`:
+  paso y nombre, nunca el valor). `CantidadDeIntentos` solo está cuando se compara con el último despliegue del mismo
+  ambiente. Nunca lleva valores de variables, autores ni commits.
+- **Sin diagnóstico**, solo `{"SinDiagnostico": "sin_referencia"}` o `{"SinDiagnostico": "no_se_atribuye"}`: el campo
+  dice **por qué** no lo hay. `sin_referencia`: no hay historial previo con el que comparar. `no_se_atribuye`: el
+  intento está cancelado o sin desenlace y no se atribuye una causa.
+
+Se distinguen con una regla: **si trae `SinDiagnostico`, no hay diagnóstico** y su valor dice el motivo; si no lo trae,
+lo hay. Con diagnóstico no hay ningún discriminador, porque `IntentoFallido` y `Sustento` ya lo dicen. **La respuesta no
+lleva texto para el usuario final**: quien la presente (`vex`) dice lo que quiera a partir de los datos.
+
+Un `Sustento` vacío no es un error: el motor no vio cambios en lo que mira cada paso (según sus `rules`). Que cambie un
+comando de un paso con `rules: [code, variables]` no cuenta como cambio de instrucciones.
 
 ### `abandonar` — dar por perdido un intento
 
@@ -332,7 +361,7 @@ Solo lectura, y **nunca devuelven el valor de una variable**.
 | Operación | Campos | Devuelve |
 |---|---|---|
 | `intento` | `Version`, `Intento` | Un intento: `Id`, `Apertura` (ambiente, solicitante, pasos, `HastaPaso`, `ConCommits`, `HashDelCodigo`), `Registros`, `Estado`, `Destino` (si fue rollback), `Abandonado` |
-| `intentos` | `Version`, `Ambiente` | La lista de intentos del ambiente |
+| `intentos` | `Version`, `Ambiente` | La lista de intentos del ambiente, **compacta**: de cada uno, `Id`, `Ambiente`, `Solicitante`, `HastaPaso` y `Estado` (vacío si no tiene desenlace). Para el detalle de uno, `intento` con su `Id` |
 | `despliegues` | `Version`, `Ambiente` | La lista de despliegues: `Id`, `Ambiente`, `Intento`, `Padre` (vacío en el primero), `Instante` |
 
 El contenido de los registros (`Contenido.Datos`) viaja opaco, en base64. Un ambiente sin intentos o sin despliegues
@@ -364,7 +393,8 @@ presente la respuesta. Un intento que llegó hasta `test` solo trae `test`; sin 
 }
 ```
 
-Un historial **sin ningún intento** no tiene logs que dar: es `-32003` (`no_existe`), no un mensaje.
+Un historial **sin ningún intento** no tiene logs que dar: es el error `-32009` (`historial_sin_intentos`), no un
+mensaje, y distinto de `-32003` (`no_existe`, «ese intento no existe»). Sin salidas que mostrar, `Salidas` es `[]`.
 
 ### `describir` — qué es este motor
 

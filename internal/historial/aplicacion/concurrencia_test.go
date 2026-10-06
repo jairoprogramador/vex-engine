@@ -45,3 +45,25 @@ func TestRegistrarLanzamiento_MuchosALaVezTerminanTodosYNingunoSePierde(t *testi
 	}
 	require.Len(t, ambientes, lanzadores, "ninguno se perdió")
 }
+
+// Las listas sin elementos que el Historial publica son listas vacías, no nil: en el cable, [] y no null.
+func TestListasPublicadasSinElementosSonVaciasYNoNil(t *testing.T) {
+	h, ctx := nuevoHistorial()
+	id, err := h.AbrirIntento(ctx, apertura("prod"))
+	require.NoError(t, err)
+
+	intento, err := h.Intento(ctx, id)
+	require.NoError(t, err)
+	salidas, err := h.SalidasDeUnIntento(ctx, id, publicado.TodasLasSalidas)
+	require.NoError(t, err)
+	ultimo, ok, err := h.UltimoIntento(ctx)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.NotNil(t, intento.Registros, "un intento que aún no dio ningún paso")
+	require.Empty(t, intento.Registros)
+	require.NotNil(t, ultimo.Registros)
+	require.NotNil(t, salidas, "un intento sin ninguna salida")
+	require.Empty(t, salidas)
+	require.NotEmpty(t, intento.Apertura.Pasos)
+}

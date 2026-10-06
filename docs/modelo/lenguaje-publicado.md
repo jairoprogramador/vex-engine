@@ -66,10 +66,10 @@ configuración son inválidas (incluida una versión no soportada) · `130` canc
 | **Lanzar** un despliegue | `borde.PeticionDeLanzamiento` | `lanzamiento.Lanzamiento` | Lanzamiento (LAN-2) |
 | **Reservar** un ambiente | `borde.PeticionDeReserva` | — | Lanzamiento (LAN-3) |
 | **Liberar** un ambiente | `borde.PeticionDeLiberacion` | — | Lanzamiento (LAN-3) |
-| **Preguntar la causa** de un fallo | `diagnostico.PeticionDeDiagnostico` | `Respuesta` | Diagnóstico |
+| **Preguntar la causa** de un fallo | `diagnostico.PeticionDeDiagnostico` | `{Ambiente, IntentoExitoso, IntentoFallido, Sustento}`; sin diagnóstico que dar, solo `{SinDiagnostico}` con el motivo | Diagnóstico |
 | **Dar por abandonado** un intento | `borde.PeticionDeAbandono` | — | Historial |
 | **Consultar un intento** | `borde.PeticionDeConsultaDeIntento` | `historial.Intento` | Historial |
-| **Consultar los intentos** de un ambiente | `borde.PeticionDeIntentosDeUnAmbiente` | `[]historial.Intento` | Historial |
+| **Consultar los intentos** de un ambiente | `borde.PeticionDeIntentosDeUnAmbiente` | `[]ResumenDeIntento`: `Id`, `Ambiente`, `Solicitante`, `HastaPaso`, `Estado` (vacío si no tiene desenlace) | Historial |
 | **Consultar los despliegues** de un ambiente | `borde.PeticionDeDesplieguesDeUnAmbiente` | `[]historial.Despliegue` | Historial |
 | **Consultar los logs** de un intento | `borde.PeticionDeLogs` | `borde.RespuestaDeLogs` | Historial |
 | **Describir** el motor | — | `{VersionDelMotor, VersionesDelLenguaje, Operaciones}` | (ninguno: no usa el motor) |
@@ -90,8 +90,12 @@ configuración son inválidas (incluida una versión no soportada) · `130` canc
 - **Lanzar.** Es incondicional: la reserva de un ambiente solo bloquea el lanzamiento en nombre del actor
   ausente, nunca al dueño del negocio. Sin nombre, el nombre toma la versión.
 - **Preguntar la causa.** Un intento **o** un lanzamiento (nunca los dos), en un ambiente, y opcionalmente una
-  referencia elegida a mano. La respuesta es de una de tres formas: `con_atribucion`, `sin_referencia`,
-  `no_se_atribuye`.
+  referencia elegida a mano. El borde publica una `Respuesta` de una de tres formas (`con_atribucion`,
+  `sin_referencia`, `no_se_atribuye`); `vexd` responde su estructura compacta, **sin texto para el usuario final**: con diagnóstico,
+  `Ambiente`, `IntentoExitoso`, `IntentoFallido` y `Sustento` (cada eje, solo si cambió, con sus pasos), sin
+  discriminador; sin diagnóstico, solo `SinDiagnostico`, con el motivo (`sin_referencia` o `no_se_atribuye`). Si trae
+  `SinDiagnostico`, no hay diagnóstico. El texto que el Diagnóstico trae para `sin_referencia` no sale: el motivo ya
+  dice qué pasó, y quien presenta decide qué decir.
 - **Logs.** `Intento` es opcional: sin él, es el último que se abrió en cualquier ambiente. `Resultado` también:
   `"exitoso"` o `"fallido"` filtra por cómo terminó cada comando, y vacío los muestra todos; otro valor es una
   petición inválida (`-32602`). La respuesta dice el intento (`Intento`, que es el último si no se pidió uno) y su
@@ -110,13 +114,15 @@ configuración son inválidas (incluida una versión no soportada) · `130` canc
   }
   ```
 
-  Un intento que no existe es `no_existe`, y un historial sin ningún intento si no se pide uno también: el motor
-  no tiene texto para humanos, y es quien presenta la respuesta quien lo dice.
+  Un intento que no existe es `no_existe`. Un historial sin ningún intento, si no se pide uno, es
+  `historial_sin_intentos`: el mismo caso con tipo propio, para distinguirlos sin leer el texto. Sin salidas que
+  mostrar, `Salidas` es `[]`. El motor no lleva texto para el usuario final: lo dice quien presenta.
 - **Describir.** Sin parámetros y sin `VEX_ALMACEN`. Dice la versión del motor, las versiones del lenguaje que
   entiende (`borde.VersionesSoportadas`) y las operaciones, para que quien invoca compruebe que se entienden
   antes de pedir nada.
 - **Consultas del Historial.** Solo lectura. Lo que dicen los registros de cada contexto (`Contenido`) viaja
-  opaco.
+  opaco. `intentos` responde la estructura compacta de cada intento, que `vexd` arma a partir del `historial.Intento`
+  que publica el borde; el intento completo (`Apertura`, `Registros`…) se pide con `intento`.
 
 ## Cómo evoluciona
 

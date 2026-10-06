@@ -65,7 +65,10 @@ func intentoAPublicado(i *dominio.Intento) (publicado.Intento, bool) {
 			ConCommits:    a.ConCommits,
 			HashDelCodigo: string(a.HashDelCodigo),
 			Contenido:     contenidoAPublicado(registros[0].Contenido),
+			Pasos:         make([]publicado.PasoDeclarado, 0, len(a.Pasos)),
 		},
+		// Un intento que aún no dio ningún paso tiene una lista vacía de registros, no nil.
+		Registros: []publicado.RegistroDePaso{},
 	}
 	for _, p := range a.Pasos {
 		resultado.Apertura.Pasos = append(resultado.Apertura.Pasos, publicado.PasoDeclarado{

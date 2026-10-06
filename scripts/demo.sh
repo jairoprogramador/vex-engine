@@ -182,7 +182,7 @@ if [ -z "$LIMPIO" ]; then
   LIMPIO="$RESPUESTA_SI_NO"
 fi
 if [ -z "$COMPILAR" ]; then
-  pregunta_si_no "¿Compilar vexd?" 1
+  pregunta_si_no "¿Compilar vexd?" 0
   COMPILAR="$RESPUESTA_SI_NO"
 fi
 

@@ -159,7 +159,8 @@ func (s *Servicio) SalidasDeUnIntento(
 	if err != nil {
 		return nil, traducir(err)
 	}
-	var resultado []publicado.Salida
+	// Sin salidas, una lista vacía: quien la lea no tiene que distinguir un nil de un [].
+	resultado := make([]publicado.Salida, 0, len(salidas))
 	for _, salida := range salidas {
 		if filtro.Admite(salida.Exitoso) {
 			resultado = append(resultado, salidaAPublicado(salida))

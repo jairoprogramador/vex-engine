@@ -39,7 +39,7 @@ type lineaDeRespuesta struct {
 	Error   *struct {
 		Code    int
 		Message string
-		Data    map[string]string
+		Data    map[string]any
 	} `json:"error"`
 }
 
@@ -331,15 +331,17 @@ func TestLogs_UnIntentoQueNoExisteEsNoExiste(t *testing.T) {
 	require.Equal(t, codigoNoExiste, r.error(t).Error.Code)
 }
 
-func TestLogs_SinNingunIntentoEsNoExiste_ElMotorNoTieneTextoParaHumanos(t *testing.T) {
+func TestLogs_SinNingunIntentoTieneSuPropioTipoDeErrorYNoSeConfundeConUnIntentoQueNoExiste(t *testing.T) {
 	e := nuevoEntorno(t)
 
-	r := logs(t, e, `{"Version":"1"}`)
+	sinIntentos := logs(t, e, `{"Version":"1"}`)
+	inexistente := logs(t, e, `{"Version":"1","Intento":"no-existe"}`)
 
-	require.Equal(t, salidaFallo, r.codigo, r.errores)
-	respuesta := r.error(t)
-	require.Equal(t, codigoNoExiste, respuesta.Error.Code)
-	require.Equal(t, tipoNoExiste, respuesta.Error.Data["tipo"])
+	require.Equal(t, salidaFallo, sinIntentos.codigo, sinIntentos.errores)
+	require.Equal(t, codigoHistorialSinIntentos, sinIntentos.error(t).Error.Code)
+	require.Equal(t, tipoHistorialSinIntentos, sinIntentos.error(t).Error.Data["tipo"])
+	require.Equal(t, tipoNoExiste, inexistente.error(t).Error.Data["tipo"],
+		"vex distingue «aún no hay intentos» de «ese intento no existe» por el tipo, no leyendo el texto")
 }
 
 func TestLogs_ElResultadoFiltraLosComandosExitososOFallidos(t *testing.T) {
@@ -387,6 +389,38 @@ func TestLogs_SinLogsQueMostrarNoHayNingunaSalida(t *testing.T) {
 	l := leerLogs(t, logs(t, e, `{"Version":"1","Resultado":"fallido"}`))
 
 	require.Empty(t, l.Salidas)
+}
+
+// Una lista sin elementos es [] en el cable, nunca null ni un mensaje: quien la lee no tiene que distinguir dos
+// vacíos, y el texto para el usuario es de quien presenta.
+func TestListasSinElementos_SonUnaListaVaciaEnElCable(t *testing.T) {
+	e := nuevoEntornoConPipeline(t, func(dir string) {
+		escribir(t, dir, "steps/05-deploy/commands.yaml", "- name: comando-deploy-ok\n  description: sale bien\n  cmd: echo todo bien\n")
+	})
+	intentar(t, e, e.intento(), salidaBien)
+	casos := map[string]invocacion{
+		"intentos de un ambiente sin intentos":       invocar(t, e.rutas, "intentos", `{"Version":"1","Ambiente":"sand"}`),
+		"despliegues de un ambiente sin despliegues": invocar(t, e.rutas, "despliegues", `{"Version":"1","Ambiente":"sand"}`),
+	}
+	for nombre, r := range casos {
+		t.Run(nombre, func(t *testing.T) {
+			require.Equal(t, salidaBien, r.codigo, r.errores)
+			require.JSONEq(t, `[]`, string(r.respuesta(t).Result))
+		})
+	}
+
+	t.Run("logs sin salidas que mostrar", func(t *testing.T) {
+		r := logs(t, e, `{"Version":"1","Resultado":"fallido"}`)
+
+		require.Equal(t, salidaBien, r.codigo, r.errores)
+		var l struct {
+			Intento, Ambiente string
+			Salidas           json.RawMessage
+		}
+		r.resultado(t, &l)
+		require.NotEmpty(t, l.Intento)
+		require.JSONEq(t, `[]`, string(l.Salidas), "Salidas es [], no null")
+	})
 }
 
 func TestConsultas_VenLoQueIntentarDejoEnElHistorial(t *testing.T) {
@@ -524,6 +558,13 @@ func TestUnPipelineQueNoPasaLaComprobacionEsRechazado(t *testing.T) {
 	require.Equal(t, codigoRechazado, respuesta.Error.Code)
 	require.Equal(t, tipoRechazado, respuesta.Error.Data["tipo"])
 	require.Contains(t, respuesta.Error.Message, "config.yaml", "dice qué fichero falla")
+	fallos, ok := respuesta.Error.Data["fallos"].([]any)
+	require.True(t, ok, "y lo dice también como datos: %v", respuesta.Error.Data)
+	require.NotEmpty(t, fallos)
+	primero := fallos[0].(map[string]any)
+	require.Equal(t, "config.yaml", primero["Fichero"])
+	require.NotEmpty(t, primero["Invariante"])
+	require.NotEmpty(t, primero["Detalle"])
 	require.Empty(t, r.errores)
 }
 

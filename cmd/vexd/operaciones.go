@@ -46,10 +46,10 @@ var operaciones = registrar(
 	delMotor("lanzar", consulta((*borde.Servicio).Lanzar)),
 	delMotor("reservar", sinRespuesta((*borde.Servicio).Reservar)),
 	delMotor("liberar", sinRespuesta((*borde.Servicio).Liberar)),
-	delMotor("diagnosticar", consulta((*borde.Servicio).PreguntarLaCausa)),
+	delMotor("diagnosticar", consultaResumida((*borde.Servicio).PreguntarLaCausa, presentarDiagnostico)),
 	delMotor("abandonar", sinRespuesta((*borde.Servicio).AbandonarIntento)),
 	delMotor("intento", consulta((*borde.Servicio).Intento)),
-	delMotor("intentos", consulta((*borde.Servicio).IntentosDeUnAmbiente)),
+	delMotor("intentos", consultaResumida((*borde.Servicio).IntentosDeUnAmbiente, resumirTodos)),
 	delMotor("despliegues", consulta((*borde.Servicio).DesplieguesDeUnAmbiente)),
 	delMotor("logs", consulta((*borde.Servicio).Logs)),
 )
@@ -106,6 +106,21 @@ func consulta[P, R any](op func(*borde.Servicio, context.Context, P) (R, error))
 		}
 		return op(s, ctx, p)
 	}
+}
+
+// consultaResumida es una consulta cuya respuesta se resume antes de responderse: el borde publica el detalle
+// completo, pero la operación responde solo lo que resumir deja.
+func consultaResumida[P, R, V any](
+	op func(*borde.Servicio, context.Context, P) (R, error), resumir func(R) V,
+) atender {
+	return consulta(func(s *borde.Servicio, ctx context.Context, p P) (V, error) {
+		respuesta, err := op(s, ctx, p)
+		if err != nil {
+			var vacio V
+			return vacio, err
+		}
+		return resumir(respuesta), nil
+	})
 }
 
 // consultaConEntorno es una consulta que, además de sus parámetros, recibe las variables de entorno de la
