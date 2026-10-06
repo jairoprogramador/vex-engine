@@ -15,7 +15,7 @@ const (
 )
 
 // Causa es por qué un intento terminó sin que un comando lo decidiera; vacía si el desenlace salió de los propios
-// comandos. Un intento puede cerrarse con CausaError; CausaInterrumpido la pone el propio Historial.
+// comandos. Es lo que se lee de un intento: CausaInterrumpido solo la escribe el propio Historial.
 type Causa string
 
 const (
@@ -24,6 +24,22 @@ const (
 	// CausaInterrumpido: el proceso del intento murió sin cerrarlo, y otro intento lo cerró al encontrar el
 	// ambiente ocupado y sin señal de vida. Es un fallo, pero no de los comandos ni del pipeline.
 	CausaInterrumpido Causa = "interrumpido"
+)
+
+// CausaDeCierre es la causa que quien ejecuta un intento puede pedir al cerrarlo: solo que un error le impidió
+// seguir. Vacía si el desenlace salió de los comandos. No existe la de «interrumpido»: no se puede pedir.
+type CausaDeCierre string
+
+// CierrePorError: un error impidió seguir, sin que ningún comando fallara.
+const CierrePorError CausaDeCierre = "error"
+
+const (
+	// IntervaloDeLatido es cada cuánto escribe el proceso de un intento en curso que sigue vivo (RegistrarLatido).
+	IntervaloDeLatido = 5 * time.Second
+	// VentanaDeVida es cuánto observa quien encuentra el ambiente ocupado si el dueño sigue latiendo antes de dar
+	// su intento por interrumpido: el triple del intervalo, para que un latido tardío no haga pasar por muerto a un
+	// proceso vivo. La fija el Historial junto al intervalo para que no puedan desacordarse.
+	VentanaDeVida = 3 * IntervaloDeLatido
 )
 
 // Contenido es lo que dice un registro, con el contexto al que pertenece. El Historial no lo interpreta.

@@ -1,8 +1,6 @@
 package aplicacion
 
 import (
-	"time"
-
 	"github.com/jairoprogramador/vex-engine/internal/ejecucion/dominio"
 	"github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
 )
@@ -18,11 +16,6 @@ type Dependencias struct {
 
 	// Progreso es a dónde se cuenta cómo avanza un intento. Es opcional: sin él no se cuenta nada.
 	Progreso dominio.Progreso
-
-	// IntervaloDeLatido es cada cuánto deja el intento constancia de que su proceso sigue vivo, desde que abre
-	// hasta que cierra. El Historial lo necesita para recuperar un ambiente cuyo dueño murió, y su ventana de
-	// vida tiene que ser mayor (tres veces). Cero desactiva el latido.
-	IntervaloDeLatido time.Duration
 
 	// NombreDeLaHerramienta es la variable estándar tool_name (RD-04 §9, hallazgo 1): compartida, generada por
 	// el motor, y por eso una dependencia — no una constante — para poder probarla.

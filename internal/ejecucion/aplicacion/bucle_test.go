@@ -198,7 +198,7 @@ func TestIntentar_UnPasoNoEmpiezaSinElRegistroDelAnteriorEscrito(t *testing.T) {
 
 func TestIntentar_LateMientrasCorreUnComandoLargoYDejaDeLatirAlTerminar(t *testing.T) {
 	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
-	deps.IntervaloDeLatido = 5 * time.Millisecond
+	d.historial.intervaloDeLatido = 5 * time.Millisecond
 	d.comandos.alEjecutar = func() { time.Sleep(80 * time.Millisecond) } // un comando que no escribe nada
 	servicio := aplicacion.NuevoServicio(deps)
 
@@ -213,7 +213,7 @@ func TestIntentar_LateMientrasCorreUnComandoLargoYDejaDeLatirAlTerminar(t *testi
 
 func TestIntentar_ElLatidoEmpiezaAlAbrirAntesDeRehacerElEspacio(t *testing.T) {
 	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
-	deps.IntervaloDeLatido = time.Hour // solo el latido inmediato
+	d.historial.intervaloDeLatido = time.Hour // solo el latido inmediato
 	servicio := aplicacion.NuevoServicio(deps)
 
 	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), nil)
@@ -234,7 +234,7 @@ func TestIntentar_SinIntervaloNoLate(t *testing.T) {
 
 func TestIntentar_UnLatidoQueFallaNoDetieneElIntento(t *testing.T) {
 	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
-	deps.IntervaloDeLatido = 5 * time.Millisecond
+	d.historial.intervaloDeLatido = 5 * time.Millisecond
 	d.historial.errLatir = errors.New("almacén lento")
 	servicio := aplicacion.NuevoServicio(deps)
 
@@ -246,7 +246,7 @@ func TestIntentar_UnLatidoQueFallaNoDetieneElIntento(t *testing.T) {
 
 func TestIntentar_SiSeAbandonaAntesDeEmpezarNoQuedaLatiendo(t *testing.T) {
 	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
-	deps.IntervaloDeLatido = 5 * time.Millisecond
+	d.historial.intervaloDeLatido = 5 * time.Millisecond
 	d.espacioDeTrabajo.errRehacer = fmt.Errorf("disco lleno: %w", dominio.ErrNoDisponible)
 	servicio := aplicacion.NuevoServicio(deps)
 

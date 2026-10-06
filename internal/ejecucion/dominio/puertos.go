@@ -3,6 +3,7 @@ package dominio
 import (
 	"context"
 	"io"
+	"time"
 )
 
 // Pipelines es lo que la aplicación necesita de Definición de Pipeline: el pipeline comprobado, de hoy o de un
@@ -87,6 +88,9 @@ type Historial interface {
 	// RegistrarSalida guarda lo que escribió un comando de un paso al terminar, y si salió bien. Se guarda
 	// también la de un comando que falló o que se canceló.
 	RegistrarSalida(ctx context.Context, intento, paso, comando string, exitoso bool, texto string) error
+	// IntervaloDeLatido es cada cuánto tiene que latir un intento en curso: lo fija el Historial, que es quien
+	// decide cuánto espera antes de dar a un dueño por muerto. Cero desactiva el latido.
+	IntervaloDeLatido() time.Duration
 	// Latir deja constancia de que el proceso del intento sigue vivo. Es lo que permite a otro intento saber, si
 	// encuentra el ambiente ocupado, que el dueño murió y puede cerrarlo.
 	Latir(ctx context.Context, intento string) error

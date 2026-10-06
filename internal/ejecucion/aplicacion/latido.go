@@ -5,14 +5,14 @@ import (
 	"time"
 )
 
-// latirMientras hace que el intento deje constancia de que su proceso sigue vivo, cada IntervaloDeLatido, hasta
+// latirMientras hace que el intento deje constancia de que su proceso sigue vivo, cada intervalo que publica el Historial, hasta
 // que la función devuelta se llame. Es lo que permite a otro intento que encuentre el ambiente ocupado distinguir
 // un proceso muerto de uno que corre un comando largo: el latido lo escribe esta rutina, no el comando.
 //
 // La función devuelta espera a que la rutina termine, para que ningún latido se escriba después de cerrar el
 // intento. Sin intervalo no hace nada.
 func (s *Servicio) latirMientras(ctx context.Context, intento string) (parar func()) {
-	intervalo := s.d.IntervaloDeLatido
+	intervalo := s.d.Historial.IntervaloDeLatido()
 	if intervalo <= 0 {
 		return func() {}
 	}

@@ -104,9 +104,9 @@ func (s *Servicio) GuardarValor(ctx context.Context, intento, paso, nombre, valo
 // cierre y el despliegue son dos agregados y dos escrituras. Si la segunda no llega, repetir el mismo cierre
 // no escribe otro y completa el despliegue.
 func (s *Servicio) CerrarIntento(
-	ctx context.Context, id string, estado publicado.Estado, causa publicado.Causa, destino string,
+	ctx context.Context, id string, estado publicado.Estado, causa publicado.CausaDeCierre, destino string,
 ) (publicado.Despliegue, bool, error) {
-	causaDeDominio, err := causaQueSePuedePedir(causa)
+	causaDeDominio, err := causaDeCierreADominio(causa)
 	if err != nil {
 		return publicado.Despliegue{}, false, traducir(err)
 	}

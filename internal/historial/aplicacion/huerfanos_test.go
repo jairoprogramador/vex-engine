@@ -302,7 +302,7 @@ func TestCierre_LaCausaDeUnErrorQuedaEnElIntento(t *testing.T) {
 	id, err := h.AbrirIntento(ctx, apertura("prod"))
 	require.NoError(t, err)
 
-	_, _, err = h.CerrarIntento(ctx, id, publicado.Fallido, publicado.CausaError, "")
+	_, _, err = h.CerrarIntento(ctx, id, publicado.Fallido, publicado.CierrePorError, "")
 
 	require.NoError(t, err)
 	intento, err := h.Intento(ctx, id)
@@ -316,11 +316,30 @@ func TestCierre_SoloElHistorialPuedeEscribirInterrumpido(t *testing.T) {
 	id, err := h.AbrirIntento(ctx, apertura("prod"))
 	require.NoError(t, err)
 
-	_, _, err = h.CerrarIntento(ctx, id, publicado.Fallido, publicado.CausaInterrumpido, "")
+	_, _, err = h.CerrarIntento(ctx, id, publicado.Fallido, publicado.CausaDeCierre(publicado.CausaInterrumpido), "")
 
 	require.Error(t, err)
 	require.True(t, errors.Is(err, publicado.ErrRechazado), "quien cierra no puede fingir una interrupción")
 	intento, err := h.Intento(ctx, id)
 	require.NoError(t, err)
 	require.Empty(t, intento.Estado, "el cierre rechazado no escribió nada")
+}
+
+func TestLatido_UnIntentoTerminadoNoSigueLatiendo(t *testing.T) {
+	h, ctx := nuevoHistorial()
+	id, err := h.AbrirIntento(ctx, apertura("prod"))
+	require.NoError(t, err)
+	require.NoError(t, h.AbandonarIntento(ctx, id))
+
+	err = h.RegistrarLatido(ctx, id)
+
+	require.ErrorIs(t, err, publicado.ErrRechazado)
+}
+
+func TestLatido_UnIntentoQueNoExisteNoLate(t *testing.T) {
+	h, ctx := nuevoHistorial()
+
+	err := h.RegistrarLatido(ctx, "no-existe")
+
+	require.ErrorIs(t, err, publicado.ErrNoExiste)
 }

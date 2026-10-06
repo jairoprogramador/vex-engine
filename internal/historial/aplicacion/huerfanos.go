@@ -14,15 +14,19 @@ import (
 // que un historial raro la mantenga dando vueltas.
 const maxRecuperaciones = 3
 
-// errDuenoVivo: el dueño del ambiente escribió mientras se decidía que había muerto. Es la prueba de que seguía
-// vivo, así que no se toca.
-var errDuenoVivo = errors.New("el intento que ocupa el ambiente sigue vivo")
-
 // RegistrarLatido deja constancia de que el proceso del intento sigue vivo. Lo escribe solo ese proceso, así
-// que un conflicto solo puede venir de un latido propio repetido y se resuelve volviendo a leer.
+// que un conflicto solo puede venir de un latido propio repetido y se resuelve volviendo a leer. Un intento que
+// ya terminó no sigue escribiendo, ni siquiera latidos (IT-07 DEC-07.8).
 func (s *Servicio) RegistrarLatido(ctx context.Context, intento string) error {
 	id := dominio.IdIntento(intento)
 	return traducir(conReintento(ctx, func() error {
+		dueno, err := s.leerIntento(ctx, id)
+		if err != nil {
+			return err
+		}
+		if dueno.Terminado() {
+			return fmt.Errorf("%w: el intento %s ya terminó y no late", dominio.ErrRechazado, id)
+		}
 		previos, err := s.d.Latidos.Cantidad(ctx, id)
 		if err != nil {
 			return err
@@ -70,47 +74,40 @@ func (s *Servicio) ocupar(ctx context.Context, ambiente dominio.Ambiente, id dom
 	}
 }
 
-// estadoDeVida es lo que se observa de un intento sin desenlace para saber si su proceso sigue vivo.
-type estadoDeVida struct {
+// vidaDeUnIntento es lo que se observa de un intento en un instante: si ya terminó y su señal de vida.
+type vidaDeUnIntento struct {
 	terminado bool
-	latidos   int
-	registros int
-	// ultimoLatido es el instante del último latido, según el reloj de su escritor; hayLatido dice si hay alguno.
-	ultimoLatido time.Time
-	hayLatido    bool
+	senal     dominio.SenalDeVida
 }
 
-func (s *Servicio) vidaDe(ctx context.Context, id dominio.IdIntento) (estadoDeVida, error) {
+func (s *Servicio) observar(ctx context.Context, id dominio.IdIntento) (vidaDeUnIntento, error) {
 	intento, err := s.d.Intentos.Intento(ctx, id)
 	if err != nil {
-		return estadoDeVida{}, err
+		return vidaDeUnIntento{}, err
 	}
 	latidos, err := s.d.Latidos.Cantidad(ctx, id)
 	if err != nil {
-		return estadoDeVida{}, err
+		return vidaDeUnIntento{}, err
 	}
 	ultimo, hay, err := s.d.Latidos.Ultimo(ctx, id)
 	if err != nil {
-		return estadoDeVida{}, err
+		return vidaDeUnIntento{}, err
 	}
-	return estadoDeVida{
-		terminado: intento.Terminado(), latidos: latidos, registros: len(intento.Registros()),
-		ultimoLatido: ultimo, hayLatido: hay,
+	return vidaDeUnIntento{
+		terminado: intento.Terminado(),
+		senal: dominio.SenalDeVida{
+			Latidos: latidos, Registros: len(intento.Registros()), UltimoLatido: ultimo, HayLatido: hay,
+		},
 	}, nil
 }
 
 // liberarSiHuerfano dice si el ambiente quedó libre porque el intento que lo ocupaba ya no existe como proceso.
+// Observa dos veces, separadas por la ventana de vida, y deja que el dominio decida (SenalDeVida, Intento.
+// DarPorInterrumpido); aquí solo se orquesta: leer, esperar, leer, escribir. Un comando largo no engaña: el
+// latido lo escribe Ejecución en paralelo, no el comando.
 //
-// El Historial no puede saber si un intento sin desenlace murió o sigue corriendo en otra máquina, y los
-// relojes de dos máquinas no tienen por qué coincidir. Por eso no compara instantes: observa. Mira cuántos
-// latidos y registros tiene el intento, espera la ventana de vida, y vuelve a mirar. Si ninguno creció, el
-// proceso no escribió nada durante varios latidos y se da por muerto. Un comando largo no engaña: el latido
-// lo escribe Ejecución en paralelo, no el comando.
-//
-// Esperar toda la ventana cuando el dueño vive sería lento, y haría que quien choca con un intento en curso
-// tardara 15 s en enterarse. Por eso, si el último latido es más reciente que la ventana, no se espera: se da
-// por vivo. Aquí sí se compara con el reloj, pero solo para ahorrar la espera, nunca para declarar muerte: un
-// reloj desfasado hace, como mucho, que un huérfano tarde más en recuperarse, y nunca que se libere uno vivo.
+// Si el último latido es más reciente que la ventana no se espera: se da por vivo, para que quien choca con un
+// intento en curso no tarde 15 s en enterarse.
 //
 // Un intento de una versión que no latía parecerá muerto aunque corra; es el precio de poder recuperar un
 // ambiente sin intervención, y solo ocurre si dos versiones del motor comparten almacén a la vez.
@@ -118,31 +115,31 @@ func (s *Servicio) liberarSiHuerfano(ctx context.Context, id dominio.IdIntento) 
 	if s.d.VentanaDeVida <= 0 {
 		return false, nil
 	}
-	antes, err := s.vidaDe(ctx, id)
+	antes, err := s.observar(ctx, id)
 	if err != nil {
 		return false, err
 	}
 	if antes.terminado {
 		return true, nil // lo cerraron mientras tanto: basta con volver a intentar
 	}
-	if antes.hayLatido && s.d.Reloj.Ahora().Sub(antes.ultimoLatido) < s.d.VentanaDeVida {
-		return false, nil // latió hace poco: vive, y no hace falta esperar para comprobarlo
+	if antes.senal.LatioDentroDe(s.d.VentanaDeVida, s.d.Reloj.Ahora()) {
+		return false, nil
 	}
 	if err := esperar(ctx, s.d.VentanaDeVida); err != nil {
 		return false, err
 	}
-	despues, err := s.vidaDe(ctx, id)
+	despues, err := s.observar(ctx, id)
 	if err != nil {
 		return false, err
 	}
 	if despues.terminado {
 		return true, nil
 	}
-	if despues.latidos > antes.latidos || despues.registros > antes.registros {
+	if despues.senal.CrecioDesde(antes.senal) {
 		return false, nil
 	}
-	if err := s.darPorInterrumpido(ctx, id, despues.registros); err != nil {
-		if errors.Is(err, errDuenoVivo) {
+	if err := s.darPorInterrumpido(ctx, id, despues.senal.Registros); err != nil {
+		if errors.Is(err, dominio.ErrDuenoVivo) {
 			return false, nil
 		}
 		return false, err
@@ -150,9 +147,8 @@ func (s *Servicio) liberarSiHuerfano(ctx context.Context, id dominio.IdIntento) 
 	return true, nil
 }
 
-// darPorInterrumpido cierra como fallido, con CausaInterrumpido, al intento cuyo proceso murió. Si ni llegó a
-// abrirse (la apertura no se pudo escribir) no hay nada que cerrar: se abandona, como en AbandonarIntento.
-// registrosVistos es lo que se observó antes de decidir: si el intento tiene más al escribir, estaba vivo.
+// darPorInterrumpido escribe el cierre por interrupción, protegido por la escritura condicional del intento: si
+// el dueño escribió entre la observación y aquí, no se cierra.
 func (s *Servicio) darPorInterrumpido(ctx context.Context, id dominio.IdIntento, registrosVistos int) error {
 	return conReintento(ctx, func() error {
 		intento, err := s.d.Intentos.Intento(ctx, id)
@@ -162,33 +158,34 @@ func (s *Servicio) darPorInterrumpido(ctx context.Context, id dominio.IdIntento,
 		if intento.Terminado() {
 			return nil
 		}
-		if len(intento.Registros()) > registrosVistos {
-			return errDuenoVivo
+		despliegues, err := s.desplieguesParaCerrar(ctx, intento)
+		if err != nil {
+			return err
 		}
-		ahora := s.d.Reloj.Ahora()
-		if apertura, abierto := intento.Apertura(); abierto {
-			despliegues, err := s.d.Despliegues.DeUnAmbiente(ctx, apertura.Ambiente)
-			if err != nil {
-				return err
-			}
-			cierre := dominio.Cierre{Estado: dominio.Fallido, Causa: dominio.CausaInterrumpido}
-			if err := intento.Cerrar(cierre, ahora, despliegues); err != nil {
-				return err
-			}
-		} else if err := intento.Abandonar(ahora); err != nil {
+		if err := intento.DarPorInterrumpido(registrosVistos, s.d.Reloj.Ahora(), despliegues); err != nil {
 			return err
 		}
 		return s.d.Intentos.Anadir(ctx, intento)
 	})
 }
 
-// causaQueSePuedePedir valida la causa con que Ejecución cierra un intento. CausaInterrumpido no se puede pedir:
-// solo el Historial la escribe, tras comprobar que el dueño murió.
-func causaQueSePuedePedir(causa publicado.Causa) (dominio.Causa, error) {
+// desplieguesParaCerrar son los despliegues del ambiente del intento, que su cierre necesita; ninguno si el
+// intento ni llegó a abrirse y se abandona en lugar de cerrarse.
+func (s *Servicio) desplieguesParaCerrar(ctx context.Context, intento *dominio.Intento) (*dominio.DesplieguesDeUnAmbiente, error) {
+	apertura, abierto := intento.Apertura()
+	if !abierto {
+		return nil, nil
+	}
+	return s.d.Despliegues.DeUnAmbiente(ctx, apertura.Ambiente)
+}
+
+// causaDeCierreADominio traduce la causa que pide quien cierra. Es la frontera: la de interrumpido no existe
+// en CausaDeCierre, y cualquier otra cosa se rechaza.
+func causaDeCierreADominio(causa publicado.CausaDeCierre) (dominio.Causa, error) {
 	switch causa {
 	case "":
 		return "", nil
-	case publicado.CausaError:
+	case publicado.CierrePorError:
 		return dominio.CausaError, nil
 	}
 	return "", fmt.Errorf("%w: la causa %q no se puede pedir al cerrar un intento", dominio.ErrRechazado, causa)

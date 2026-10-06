@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	historialpublicado "github.com/jairoprogramador/vex-engine/internal/historial/publicado"
 )
 
 // Cada contenedor es un proceso vexd: comparten el almacén y el espacio de trabajo, y no se hablan entre sí. Estas
@@ -125,7 +127,7 @@ func TestProcesos_UnVexdMuertoConKillNoBloqueaElAmbienteParaSiempre(t *testing.T
 	require.Equal(t, codigoAmbienteOcupado, inmediato.error(t).Error.Code)
 
 	// Pasada la ventana de vida sin un solo latido más, el siguiente lo da por muerto, lo cierra y sigue.
-	time.Sleep(ventanaDeVida)
+	time.Sleep(historialpublicado.VentanaDeVida)
 	siguiente := lanzarVexd(t, e.rutas, "intentar", e.intento()).esperar(t)
 	require.Equal(t, salidaBien, siguiente.codigo, siguiente.salida+siguiente.errores)
 	var resultado struct{ Intento, Estado string }

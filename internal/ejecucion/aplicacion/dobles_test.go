@@ -6,6 +6,7 @@ import (
 	"io"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -154,9 +155,11 @@ type historialFalso struct {
 	registros        []registroDeHistorial
 	salidas          []salidaRegistrada
 
-	latidos      int
-	errLatir     error
-	causaCerrada dominio.Causa
+	// intervaloDeLatido es el que publica el Historial; cero desactiva el latido.
+	intervaloDeLatido time.Duration
+	latidos           int
+	errLatir          error
+	causaCerrada      dominio.Causa
 
 	// errCerrar simula un almacén que no responde al cerrar: el intento no llega a cerrarse.
 	errCerrar         error
@@ -241,6 +244,8 @@ func (h *historialFalso) cantidadDeLatidos() int {
 	defer h.mu.Unlock()
 	return h.latidos
 }
+
+func (h *historialFalso) IntervaloDeLatido() time.Duration { return h.intervaloDeLatido }
 
 func (h *historialFalso) Latir(context.Context, string) error {
 	h.mu.Lock()

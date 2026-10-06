@@ -51,6 +51,20 @@ type Cierre struct {
 	Destino IdDespliegue
 }
 
+// validar: una causa solo explica un fallo —un intento exitoso o cancelado no la tiene— y solo hay dos.
+func (c Cierre) validar() error {
+	switch c.Causa {
+	case "":
+		return nil
+	case CausaError, CausaInterrumpido:
+		if c.Estado != Fallido {
+			return rechazo("la causa %q solo la tiene un intento fallido, no uno %s", c.Causa, c.Estado)
+		}
+		return nil
+	}
+	return rechazo("la causa %q no existe", c.Causa)
+}
+
 // RegistroDeIntento es un hecho de un intento. Cada tipo usa sus campos, y el resto queda vacío.
 type RegistroDeIntento struct {
 	Tipo     TipoDeRegistro
@@ -162,12 +176,31 @@ func (i *Intento) Cerrar(cierre Cierre, instante time.Time, despliegues *Desplie
 	if despliegues == nil || despliegues.ambiente != a.Ambiente {
 		return rechazo("el intento %s se cierra contra los despliegues de su ambiente, %q", i.id, a.Ambiente)
 	}
+	if err := cierre.validar(); err != nil {
+		return err
+	}
 	if cierre.Destino != "" {
 		if _, ok := despliegues.Buscar(cierre.Destino); !ok {
 			return rechazo("el destino %s no es un despliegue de %q", cierre.Destino, a.Ambiente)
 		}
 	}
 	return i.anadir(RegistroDeIntento{Tipo: TipoCierre, Instante: instante, Cierre: cierre})
+}
+
+// DarPorInterrumpido cierra el intento cuyo proceso murió: como fallido con CausaInterrumpido, o lo abandona si ni
+// llegó a abrirse y no hay nada que cerrar. registrosVistos es lo que se observó antes de decidir que murió: si ya
+// tiene más, su proceso escribió mientras tanto, estaba vivo, y devuelve ErrDuenoVivo sin tocarlo. Solo el Historial
+// llama a esto, tras observar que no hubo señal de vida durante la ventana (SenalDeVida).
+func (i *Intento) DarPorInterrumpido(
+	registrosVistos int, instante time.Time, despliegues *DesplieguesDeUnAmbiente,
+) error {
+	if len(i.registros) > registrosVistos {
+		return ErrDuenoVivo
+	}
+	if _, abierto := i.Apertura(); !abierto {
+		return i.Abandonar(instante)
+	}
+	return i.Cerrar(Cierre{Estado: Fallido, Causa: CausaInterrumpido}, instante, despliegues)
 }
 
 // Desplegar es la factoría del despliegue (IT-07 DEC-07.3). Si el intento llega a despliegue, lo añade a los
