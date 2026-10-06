@@ -29,6 +29,20 @@ func TestIntentar_SiElEspacioDeTrabajoNoEstaDisponibleElIntentoNoEmpieza(t *test
 	require.False(t, d.historial.cerrado, "nunca llegó a ejecutar nada: no es un intento fallido")
 }
 
+func TestIntentar_UnAmbienteQueElPipelineNoDeclaraSeRechazaSinAbrirNada(t *testing.T) {
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
+	servicio := aplicacion.NuevoServicio(deps)
+	peticion := peticionDePrueba()
+	peticion.Ambiente = "prodd"
+
+	_, err := servicio.Intentar(context.Background(), peticion, nil)
+
+	require.ErrorIs(t, err, publicado.ErrInvalido)
+	require.Empty(t, d.historial.aperturas, "no se abre ningún intento")
+	require.False(t, d.espacioDeTrabajo.rehecho, "el espacio de trabajo queda intacto")
+	require.Empty(t, d.comandos.llamados)
+}
+
 func TestIntentar_UnAmbienteOcupadoNoTocaElEspacioDeTrabajo(t *testing.T) {
 	// El espacio de trabajo del ambiente es de quien lo ocupa: si otro intento lo tiene, rehacerlo borraría los
 	// directorios de los pasos del que está corriendo. Quien manda es el Historial, que decide quién ocupa el
