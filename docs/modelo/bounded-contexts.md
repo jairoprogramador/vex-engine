@@ -38,6 +38,7 @@ Volatilidad, facilidad de prueba y tamaño **no** son criterio (IT-01, H5).
 | **Definición de Pipeline** | Definición de Pipeline | Supporting | Declarar cómo se despliega un producto y comprobar que lo escrito está bien formado y bien referenciado |
 | **Historial** | Historial · Sincronización del Historial | Supporting · Generic | Conservar como registros todo lo que pasó (intentos, despliegues, lanzamientos) y tenerlo disponible en cualquier máquina |
 | **Lanzamiento** | Lanzamiento | Supporting | Decidir cuándo un despliegue se hace visible y con qué nombre |
+| **Catálogo** | (consulta) | Supporting | Dar a conocer qué ambientes (y si están reservados) y qué pasos tiene un pipeline |
 | **Ejecución de Pipeline** | Ejecución de Pipeline | Supporting | Llevar a cabo un intento re-ejecutando solo los pasos en los que algo cambió |
 | **Resolución de Variables** | Resolución de Variables | Supporting | Determinar el valor efectivo de cada variable y saber si cambió, sin exponerlo |
 | **Simulación de Pipeline** | Simulación de Pipeline | Supporting | Recorrer un pipeline entero sin efectos para saber si funciona antes de publicarlo |
@@ -68,6 +69,8 @@ flowchart LR
   RES --> DEF
   RES --> HIST
   LAN[Lanzamiento] --> HIST
+  CAT[Catálogo] --> HIST
+  CAT --> DEF
   DEF --> SUM
   SIM[Simulación de Pipeline] --> DEF
   SIM --> RES
@@ -84,6 +87,7 @@ flowchart LR
 | Resolución | Definición | variables declaradas con su ámbito, y las formas de *ámbito* y de *variable de salida* |
 | Resolución | Historial | hash de variable y valor de la última vez · a cambio deja el hash de variable y el valor ofuscado |
 | Lanzamiento | Historial | el despliegue que se lanza · a cambio deja el registro del lanzamiento |
+| Catálogo | Definición · Historial | los ambientes y los pasos del pipeline, en su orden · la última reserva de un ambiente |
 | Definición | Suministro | el pipeline como fuente |
 | Simulación | Definición · Resolución · Suministro | comprobación y pasos · interpolación · material |
 

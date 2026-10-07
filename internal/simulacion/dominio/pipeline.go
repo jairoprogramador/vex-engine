@@ -17,7 +17,7 @@ func (p Pipeline) AmbientePorValor(valor string) (Ambiente, error) {
 			return a, nil
 		}
 	}
-	return Ambiente{}, invalido("%q no es un ambiente de este pipeline", valor)
+	return Ambiente{}, invalidoElCampo("Ambiente", valor, "%q no es un ambiente de este pipeline", valor)
 }
 
 // PasosHasta devuelve los pasos desde el primero hasta el pedido, inclusive, en su orden: lo que un intento
@@ -28,7 +28,7 @@ func (p Pipeline) PasosHasta(nombre string) ([]Paso, error) {
 			return p.Pasos[:i+1], nil
 		}
 	}
-	return nil, invalido("%q no es un paso de este pipeline", nombre)
+	return nil, invalidoElCampo("HastaPaso", nombre, "%q no es un paso de este pipeline", nombre)
 }
 
 // Ambiente es un ambiente en su lugar del orden. Valor es con el que se nombra en variables/, y el que

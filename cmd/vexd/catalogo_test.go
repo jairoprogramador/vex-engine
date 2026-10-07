@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jairoprogramador/vex-engine/internal/borde"
+	catalogopublicado "github.com/jairoprogramador/vex-engine/internal/catalogo/publicado"
 	definicionpublicado "github.com/jairoprogramador/vex-engine/internal/definicion/publicado"
 	diagnosticopublicado "github.com/jairoprogramador/vex-engine/internal/diagnostico/publicado"
 	ejecucionpublicado "github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
@@ -31,6 +32,8 @@ func TestClasificar(t *testing.T) {
 		"inválido de ejecución":               {ejecucionpublicado.ErrInvalido, protocolo.CodigoParametrosInvalidos, tipoParametrosInvalidos, salidaInvalida},
 		"inválido de simulación":              {simulacionpublicado.ErrInvalido, protocolo.CodigoParametrosInvalidos, tipoParametrosInvalidos, salidaInvalida},
 		"inválido de lanzamiento":             {lanzamientopublicado.ErrInvalido, protocolo.CodigoParametrosInvalidos, tipoParametrosInvalidos, salidaInvalida},
+		"inválido de catálogo":                {catalogopublicado.ErrInvalido, protocolo.CodigoParametrosInvalidos, tipoParametrosInvalidos, salidaInvalida},
+		"rechazado por catálogo":              {catalogopublicado.ErrRechazado, codigoRechazado, tipoRechazado, salidaFallo},
 		"inválido de diagnóstico":             {diagnosticopublicado.ErrInvalido, protocolo.CodigoParametrosInvalidos, tipoParametrosInvalidos, salidaInvalida},
 		"versión no soportada":                {borde.ErrVersionNoSoportada, codigoVersionNoSoportada, tipoVersionNoSoportada, salidaInvalida},
 		"configuración del proceso":           {errConfiguracion, codigoConfiguracionInvalida, tipoConfiguracionInvalida, salidaInvalida},
@@ -113,4 +116,32 @@ func TestCodigoDeLaRespuesta(t *testing.T) {
 	require.Equal(t, salidaCancelado, codigoDeLaRespuesta(ejecucionpublicado.Resultado{Estado: estadoCancelado}))
 	require.Equal(t, salidaFallo, codigoDeLaRespuesta(simulacionpublicado.Resultado{Estado: estadoFallido}))
 	require.Equal(t, salidaBien, codigoDeLaRespuesta(struct{}{}), "lo que no es un intento sale bien si se atendió")
+}
+
+func TestClasificar_UnParametroInvalidoDiceSuCampoYSuValorAunqueVengaEnvuelto(t *testing.T) {
+	err := fmt.Errorf("al atender: %w", &borde.PeticionInvalidaError{Campo: "Resultado", Valor: "roto", Motivo: "m"})
+
+	f := clasificar(err)
+
+	require.Equal(t, tipoParametrosInvalidos, f.tipo)
+	require.Equal(t, map[string]any{"campo": "Resultado", "valor": "roto"}, f.datos)
+	require.Equal(t, "Resultado", f.aError().Data.(map[string]any)["campo"])
+}
+
+func TestClasificar_UnParametroInvalidoSinCampoNoInventaDatos(t *testing.T) {
+	f := clasificar(lanzamientopublicado.ErrInvalido)
+
+	require.Equal(t, tipoParametrosInvalidos, f.tipo)
+	require.Nil(t, f.datos)
+}
+
+func TestCampoDesconocido_SacaElNombreDelErrorDeLaBibliotecaEstandar(t *testing.T) {
+	var p struct{ Ambiente string }
+	err := decodificar([]byte(`{"Ambient":"x"}`), &p)
+
+	require.ErrorIs(t, err, errParametros)
+	var parametro interface{ ParametroInvalido() (string, string) }
+	require.ErrorAs(t, err, &parametro)
+	campo, _ := parametro.ParametroInvalido()
+	require.Equal(t, "Ambient", campo)
 }

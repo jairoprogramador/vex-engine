@@ -17,6 +17,8 @@ type Historial interface {
 	// VersionesConocidas son el hash y la versión de cada código que ya se lanzó antes, de cualquier
 	// ambiente — lo que DecidirVersion necesita recorrer (IT-10 DEC-10.8).
 	VersionesConocidas(ctx context.Context) ([]VersionConocida, error)
+	// LanzamientosDeUnAmbiente son los de un ambiente, en el orden en que se registraron.
+	LanzamientosDeUnAmbiente(ctx context.Context, ambiente Ambiente) ([]LanzamientoRegistrado, error)
 	// RegistrarLanzamiento escribe el lanzamiento en el ambiente dado.
 	RegistrarLanzamiento(ctx context.Context, ambiente Ambiente, lanzamiento Lanzamiento) (LanzamientoRegistrado, error)
 	// RegistrarReserva registra la reserva o la liberación de un ambiente.

@@ -208,3 +208,44 @@ func mustAmbito(t *testing.T, ambiente string) dominio.Ambito {
 	require.NoError(t, err)
 	return a
 }
+
+func TestSimularDiceElCampoQueFaltaSiempreElMismoCuandoFaltanVarios(t *testing.T) {
+	s, _, _ := nuevoServicio(dominio.Pipeline{}, nil)
+
+	for range 20 {
+		_, err := s.Simular(context.Background(), publicado.PeticionDeSimulacion{Fuente: "p", Commit: "c1"})
+
+		require.ErrorIs(t, err, publicado.ErrInvalido)
+		var parametro interface{ ParametroInvalido() (string, string) }
+		require.ErrorAs(t, err, &parametro)
+		campo, valor := parametro.ParametroInvalido()
+		require.Equal(t, "Ambiente", campo, "el primero de los obligatorios, no el que toque del mapa")
+		require.Empty(t, valor)
+	}
+}
+
+func TestSimularDiceElCampoDeLoQueElPipelineNoTiene(t *testing.T) {
+	pipeline := pipelineDeUnAmbiente("sandbox", "sand", nil, []dominio.Paso{{Nombre: "test"}})
+	s, _, _ := nuevoServicio(pipeline, nil)
+	casos := map[string]struct {
+		p            publicado.PeticionDeSimulacion
+		campo, valor string
+	}{
+		"ambiente desconocido": {peticion("prod", "test"), "Ambiente", "prod"},
+		"paso desconocido":     {peticion("sand", "deploy"), "HastaPaso", "deploy"},
+		"sin solicitante":      {publicado.PeticionDeSimulacion{Ambiente: "sand", HastaPaso: "test"}, "Solicitante", ""},
+		"sin paso":             {publicado.PeticionDeSimulacion{Ambiente: "sand", Solicitante: "ana"}, "HastaPaso", ""},
+	}
+	for nombre, c := range casos {
+		t.Run(nombre, func(t *testing.T) {
+			_, err := s.Simular(context.Background(), c.p)
+
+			require.ErrorIs(t, err, publicado.ErrInvalido)
+			var parametro interface{ ParametroInvalido() (string, string) }
+			require.ErrorAs(t, err, &parametro)
+			campo, valor := parametro.ParametroInvalido()
+			require.Equal(t, c.campo, campo)
+			require.Equal(t, c.valor, valor)
+		})
+	}
+}

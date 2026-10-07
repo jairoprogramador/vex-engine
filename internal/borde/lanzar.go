@@ -16,6 +16,17 @@ func (s *Servicio) Lanzar(
 	return s.d.Lanzamiento.Lanzar(ctx, p.Ambiente, p.Despliegue, p.Nombre)
 }
 
+// LanzamientosDeUnAmbiente comprueba la versión de la petición (DEC-05.6) y consulta los lanzamientos de un
+// ambiente en Lanzamiento.
+func (s *Servicio) LanzamientosDeUnAmbiente(
+	ctx context.Context, p PeticionDeLanzamientosDeUnAmbiente,
+) ([]lanzamientopublicado.Lanzamiento, error) {
+	if err := comprobarVersion(p.Version); err != nil {
+		return nil, err
+	}
+	return s.d.Lanzamiento.LanzamientosDeUnAmbiente(ctx, p.Ambiente)
+}
+
 // Reservar comprueba la versión de la petición (DEC-05.6) y la delega en Lanzamiento (LAN-3).
 func (s *Servicio) Reservar(ctx context.Context, p PeticionDeReserva) error {
 	if err := comprobarVersion(p.Version); err != nil {

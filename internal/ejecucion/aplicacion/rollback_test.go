@@ -115,3 +115,19 @@ func TestHacerRollback_PropagaElErrorSiElDestinoNoSePuedeResolver(t *testing.T) 
 	require.Error(t, err)
 	require.Empty(t, d.historial.aperturas)
 }
+
+func TestHacerRollback_SinDespliegueEsInvalidoYNoPreguntaAlHistorial(t *testing.T) {
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
+	servicio := aplicacion.NuevoServicio(deps)
+
+	_, err := servicio.HacerRollback(context.Background(), publicado.PeticionDeRollback{
+		Version: "1", Solicitante: "ana",
+	}, nil)
+
+	require.ErrorIs(t, err, publicado.ErrInvalido)
+	campo, valor := campoYValorDe(t, err)
+	require.Equal(t, "Despliegue", campo)
+	require.Empty(t, valor)
+	require.Empty(t, d.historial.aperturas)
+	require.False(t, d.historial.destinoConsultado, "ni se consultó el despliegue")
+}

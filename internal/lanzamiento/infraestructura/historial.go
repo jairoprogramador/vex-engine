@@ -71,6 +71,33 @@ func (h *Historial) VersionesConocidas(ctx context.Context) ([]dominio.VersionCo
 	return conocidas, nil
 }
 
+func (h *Historial) LanzamientosDeUnAmbiente(
+	ctx context.Context, ambiente dominio.Ambiente,
+) ([]dominio.LanzamientoRegistrado, error) {
+	todos, err := h.registros.TodosLosLanzamientos(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("lanzamiento: los lanzamientos de %q: %w", ambiente, err)
+	}
+	registrados := make([]dominio.LanzamientoRegistrado, 0, len(todos))
+	for _, l := range todos {
+		if l.Ambiente != ambiente.String() {
+			continue
+		}
+		despliegue, err := dominio.NuevoIdDespliegue(l.Despliegue)
+		if err != nil {
+			return nil, err
+		}
+		version, nombre, err := decodificarLanzamiento(l.Contenido)
+		if err != nil {
+			return nil, err
+		}
+		registrados = append(registrados, dominio.LanzamientoRegistrado{
+			Id: l.Id, Ambiente: ambiente, Despliegue: despliegue, Version: version, Nombre: nombre, Instante: l.Instante,
+		})
+	}
+	return registrados, nil
+}
+
 func (h *Historial) RegistrarLanzamiento(
 	ctx context.Context, ambiente dominio.Ambiente, lanzamiento dominio.Lanzamiento,
 ) (dominio.LanzamientoRegistrado, error) {

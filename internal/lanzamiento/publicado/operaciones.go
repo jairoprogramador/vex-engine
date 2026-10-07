@@ -12,4 +12,7 @@ type ParaBorde interface {
 	Reservar(ctx context.Context, ambiente string) error
 	// Liberar: desde ahora, se vuelve a lanzar en su nombre en cuanto un despliegue quede listo.
 	Liberar(ctx context.Context, ambiente string) error
+	// LanzamientosDeUnAmbiente son los de ese ambiente, en el orden en que se lanzaron. Sin lanzamientos, una
+	// lista vacía.
+	LanzamientosDeUnAmbiente(ctx context.Context, ambiente string) ([]Lanzamiento, error)
 }

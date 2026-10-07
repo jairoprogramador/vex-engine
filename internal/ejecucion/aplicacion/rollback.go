@@ -18,6 +18,9 @@ func (s *Servicio) HacerRollback(
 	if err != nil {
 		return publicado.Resultado{}, traducir(err)
 	}
+	if err := dominio.ComprobarDespliegue(p.Despliegue); err != nil {
+		return publicado.Resultado{}, traducir(err)
+	}
 	destino, err := s.d.Historial.DespliegueParaRollback(ctx, p.Despliegue)
 	if err != nil {
 		return publicado.Resultado{}, traducir(err)

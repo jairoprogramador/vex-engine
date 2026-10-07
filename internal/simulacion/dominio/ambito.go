@@ -9,7 +9,7 @@ type Ambito struct {
 
 func AmbitoDeAmbiente(ambiente string) (Ambito, error) {
 	if ambiente == "" {
-		return Ambito{}, invalido("un ámbito de ambiente no puede tener el nombre vacío")
+		return Ambito{}, invalidoElCampo("Ambiente", ambiente, "un ámbito de ambiente no puede tener el nombre vacío")
 	}
 	return Ambito{ambiente: ambiente}, nil
 }

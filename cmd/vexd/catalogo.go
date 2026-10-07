@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/jairoprogramador/vex-engine/internal/borde"
+	catalogopublicado "github.com/jairoprogramador/vex-engine/internal/catalogo/publicado"
 	definicionpublicado "github.com/jairoprogramador/vex-engine/internal/definicion/publicado"
 	diagnosticopublicado "github.com/jairoprogramador/vex-engine/internal/diagnostico/publicado"
 	ejecucionpublicado "github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
@@ -90,7 +91,8 @@ func clasificar(err error) fallo {
 	case errors.Is(err, borde.ErrVersionNoSoportada):
 		return fallo{codigo: codigoVersionNoSoportada, tipo: tipoVersionNoSoportada, salida: salidaInvalida, mensaje: err.Error()}
 	case esPeticionInvalida(err):
-		return fallo{codigo: protocolo.CodigoParametrosInvalidos, tipo: tipoParametrosInvalidos, salida: salidaInvalida, mensaje: err.Error()}
+		return fallo{codigo: protocolo.CodigoParametrosInvalidos, tipo: tipoParametrosInvalidos, salida: salidaInvalida,
+			mensaje: err.Error(), datos: detallesDelParametro(err)}
 	case errors.Is(err, historialpublicado.ErrEscrituraConcurrente):
 		return fallo{codigo: codigoEscrituraConcurrente, tipo: tipoEscrituraConcurrente, salida: salidaFallo, mensaje: err.Error()}
 	case errors.Is(err, borde.ErrHistorialSinIntentos):
@@ -99,7 +101,8 @@ func clasificar(err error) fallo {
 		return fallo{codigo: codigoHistorialSinIntentos, tipo: tipoHistorialSinIntentos, salida: salidaFallo, mensaje: err.Error()}
 	case errors.Is(err, historialpublicado.ErrNoExiste):
 		return fallo{codigo: codigoNoExiste, tipo: tipoNoExiste, salida: salidaFallo, mensaje: err.Error()}
-	case errors.Is(err, ejecucionpublicado.ErrRechazado), errors.Is(err, historialpublicado.ErrRechazado):
+	case errors.Is(err, ejecucionpublicado.ErrRechazado), errors.Is(err, historialpublicado.ErrRechazado),
+		errors.Is(err, catalogopublicado.ErrRechazado):
 		return fallo{codigo: codigoRechazado, tipo: tipoRechazado, salida: salidaFallo, mensaje: err.Error(), datos: detallesDelRechazo(err)}
 	case errors.Is(err, ejecucionpublicado.ErrNoDisponible):
 		return fallo{codigo: codigoNoDisponible, tipo: tipoNoDisponible, salida: salidaFallo, mensaje: err.Error()}
@@ -108,6 +111,22 @@ func clasificar(err error) fallo {
 	default:
 		return fallo{codigo: codigoInterno, tipo: tipoInterno, salida: salidaFallo, mensaje: "error interno"}
 	}
+}
+
+// detallesDelParametro son el campo y el valor que no valen, si el error los trae: quien presenta (vex) arma su
+// mensaje sin leer el texto. Cada contexto publica su propio error con estos datos, y aquí se reconocen por lo que
+// hacen y no por su tipo, porque lo publicado de un contexto no puede importar el de otro. Si no trae ninguno, no
+// hay datos: no se inventa nada.
+func detallesDelParametro(err error) map[string]any {
+	var parametro interface{ ParametroInvalido() (campo, valor string) }
+	if !errors.As(err, &parametro) {
+		return nil
+	}
+	campo, valor := parametro.ParametroInvalido()
+	if campo == "" {
+		return nil
+	}
+	return map[string]any{"campo": campo, "valor": valor}
 }
 
 // detallesDelRechazo son los datos que el rechazo ya trae, para que quien presenta (vex) arme su mensaje sin leer
@@ -151,6 +170,7 @@ func esPeticionInvalida(err error) bool {
 		errors.Is(err, ejecucionpublicado.ErrInvalido) ||
 		errors.Is(err, simulacionpublicado.ErrInvalido) ||
 		errors.Is(err, lanzamientopublicado.ErrInvalido) ||
+		errors.Is(err, catalogopublicado.ErrInvalido) ||
 		errors.Is(err, diagnosticopublicado.ErrInvalido)
 }
 

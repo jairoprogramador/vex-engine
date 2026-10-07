@@ -19,7 +19,7 @@ import (
 // petición inválida, y se devuelve como error.
 func (s *Servicio) Simular(ctx context.Context, p publicado.PeticionDeSimulacion) (publicado.Resultado, error) {
 	if err := comprobarPeticion(p); err != nil {
-		return publicado.Resultado{}, err
+		return publicado.Resultado{}, traducir(err)
 	}
 	resultado := publicado.Resultado{
 		Ambiente: p.Ambiente, Solicitante: p.Solicitante, HastaPaso: p.HastaPaso, Estado: publicado.EstadoExitoso,
@@ -56,10 +56,15 @@ func (s *Servicio) Simular(ctx context.Context, p publicado.PeticionDeSimulacion
 	return resultado, nil
 }
 
+// comprobarPeticion pide los tres campos obligatorios, siempre en el mismo orden: si faltan varios, quien invoca
+// recibe siempre el mismo.
 func comprobarPeticion(p publicado.PeticionDeSimulacion) error {
-	for campo, valor := range map[string]string{"Ambiente": p.Ambiente, "Solicitante": p.Solicitante, "HastaPaso": p.HastaPaso} {
-		if valor == "" {
-			return fmt.Errorf("%w: falta %s", publicado.ErrInvalido, campo)
+	obligatorios := []struct{ campo, valor string }{
+		{"Ambiente", p.Ambiente}, {"Solicitante", p.Solicitante}, {"HastaPaso", p.HastaPaso},
+	}
+	for _, o := range obligatorios {
+		if o.valor == "" {
+			return dominio.NuevoParametroInvalido(o.campo, o.valor, "falta "+o.campo)
 		}
 	}
 	return nil

@@ -13,19 +13,27 @@ import (
 type errorDeArriba struct {
 	dominio error
 	causa   error
+	// campo y valor son el campo de la petición al que apunta el rechazo, si el adaptador lo sabe sin adivinar.
+	campo, valor string
 }
 
 func (e *errorDeArriba) Error() string   { return e.causa.Error() }
 func (e *errorDeArriba) Unwrap() []error { return []error{e.dominio, e.causa} }
+
+func (e *errorDeArriba) ParametroInvalido() (campo, valor string) { return e.campo, e.valor }
 
 // delContextoDeArriba traduce, como un ACL, lo que Definición publica de un pipeline que no está donde se dice
 // o que no se puede pedir: es un ErrInvalido, que quien invoca puede corregir. Lo demás pasa igual. En
 // particular, un pipeline que no pasa la comprobación no es un error de esta petición sino su resultado
 // (SIM-1 §1): la aplicación lo reconoce por *definicionpublicado.FallosDeComprobacion y no debe quedar
 // convertido en otra cosa.
-func delContextoDeArriba(err error) error {
+func delContextoDeArriba(err error) error { return delContextoDeArribaEnElCampo(err, "", "") }
+
+// delContextoDeArribaEnElCampo es delContextoDeArriba para lo que se pidió con un campo de la petición que el
+// adaptador conoce: dice cuál campo y qué valor. Si no se sabe sin adivinar, se usa delContextoDeArriba.
+func delContextoDeArribaEnElCampo(err error, campo, valor string) error {
 	if errors.Is(err, definicionpublicado.ErrNoExiste) || errors.Is(err, definicionpublicado.ErrInvalido) {
-		return &errorDeArriba{dominio: dominio.ErrInvalido, causa: err}
+		return &errorDeArriba{dominio: dominio.ErrInvalido, causa: err, campo: campo, valor: valor}
 	}
 	return err
 }

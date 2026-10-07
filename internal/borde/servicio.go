@@ -1,6 +1,7 @@
 package borde
 
 import (
+	catalogopublicado "github.com/jairoprogramador/vex-engine/internal/catalogo/publicado"
 	diagnosticopublicado "github.com/jairoprogramador/vex-engine/internal/diagnostico/publicado"
 	ejecucionpublicado "github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
 	historialpublicado "github.com/jairoprogramador/vex-engine/internal/historial/publicado"
@@ -14,6 +15,7 @@ type Dependencias struct {
 	Ejecucion   ejecucionpublicado.ParaBorde
 	Simulacion  simulacionpublicado.ParaBorde
 	Lanzamiento lanzamientopublicado.ParaBorde
+	Catalogo    catalogopublicado.ParaBorde
 	Diagnostico diagnosticopublicado.ParaBorde
 	Historial   historialpublicado.ParaBorde
 }

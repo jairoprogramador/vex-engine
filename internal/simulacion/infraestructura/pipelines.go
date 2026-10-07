@@ -30,7 +30,8 @@ func (p *Pipelines) DeUnCommit(ctx context.Context, fuente, commit string) (domi
 func (p *Pipelines) DeUnaCopiaDeTrabajo(ctx context.Context, directorio string) (dominio.Pipeline, error) {
 	pipeline, err := p.pipelines.DeUnaCopiaDeTrabajo(ctx, directorio)
 	if err != nil {
-		return dominio.Pipeline{}, delContextoDeArriba(fmt.Errorf("simulación: el pipeline de la copia de trabajo %q: %w", directorio, err))
+		return dominio.Pipeline{}, delContextoDeArribaEnElCampo(
+			fmt.Errorf("simulación: el pipeline de la copia de trabajo %q: %w", directorio, err), "CopiaDeTrabajo", directorio)
 	}
 	return pipelineDeDominio(pipeline)
 }

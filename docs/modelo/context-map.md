@@ -40,6 +40,7 @@ flowchart TB
 
   DIAG[Diagnóstico · core]
   LAN[Lanzamiento]
+  CAT[Catálogo]
   EJE[Ejecución de Pipeline]
   SIM[Simulación de Pipeline]
   RES[Resolución de Variables]
@@ -49,10 +50,12 @@ flowchart TB
 
   CLI -- OHS / PL --> EJE
   POR -- OHS / PL --> EJE
-  CLI -. OHS / PL .-> DIAG & LAN & SIM & HIST
+  CLI -. OHS / PL .-> DIAG & LAN & CAT & SIM & HIST
 
   DIAG -- "Customer–Supplier + ACL" --> HIST
   LAN -- Conformist --> HIST
+  CAT -- Conformist --> HIST
+  CAT -- "PL + ACL" --> DEF
   EJE -- Conformist --> HIST
   RES -- Conformist --> HIST
   EJE -- "Customer–Supplier" --> RES
@@ -73,6 +76,7 @@ flowchart TB
 **Sin ciclos.** Las llamadas solo bajan:
 
 - Diagnóstico y Lanzamiento → Historial.
+- Catálogo → Definición e Historial.
 - Ejecución → Definición, Resolución, Suministro e Historial.
 - Resolución → Definición e Historial.
 - Simulación → Definición, Resolución y Suministro.
@@ -102,6 +106,8 @@ sabe quién lo escucha.
 | 10 | **Ejecución → Suministro** | **ACL** | material de hoy o de un commit, hash del código y commit → recursos de un paso | *Fuente* cambia de significado al cruzar (una historia frente a un punto fijo), y Suministro es genérico: lo de fuera no entra sin traducir |
 | 11 | **Simulación → Suministro** | **ACL** | material → material fijo de una simulación | Igual que la #10 |
 | 12 | **Definición → Suministro** | **ACL** | un repositorio → una declaración | Es el homónimo *pipeline*: convertir el contenido de una fuente en pipeline es lo que hace Definición |
+| 13 | **Catálogo → Definición** | **Published Language + ACL** | los ambientes y los pasos del pipeline, con su orden | Igual que la #7: Catálogo solo lee nombres y orden, y los traduce a su lenguaje. Solo lee, nunca escribe |
+| 14 | **Catálogo → Historial** | **Conformist** a la forma | la última reserva de un ambiente | Igual que la #4: la reserva es un registro del Historial, y Catálogo solo la lee para decir si un ambiente está reservado |
 | — | **Simulación · Ejecución** | **Separate Ways** | nada | No se hablan (`Q-03.26`). Comparten poco mecanismo propio, porque interpolación y comprobación ya las consumen los dos de otro contexto, y un Shared Kernel ataría dos contextos que no se necesitan (`DEC-04.6`) |
 
 ---
@@ -110,7 +116,7 @@ sabe quién lo escucha.
 
 | Sistema | Relación | Patrón | Qué cruza |
 |---|---|---|---|
-| **CLI `vex`** y **portal** | piden cosas al motor | **Open Host Service + Published Language** del motor, en español y versionado; el CLI y el portal se adaptan a él (`DEC-04.4`) | intentar hasta un paso en un ambiente · rollback a un destino (Ejecución) · simular (Simulación) · lanzar, y reservar o liberar un ambiente (Lanzamiento) · preguntar la causa (Diagnóstico) · consultar el historial, **sin valores**, y dar por abandonado un intento (Historial) |
+| **CLI `vex`** y **portal** | piden cosas al motor | **Open Host Service + Published Language** del motor, en español y versionado; el CLI y el portal se adaptan a él (`DEC-04.4`) | intentar hasta un paso en un ambiente · rollback a un destino (Ejecución) · simular (Simulación) · lanzar, y reservar o liberar un ambiente (Lanzamiento) · preguntar la causa (Diagnóstico) · listar los ambientes (con su reserva) y los pasos de un pipeline (Catálogo) · listar los lanzamientos de un ambiente (Lanzamiento) · consultar el historial, **sin valores**, y dar por abandonado un intento (Historial) |
 | **Almacén de sincronización** | el Historial lo usa para estar disponible en otra máquina | **ACL dentro del Historial** | registros, sin interpretar. Lo comprado queda detrás de la traducción |
 | **Repositorios** | Suministro los usa | **ACL dentro de Suministro** | contenido y commits. Lo comprado queda detrás de la traducción |
 

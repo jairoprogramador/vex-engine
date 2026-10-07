@@ -122,7 +122,7 @@ echo '{"jsonrpc":"2.0","id":"1","method":"intentar","params":{ … },"entorno":{
 | `-32700` | `json_invalido` | La línea no es JSON |
 | `-32600` | `peticion_invalida` | No es una petición JSON-RPC (falta `id` o `method`), no llegó ninguna, o la línea es demasiado larga |
 | `-32601` | `operacion_desconocida` | El `method` no existe |
-| `-32602` | `parametros_invalidos` | Un campo que la operación no tiene, un valor que no vale, `entorno` con valor |
+| `-32602` | `parametros_invalidos` | Un campo que la operación no tiene, un valor que no vale, `entorno` con valor. Trae `data.campo` y `data.valor` cuando se sabe cuál es el campo (un JSON mal formado, una regla interna del pipeline o un commit que no está no apuntan a ninguno). En un `entorno` inválido, `data.campo` es `Entorno` y `data.valor` es el nombre de la variable, nunca su valor |
 | `-32001` | `version_no_soportada` | `Version` vacía o distinta de `"1"` |
 | `-32002` | `rechazado` | Lo pedido rompe una regla del motor |
 | `-32003` | `no_existe` | Lo consultado no está en el historial (un intento que no existe…) |
@@ -288,7 +288,8 @@ vexd_demo simular "{\"Version\":\"1\",\"Ambiente\":\"sand\",\"Solicitante\":\"ja
 | `Despliegue` | sí | Despliegue a lanzar |
 | `Nombre` | no | Nombre del lanzamiento. Vacío: toma el número de versión |
 
-Respuesta: `Ambiente`, `Despliegue`, `Version` (número, sube de uno en uno por ambiente), `Nombre` e `Instante`.
+Respuesta: `Id` (el del lanzamiento), `Ambiente`, `Despliegue`, `Version` (número, sube de uno en uno por ambiente),
+`Nombre` e `Instante`.
 Es **incondicional**: la reserva solo bloquea el lanzamiento automático, nunca este.
 
 ```bash
@@ -315,7 +316,8 @@ a lanzar en cuanto un despliegue queda listo.
 | `Lanzamiento` | \* | Un lanzamiento (en vez de un intento) |
 | `Referencia` | no | Despliegue con el que comparar, a mano. Vacío: lo elige el motor |
 
-\* Uno de los dos, nunca los dos.
+\* Uno de los dos. Los dos a la vez es `parametros_invalidos` (`data.campo`: `Lanzamiento`). Ninguno de los dos es el
+último intento del ambiente.
 
 **Respuesta**, compacta, de uno de dos tipos:
 
@@ -363,11 +365,30 @@ Solo lectura, y **nunca devuelven el valor de una variable**.
 | Operación | Campos | Devuelve |
 |---|---|---|
 | `intento` | `Version`, `Intento` | Un intento: `Id`, `Apertura` (ambiente, solicitante, pasos, `HastaPaso`, `ConCommits`, `HashDelCodigo`), `Registros`, `Estado`, `Destino` (si fue rollback), `Abandonado` |
-| `intentos` | `Version`, `Ambiente` | La lista de intentos del ambiente, **compacta**: de cada uno, `Id`, `Ambiente`, `Solicitante`, `HastaPaso` y `Estado` (vacío si no tiene desenlace). Para el detalle de uno, `intento` con su `Id` |
+| `intentos` | `Version`, `Ambiente` | La lista de intentos del ambiente, **compacta**: de cada uno, `Id`, `Ambiente`, `Solicitante`, `HastaPaso`, `Instante` (el de la apertura) y `Estado` (vacío si no tiene desenlace). Para el detalle de uno, `intento` con su `Id` |
 | `despliegues` | `Version`, `Ambiente` | La lista de despliegues: `Id`, `Ambiente`, `Intento`, `Padre` (vacío en el primero), `Instante` |
 
 El contenido de los registros (`Contenido.Datos`) viaja opaco, en base64. Un ambiente sin intentos o sin despliegues
 responde `[]`.
+
+### `lanzamientos`, `ambientes`, `pasos` — qué hay y qué se lanzó
+
+Solo lectura.
+
+| Operación | Campos | Devuelve |
+|---|---|---|
+| `lanzamientos` | `Version`, `Ambiente` | Los lanzamientos del ambiente, del más antiguo al más reciente: `Id`, `Ambiente`, `Despliegue`, `Version`, `Nombre`, `Instante` |
+| `ambientes` | `Version`, `FuenteDelPipeline`, `Commit` (opcional) | Los ambientes del pipeline, en su orden: `Nombre`, `Descripcion`, `Valor` y `Reservado` |
+| `pasos` | `Version`, `FuenteDelPipeline`, `Commit` (opcional) | Los pasos del pipeline, en su orden: `Nombre`, `Orden` y `Compartido` |
+
+Sin `Commit`, es el pipeline de hoy. `Reservado` es la última reserva del ambiente (`reservar` y `liberar`); uno que
+nunca se reservó no lo está. Sin elementos, la respuesta es `[]`.
+
+```bash
+vexd_demo ambientes "{\"Version\":\"1\",\"FuenteDelPipeline\":\"$D/pipeline\"}"
+vexd_demo pasos "{\"Version\":\"1\",\"FuenteDelPipeline\":\"$D/pipeline\"}"
+vexd_demo lanzamientos '{"Version":"1","Ambiente":"prod"}'
+```
 
 ### `logs` — la salida de los comandos de un intento
 

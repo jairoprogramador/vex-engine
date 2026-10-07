@@ -77,6 +77,9 @@ func (s *Servicio) PreguntarLaCausa(ctx context.Context, p publicado.PeticionDeD
 func (s *Servicio) resolverIntentoQueFalla(
 	ctx context.Context, p publicado.PeticionDeDiagnostico,
 ) (id dominio.IdIntento, hay bool, err error) {
+	if err := dominio.ComprobarUnSoloOrigen(p.Intento, p.Lanzamiento); err != nil {
+		return dominio.IdIntento{}, false, err
+	}
 	switch {
 	case p.Intento != "":
 		id, err := dominio.NuevoIdIntento(p.Intento)

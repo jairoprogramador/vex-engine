@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/jairoprogramador/vex-engine/internal/borde"
+	catalogoaplicacion "github.com/jairoprogramador/vex-engine/internal/catalogo/aplicacion"
+	cataloginfraestructura "github.com/jairoprogramador/vex-engine/internal/catalogo/infraestructura"
 	definicionaplicacion "github.com/jairoprogramador/vex-engine/internal/definicion/aplicacion"
 	definicioninfraestructura "github.com/jairoprogramador/vex-engine/internal/definicion/infraestructura"
 	diagnosticoaplicacion "github.com/jairoprogramador/vex-engine/internal/diagnostico/aplicacion"
@@ -94,6 +96,10 @@ func componer(r rutas, progreso ejecuciondominio.Progreso) (*borde.Servicio, err
 		Variables:       simulacioninfraestructura.NuevasVariables(resolucion.ParaSimulacion()),
 		EspacioTemporal: simulacioninfraestructura.EspacioTemporal{},
 	})
+	catalogo := catalogoaplicacion.NuevoServicio(catalogoaplicacion.Dependencias{
+		Pipelines: cataloginfraestructura.NuevosPipelines(definicion),
+		Reservas:  cataloginfraestructura.NuevasReservas(historial),
+	})
 	lanzamiento := lanzamientoaplicacion.NuevoServicio(lanzamientoaplicacion.Dependencias{
 		Historial: lanzamientoinfraestructura.NuevoHistorial(historial),
 	})
@@ -107,6 +113,7 @@ func componer(r rutas, progreso ejecuciondominio.Progreso) (*borde.Servicio, err
 		Ejecucion:   ejecucion,
 		Simulacion:  simulacion,
 		Lanzamiento: lanzamiento,
+		Catalogo:    catalogo,
 		Diagnostico: diagnostico,
 		Historial:   historial,
 	}), nil

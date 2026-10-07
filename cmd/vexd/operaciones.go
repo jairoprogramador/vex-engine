@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/jairoprogramador/vex-engine/internal/borde"
 	ejecucionpublicado "github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
@@ -51,6 +53,9 @@ var operaciones = registrar(
 	delMotor("intento", consulta((*borde.Servicio).Intento)),
 	delMotor("intentos", consultaResumida((*borde.Servicio).IntentosDeUnAmbiente, resumirTodos)),
 	delMotor("despliegues", consulta((*borde.Servicio).DesplieguesDeUnAmbiente)),
+	delMotor("lanzamientos", consulta((*borde.Servicio).LanzamientosDeUnAmbiente)),
+	delMotor("ambientes", consulta((*borde.Servicio).Ambientes)),
+	delMotor("pasos", consulta((*borde.Servicio).Pasos)),
 	delMotor("logs", consulta((*borde.Servicio).Logs)),
 )
 
@@ -151,7 +156,50 @@ func decodificar(params []byte, destino any) error {
 	d := json.NewDecoder(bytes.NewReader(params))
 	d.DisallowUnknownFields()
 	if err := d.Decode(destino); err != nil {
-		return fmt.Errorf("%w: %w", errParametros, err)
+		return ilegible(err)
 	}
 	return nil
+}
+
+// parametroIlegibleError es errParametros con el campo que no se pudo leer, si se sabe cuál es: el cliente lo
+// recibe en data.campo y no tiene que leer el texto. El valor es lo que dice el JSON de ese campo, no su
+// contenido: «string» si se pidió un número, por ejemplo.
+type parametroIlegibleError struct {
+	campo string
+	valor string
+	causa error
+}
+
+func (e *parametroIlegibleError) Error() string {
+	return errParametros.Error() + ": " + e.causa.Error()
+}
+
+func (e *parametroIlegibleError) Is(destino error) bool { return destino == errParametros }
+
+func (e *parametroIlegibleError) Unwrap() error { return e.causa }
+
+func (e *parametroIlegibleError) ParametroInvalido() (campo, valor string) { return e.campo, e.valor }
+
+// ilegible clasifica un fallo de la lectura de los params. Un JSON mal formado no apunta a ningún campo.
+func ilegible(err error) error {
+	e := &parametroIlegibleError{causa: err}
+	var tipo *json.UnmarshalTypeError
+	if errors.As(err, &tipo) {
+		e.campo, e.valor = tipo.Field, tipo.Value
+	} else if campo, ok := campoDesconocido(err); ok {
+		e.campo = campo
+	}
+	return e
+}
+
+// campoDesconocido saca el nombre del campo del error de DisallowUnknownFields, que la biblioteca estándar solo
+// da como texto.
+func campoDesconocido(err error) (string, bool) {
+	const prefijo = "json: unknown field "
+	texto, ok := strings.CutPrefix(err.Error(), prefijo)
+	if !ok {
+		return "", false
+	}
+	campo, errComillas := strconv.Unquote(texto)
+	return campo, errComillas == nil
 }

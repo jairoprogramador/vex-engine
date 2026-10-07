@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jairoprogramador/vex-engine/internal/borde"
+	catalogopublicado "github.com/jairoprogramador/vex-engine/internal/catalogo/publicado"
 	diagnosticopublicado "github.com/jairoprogramador/vex-engine/internal/diagnostico/publicado"
 	ejecucionpublicado "github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
 	historialpublicado "github.com/jairoprogramador/vex-engine/internal/historial/publicado"
@@ -58,6 +59,27 @@ func (c *contextosFalsos) Lanzar(
 ) (lanzamientopublicado.Lanzamiento, error) {
 	c.anotar("lanzar", [3]string{ambiente, despliegue, nombre})
 	return lanzamientopublicado.Lanzamiento{}, nil
+}
+
+func (c *contextosFalsos) LanzamientosDeUnAmbiente(
+	_ context.Context, ambiente string,
+) ([]lanzamientopublicado.Lanzamiento, error) {
+	c.anotar("lanzamientos", ambiente)
+	return nil, nil
+}
+
+func (c *contextosFalsos) Ambientes(
+	_ context.Context, p catalogopublicado.PeticionDeCatalogo,
+) ([]catalogopublicado.Ambiente, error) {
+	c.anotar("ambientes", p)
+	return nil, nil
+}
+
+func (c *contextosFalsos) Pasos(
+	_ context.Context, p catalogopublicado.PeticionDeCatalogo,
+) ([]catalogopublicado.Paso, error) {
+	c.anotar("pasos", p)
+	return nil, nil
 }
 
 func (c *contextosFalsos) Reservar(_ context.Context, ambiente string) error {
@@ -122,7 +144,7 @@ func (c *contextosFalsos) UltimoIntento(context.Context) (historialpublicado.Int
 func servicioConContextosFalsos() (*borde.Servicio, *contextosFalsos) {
 	falsos := &contextosFalsos{}
 	return borde.NuevoServicio(borde.Dependencias{
-		Ejecucion: falsos, Simulacion: falsos, Lanzamiento: falsos, Diagnostico: falsos, Historial: falsos,
+		Ejecucion: falsos, Simulacion: falsos, Lanzamiento: falsos, Catalogo: falsos, Diagnostico: falsos, Historial: falsos,
 	}), falsos
 }
 
@@ -157,6 +179,21 @@ func todasLasOperaciones() []operacion {
 				_, err := s.Lanzar(ctx, borde.PeticionDeLanzamiento{
 					Version: v, Ambiente: "prod", Despliegue: "dep-1", Nombre: "estreno",
 				})
+				return err
+			}},
+		{"consultar los lanzamientos de un ambiente", "lanzamientos", "prod",
+			func(s *borde.Servicio, v string) error {
+				_, err := s.LanzamientosDeUnAmbiente(ctx, borde.PeticionDeLanzamientosDeUnAmbiente{Version: v, Ambiente: "prod"})
+				return err
+			}},
+		{"consultar los ambientes", "ambientes", catalogopublicado.PeticionDeCatalogo{Version: "1", FuenteDelPipeline: "p", Commit: "c"},
+			func(s *borde.Servicio, v string) error {
+				_, err := s.Ambientes(ctx, catalogopublicado.PeticionDeCatalogo{Version: v, FuenteDelPipeline: "p", Commit: "c"})
+				return err
+			}},
+		{"consultar los pasos", "pasos", catalogopublicado.PeticionDeCatalogo{Version: "1", FuenteDelPipeline: "p", Commit: "c"},
+			func(s *borde.Servicio, v string) error {
+				_, err := s.Pasos(ctx, catalogopublicado.PeticionDeCatalogo{Version: v, FuenteDelPipeline: "p", Commit: "c"})
 				return err
 			}},
 		{"reservar", "reservar", "prod",

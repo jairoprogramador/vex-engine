@@ -37,6 +37,7 @@ ecosistema/vex-engine/
 ├── cmd/vexd/                  raíz de composición: el único paquete que conoce todos los contextos
 └── internal/
     ├── borde/                 Open Host hacia el CLI y el portal: el lenguaje publicado del motor
+    ├── catalogo/
     ├── diagnostico/
     ├── definicion/
     ├── historial/             incluye la sincronización, dentro de infraestructura/
@@ -120,6 +121,7 @@ Es la condición de cierre de E5: **se comprueba mecánicamente** (`DEC-05.2`).
    |---|---|
    | `diagnostico` | `historial` |
    | `lanzamiento` | `historial` |
+   | `catalogo` | `historial` · `definicion` |
    | `ejecucion` | `historial` · `definicion` · `resolucion` · `suministro` |
    | `resolucion` | `historial` · `definicion` |
    | `simulacion` | `definicion` · `resolucion` · `suministro` |
@@ -128,7 +130,7 @@ Es la condición de cierre de E5: **se comprueba mecánicamente** (`DEC-05.2`).
 
 4. `historial/reservado` solo lo usa `resolucion`.
 5. `borde` solo usa el `publicado/` de los contextos de entrada: `ejecucion`, `simulacion`,
-   `lanzamiento`, `diagnostico` e `historial`. Y a `borde` solo lo usa `cmd/vexd`.
+   `lanzamiento`, `catalogo`, `diagnostico` e `historial`. Y a `borde` solo lo usa `cmd/vexd`.
 6. `cmd/vexd` puede usarlo todo: es donde se conectan los contextos.
 
 **El comando**, desde `ecosistema/vex-engine`:

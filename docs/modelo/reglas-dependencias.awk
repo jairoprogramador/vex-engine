@@ -15,13 +15,14 @@ BEGIN {
   # Contextos de arriba de cada contexto, según modelo/context-map.md.
   arriba["diagnostico"] = "historial"
   arriba["lanzamiento"] = "historial"
+  arriba["catalogo"]    = "historial definicion"
   arriba["ejecucion"]   = "historial definicion resolucion suministro"
   arriba["resolucion"]  = "historial definicion"
   arriba["simulacion"]  = "definicion resolucion suministro"
   arriba["definicion"]  = "suministro"
 
   # Contextos que el borde expone al CLI y al portal.
-  entrada = "ejecucion simulacion lanzamiento diagnostico historial"
+  entrada = "ejecucion simulacion lanzamiento catalogo diagnostico historial"
 
   fallos = 0
 }

@@ -23,11 +23,11 @@ func NuevoEspacioDeTrabajo(raiz string) *EspacioDeTrabajo {
 }
 
 func (e *EspacioDeTrabajo) Ubicar(fuenteDelProyecto, fuenteDelPipeline, ambiente string) (dominio.Ubicacion, error) {
-	proyecto, err := nombreDeLaFuente(fuenteDelProyecto)
+	proyecto, err := nombreDeLaFuente("FuenteDelProyecto", fuenteDelProyecto)
 	if err != nil {
 		return dominio.Ubicacion{}, fmt.Errorf("ejecución: el proyecto %q: %w", fuenteDelProyecto, err)
 	}
-	pipeline, err := nombreDeLaFuente(fuenteDelPipeline)
+	pipeline, err := nombreDeLaFuente("FuenteDelPipeline", fuenteDelPipeline)
 	if err != nil {
 		return dominio.Ubicacion{}, fmt.Errorf("ejecución: el pipeline %q: %w", fuenteDelPipeline, err)
 	}
