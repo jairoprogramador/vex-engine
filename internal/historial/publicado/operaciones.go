@@ -75,6 +75,11 @@ type ParaDiagnostico interface {
 	Despliegue(ctx context.Context, id string) (Despliegue, error)
 }
 
+// ParaCatalogo es lo que usa Catálogo: si un ambiente está reservado.
+type ParaCatalogo interface {
+	UltimaReserva(ctx context.Context, ambiente string) (Reserva, bool, error)
+}
+
 // ParaBorde es lo que el motor expone al CLI y al portal.
 type ParaBorde interface {
 	// AbandonarIntento da por abandonado un intento sin desenlace, y libera su ambiente.

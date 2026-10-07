@@ -56,9 +56,11 @@ type historialFalso struct {
 	conocidas []dominio.VersionConocida
 
 	lanzamientos []registroDeLanzamiento
+	registrados  []dominio.LanzamientoRegistrado // los que ya había, para la consulta
 	reservas     []registroDeReserva
 
-	fallarRegistrarLanzamiento bool
+	fallarRegistrarLanzamiento     bool
+	fallarLanzamientosDeUnAmbiente bool
 }
 
 type registroDeLanzamiento struct {
@@ -102,6 +104,21 @@ func (h *historialFalso) HashDelCodigoDeUnDespliegue(
 
 func (h *historialFalso) VersionesConocidas(_ context.Context) ([]dominio.VersionConocida, error) {
 	return h.conocidas, nil
+}
+
+func (h *historialFalso) LanzamientosDeUnAmbiente(
+	_ context.Context, ambiente dominio.Ambiente,
+) ([]dominio.LanzamientoRegistrado, error) {
+	if h.fallarLanzamientosDeUnAmbiente {
+		return nil, errors.New("falla simulada de LanzamientosDeUnAmbiente")
+	}
+	var delAmbiente []dominio.LanzamientoRegistrado
+	for _, r := range h.registrados {
+		if r.Ambiente == ambiente {
+			delAmbiente = append(delAmbiente, r)
+		}
+	}
+	return delAmbiente, nil
 }
 
 func (h *historialFalso) RegistrarLanzamiento(

@@ -140,3 +140,40 @@ func TestIntentar_ElResultadoTraeElDetalleQueDaElHistorial(t *testing.T) {
 	require.Equal(t, "4s", resultado.Detalle.Tiempo)
 	require.Equal(t, []publicado.PasoDelDetalle{{Nombre: "pruebas", Estado: "precargado"}}, resultado.Detalle.Pasos)
 }
+
+func campoYValorDe(t *testing.T, err error) (campo, valor string) {
+	t.Helper()
+	var parametro interface{ ParametroInvalido() (string, string) }
+	require.ErrorAs(t, err, &parametro)
+	return parametro.ParametroInvalido()
+}
+
+func TestIntentar_UnHastaPasoQueElPipelineNoDeclaraEsInvalidoYNoAbreNada(t *testing.T) {
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas", "02-despliegue")
+	p := peticionDePrueba()
+	p.HastaPaso = "no-existe"
+
+	_, err := aplicacion.NuevoServicio(deps).Intentar(context.Background(), p, nil)
+
+	require.ErrorIs(t, err, publicado.ErrInvalido, "lo decide la definición, no el Historial")
+	campo, valor := campoYValorDe(t, err)
+	require.Equal(t, "HastaPaso", campo)
+	require.Equal(t, "no-existe", valor)
+	require.Empty(t, d.historial.aperturas, "no se abrió ningún intento")
+	require.False(t, d.espacioDeTrabajo.rehecho, "ni se tocó el espacio de trabajo")
+}
+
+func TestIntentar_UnHastaPasoQueElPipelineDeclaraOVacioSeAcepta(t *testing.T) {
+	for _, hasta := range []string{"", "01-pruebas", "02-despliegue"} {
+		t.Run(hasta, func(t *testing.T) {
+			deps, d := nuevasDependenciasDePrueba(t, "01-pruebas", "02-despliegue")
+			p := peticionDePrueba()
+			p.HastaPaso = hasta
+
+			_, err := aplicacion.NuevoServicio(deps).Intentar(context.Background(), p, nil)
+
+			require.NoError(t, err)
+			require.Len(t, d.historial.aperturas, 1)
+		})
+	}
+}

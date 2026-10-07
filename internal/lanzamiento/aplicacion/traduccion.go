@@ -9,7 +9,7 @@ import (
 
 func lanzamientoAPublicado(l dominio.LanzamientoRegistrado) publicado.Lanzamiento {
 	return publicado.Lanzamiento{
-		Ambiente: l.Ambiente.String(), Despliegue: l.Despliegue.String(),
+		Id: l.Id, Ambiente: l.Ambiente.String(), Despliegue: l.Despliegue.String(),
 		Version: l.Version.Numero(), Nombre: l.Nombre.String(), Instante: l.Instante,
 	}
 }

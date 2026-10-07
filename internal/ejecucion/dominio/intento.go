@@ -55,7 +55,7 @@ type IntentoEnCurso struct {
 // vacío es hasta el último — así EJ-2 (rollback, que siempre hace todos los pasos) no necesita un caso aparte.
 func NuevoIntentoEnCurso(ambiente string, pasos []PasoDelPipeline, hastaPaso string) (*IntentoEnCurso, error) {
 	if ambiente == "" {
-		return nil, invalido("un intento no puede tener el ambiente vacío")
+		return nil, invalidoElCampo("Ambiente", ambiente, "un intento no puede tener el ambiente vacío")
 	}
 	if len(pasos) == 0 {
 		return nil, invalido("un intento necesita, al menos, un paso")
@@ -64,7 +64,7 @@ func NuevoIntentoEnCurso(ambiente string, pasos []PasoDelPipeline, hastaPaso str
 	if hastaPaso != "" {
 		indice := indiceDelPaso(pasos, hastaPaso)
 		if indice < 0 {
-			return nil, invalido("%q no es un paso de este pipeline", hastaPaso)
+			return nil, invalidoElCampo("HastaPaso", hastaPaso, "%q no es un paso de este pipeline", hastaPaso)
 		}
 		limite = indice
 	}

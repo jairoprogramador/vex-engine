@@ -23,6 +23,12 @@ type PeticionDeLiberacion struct {
 	Ambiente string
 }
 
+// PeticionDeLanzamientosDeUnAmbiente es consultar los lanzamientos de un ambiente.
+type PeticionDeLanzamientosDeUnAmbiente struct {
+	Version  string
+	Ambiente string
+}
+
 // PeticionDeAbandono es dar por abandonado un intento sin desenlace.
 type PeticionDeAbandono struct {
 	Version string

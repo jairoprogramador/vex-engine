@@ -1,7 +1,6 @@
 package infraestructura
 
 import (
-	"fmt"
 	"path/filepath"
 
 	"github.com/go-git/go-git/v5"
@@ -10,10 +9,11 @@ import (
 )
 
 // nombreDeLaFuente da el nombre de directorio de una fuente: el de la URL de su remoto «origin» si es un
-// repositorio que lo tiene, y si no, el del último tramo de su ruta. Nunca devuelve un nombre vacío.
-func nombreDeLaFuente(fuente string) (string, error) {
+// repositorio que lo tiene, y si no, el del último tramo de su ruta. Nunca devuelve un nombre vacío. campo es el
+// de la petición del que sale la fuente, para decirlo si está vacía.
+func nombreDeLaFuente(campo, fuente string) (string, error) {
 	if fuente == "" {
-		return "", fmt.Errorf("%w: la fuente está vacía", dominio.ErrInvalido)
+		return "", dominio.NuevoParametroInvalido(campo, fuente, "la fuente está vacía")
 	}
 	if url := urlDelOrigen(fuente); url != "" {
 		return dominio.NombreDeDirectorio(url)

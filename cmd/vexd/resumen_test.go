@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -11,7 +12,8 @@ import (
 
 func TestResumir_TomaLoDeLaAperturaYElEstado(t *testing.T) {
 	intento := historialpublicado.Intento{
-		Id: "i-1",
+		Id:       "i-1",
+		Instante: time.Date(2026, 10, 6, 9, 30, 0, 0, time.UTC),
 		Apertura: historialpublicado.Apertura{
 			Ambiente:    "sand",
 			Solicitante: "jailux",
@@ -27,7 +29,7 @@ func TestResumir_TomaLoDeLaAperturaYElEstado(t *testing.T) {
 
 	require.NoError(t, err)
 	require.JSONEq(t,
-		`{"Id":"i-1","Ambiente":"sand","Solicitante":"jailux","HastaPaso":"test","Estado":"exitoso","Causa":""}`,
+		`{"Id":"i-1","Ambiente":"sand","Solicitante":"jailux","HastaPaso":"test","Instante":"2026-10-06T09:30:00Z","Estado":"exitoso","Causa":""}`,
 		string(salida))
 }
 
@@ -35,7 +37,7 @@ func TestResumir_UnIntentoSinDesenlaceTieneElEstadoVacio(t *testing.T) {
 	salida, err := json.Marshal(resumir(historialpublicado.Intento{Id: "i-2"}))
 
 	require.NoError(t, err)
-	require.JSONEq(t, `{"Id":"i-2","Ambiente":"","Solicitante":"","HastaPaso":"","Estado":"","Causa":""}`, string(salida))
+	require.JSONEq(t, `{"Id":"i-2","Ambiente":"","Solicitante":"","HastaPaso":"","Instante":"0001-01-01T00:00:00Z","Estado":"","Causa":""}`, string(salida))
 }
 
 func TestResumir_UnIntentoInterrumpidoDiceSuCausa(t *testing.T) {
@@ -47,7 +49,7 @@ func TestResumir_UnIntentoInterrumpidoDiceSuCausa(t *testing.T) {
 
 	require.NoError(t, err)
 	require.JSONEq(t,
-		`{"Id":"i-3","Ambiente":"","Solicitante":"","HastaPaso":"","Estado":"fallido","Causa":"interrumpido"}`,
+		`{"Id":"i-3","Ambiente":"","Solicitante":"","HastaPaso":"","Instante":"0001-01-01T00:00:00Z","Estado":"fallido","Causa":"interrumpido"}`,
 		string(salida))
 }
 
@@ -92,13 +94,16 @@ func TestIntentos_RespondeLaEstructuraCompactaYIntentoElDetalleCompleto(t *testi
 	var intentos []map[string]any
 	lista.resultado(t, &intentos)
 	require.Len(t, intentos, 1)
-	require.ElementsMatch(t, []string{"Id", "Ambiente", "Solicitante", "HastaPaso", "Estado", "Causa"}, claves(intentos[0]),
+	require.ElementsMatch(t, []string{"Id", "Ambiente", "Solicitante", "HastaPaso", "Instante", "Estado", "Causa"}, claves(intentos[0]),
 		"la lista trae el resumen de cada intento, no el intento entero")
 	require.Equal(t, intento, intentos[0]["Id"])
 	require.Equal(t, "prod", intentos[0]["Ambiente"])
 	require.Equal(t, "ana", intentos[0]["Solicitante"])
 	require.Equal(t, "deploy", intentos[0]["HastaPaso"], "el último paso, ya resuelto")
 	require.Equal(t, "exitoso", intentos[0]["Estado"])
+	instante, err := time.Parse(time.RFC3339Nano, intentos[0]["Instante"].(string))
+	require.NoError(t, err)
+	require.False(t, instante.IsZero(), "el instante de la apertura, sin derivarlo del UUID")
 
 	var detalle map[string]any
 	invocar(t, e.rutas, "intento", `{"Version":"1","Intento":`+quote(intento)+`}`).resultado(t, &detalle)

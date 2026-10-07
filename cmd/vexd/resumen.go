@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	historialpublicado "github.com/jairoprogramador/vex-engine/internal/historial/publicado"
 )
 
@@ -11,6 +13,7 @@ type resumenDeIntento struct {
 	Ambiente    string
 	Solicitante string
 	HastaPaso   string
+	Instante    time.Time                 // el de la apertura del intento
 	Estado      historialpublicado.Estado // vacío si el intento no tiene desenlace
 	Causa       historialpublicado.Causa  // por qué terminó, si no fue por un comando; vacía en el caso normal
 }
@@ -21,6 +24,7 @@ func resumir(i historialpublicado.Intento) resumenDeIntento {
 		Ambiente:    i.Apertura.Ambiente,
 		Solicitante: i.Apertura.Solicitante,
 		HastaPaso:   i.Apertura.HastaPaso,
+		Instante:    i.Instante,
 		Estado:      i.Estado,
 		Causa:       i.Causa,
 	}

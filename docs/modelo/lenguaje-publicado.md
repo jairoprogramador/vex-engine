@@ -37,7 +37,7 @@ por la entrada y la salida estándar** (`docs/rediseno/RD-13-protocolo.md`). No 
 
 | | |
 |---|---|
-| **`method`** | `intentar` `rollback` `simular` `lanzar` `reservar` `liberar` `diagnosticar` `abandonar` `intento` `intentos` `despliegues` `logs` `describir` |
+| **`method`** | `intentar` `rollback` `simular` `lanzar` `reservar` `liberar` `diagnosticar` `abandonar` `intento` `intentos` `despliegues` `lanzamientos` `ambientes` `pasos` `logs` `describir` |
 | **`params`** | Los campos del tipo de la tabla de abajo, con su `Version` (los nombres de campo de Go, sin distinguir mayúsculas). Un campo que el tipo no tiene se rechaza |
 | **`result`** | Lo que devuelve la operación, completo. Las que no devuelven nada responden `{}`; una lista sin elementos es `[]` |
 | **`progreso`** | Notificaciones (sin `id`) que `intentar` y `rollback` envían **antes** de la respuesta, que es la última línea: `intento_iniciado`, `paso_iniciado`, `comando_terminado`, `paso_terminado`. Solo nombres y resultados, nunca la salida de un comando. Ver `RD-13` |
@@ -63,14 +63,17 @@ configuración son inválidas (incluida una versión no soportada) · `130` canc
 | **Intentar** hasta un paso en un ambiente | `ejecucion.PeticionDeIntento` | `Resultado` | Ejecución (EJ-1) |
 | **Hacer rollback** a un despliegue | `ejecucion.PeticionDeRollback` | `Resultado` | Ejecución (EJ-2) |
 | **Simular** un pipeline, sin efectos | `simulacion.PeticionDeSimulacion` | `Resultado` | Simulación (SIM-1, SIM-2) |
-| **Lanzar** un despliegue | `borde.PeticionDeLanzamiento` | `lanzamiento.Lanzamiento` | Lanzamiento (LAN-2) |
+| **Lanzar** un despliegue | `borde.PeticionDeLanzamiento` | `lanzamiento.Lanzamiento` (con su `Id`) | Lanzamiento (LAN-2) |
 | **Reservar** un ambiente | `borde.PeticionDeReserva` | — | Lanzamiento (LAN-3) |
 | **Liberar** un ambiente | `borde.PeticionDeLiberacion` | — | Lanzamiento (LAN-3) |
 | **Preguntar la causa** de un fallo | `diagnostico.PeticionDeDiagnostico` | `{Ambiente, IntentoExitoso, IntentoFallido, Sustento}`; sin diagnóstico que dar, solo `{SinDiagnostico}` con el motivo | Diagnóstico |
 | **Dar por abandonado** un intento | `borde.PeticionDeAbandono` | — | Historial |
 | **Consultar un intento** | `borde.PeticionDeConsultaDeIntento` | `historial.Intento` | Historial |
-| **Consultar los intentos** de un ambiente | `borde.PeticionDeIntentosDeUnAmbiente` | `[]ResumenDeIntento`: `Id`, `Ambiente`, `Solicitante`, `HastaPaso`, `Estado` (vacío si no tiene desenlace), `Causa` (por qué terminó si no fue por un comando: `error` o `interrumpido`; vacía en el caso normal) | Historial |
+| **Consultar los intentos** de un ambiente | `borde.PeticionDeIntentosDeUnAmbiente` | `[]ResumenDeIntento`: `Id`, `Ambiente`, `Solicitante`, `HastaPaso`, `Instante` (el de la apertura), `Estado` (vacío si no tiene desenlace), `Causa` (por qué terminó si no fue por un comando: `error` o `interrumpido`; vacía en el caso normal) | Historial |
 | **Consultar los despliegues** de un ambiente | `borde.PeticionDeDesplieguesDeUnAmbiente` | `[]historial.Despliegue` | Historial |
+| **Consultar los lanzamientos** de un ambiente | `borde.PeticionDeLanzamientosDeUnAmbiente` | `[]lanzamiento.Lanzamiento`: `Id`, `Ambiente`, `Despliegue`, `Version`, `Nombre`, `Instante` | Lanzamiento |
+| **Consultar los ambientes** de un pipeline | `catalogo.PeticionDeCatalogo` | `[]catalogo.Ambiente`: `Nombre`, `Descripcion`, `Valor`, `Reservado` | Catálogo |
+| **Consultar los pasos** de un pipeline | `catalogo.PeticionDeCatalogo` | `[]catalogo.Paso`: `Nombre`, `Orden`, `Compartido` | Catálogo |
 | **Consultar los logs** de un intento | `borde.PeticionDeLogs` | `borde.RespuestaDeLogs` | Historial |
 | **Describir** el motor | — | `{VersionDelMotor, VersionesDelLenguaje, Operaciones}` | (ninguno: no usa el motor) |
 
@@ -80,6 +83,10 @@ configuración son inválidas (incluida una versión no soportada) · `130` canc
   entrega al Historial al terminar cada comando, y se consulta con `logs`. La respuesta es solo el `Resultado`.
   Un intento con copia de trabajo (`CopiaDeTrabajo`) nunca llega a despliegue. Un rollback
   toma el ambiente y las fuentes del propio despliegue destino.
+  Un `Ambiente` o un `HastaPaso` que el pipeline no declara, y un rollback sin `Despliegue`, son
+  `parametros_invalidos` (con `campo` y `valor`): los rechaza Ejecución con lo que dice el pipeline, antes de abrir
+  el intento ni tocar el espacio de trabajo, y no queda ningún registro. Un `Despliegue` con identidad pero que no
+  existe es `no_existe`.
 - **Simular.** Se pide como un intento: `Ambiente` (su valor, `sand`), `Solicitante` y `HastaPaso`, más fuente y
   commit, o una copia de trabajo (que tiene prioridad). El `Resultado` es el resumen de un intento sin `Id`
   (nada se guarda); si habría fallado, trae la `Causa` por nombre, nunca valores: los fallos de la comprobación
@@ -88,9 +95,16 @@ configuración son inválidas (incluida una versión no soportada) · `130` canc
   genera a partir del material. Un ambiente o paso que el pipeline no tiene es
   `simulacion.ErrInvalido`, no un resultado fallido.
 - **Lanzar.** Es incondicional: la reserva de un ambiente solo bloquea el lanzamiento en nombre del actor
-  ausente, nunca al dueño del negocio. Sin nombre, el nombre toma la versión.
-- **Preguntar la causa.** Un intento **o** un lanzamiento (nunca los dos), en un ambiente, y opcionalmente una
-  referencia elegida a mano. El borde publica una `Respuesta` de una de tres formas (`con_atribucion`,
+  ausente, nunca al dueño del negocio. Sin nombre, el nombre toma la versión. La respuesta trae el `Id` del
+  lanzamiento, el mismo que lista `lanzamientos` y que `diagnosticar` acepta en `Lanzamiento`.
+- **Lanzamientos, ambientes y pasos.** Solo lectura. `lanzamientos` pide un `Ambiente` y responde los de ese
+  ambiente, del más antiguo al más reciente. `ambientes` y `pasos` leen el pipeline: llevan `FuenteDelPipeline` y,
+  opcionalmente, `Commit` (vacío: el de hoy). Responden en el orden del pipeline. `Reservado` es la última reserva
+  del ambiente por su `Valor`: un ambiente que nunca se reservó no lo está. Un pipeline que no pasa la comprobación
+  es `rechazado`, con sus `fallos`, y una fuente o un commit que no están es `parametros_invalidos`.
+- **Preguntar la causa.** Un intento **o** un lanzamiento, en un ambiente, y opcionalmente una referencia
+  elegida a mano. Indicar los dos es `parametros_invalidos` (`campo`: `Lanzamiento`). Sin ninguno, es el último
+  intento del ambiente. El borde publica una `Respuesta` de una de tres formas (`con_atribucion`,
   `sin_referencia`, `no_se_atribuye`); `vexd` responde su estructura compacta, **sin texto para el usuario final**: con diagnóstico,
   `Ambiente`, `IntentoExitoso`, `IntentoFallido` y `Sustento` (cada eje, solo si cambió, con sus pasos), sin
   discriminador; sin diagnóstico, solo `SinDiagnostico`, con el motivo (`sin_referencia` o `no_se_atribuye`). Si trae
@@ -120,6 +134,16 @@ configuración son inválidas (incluida una versión no soportada) · `130` canc
 - **Describir.** Sin parámetros y sin `VEX_ALMACEN`. Dice la versión del motor, las versiones del lenguaje que
   entiende (`borde.VersionesSoportadas`) y las operaciones, para que quien invoca compruebe que se entienden
   antes de pedir nada.
+- **Errores de parámetros.** Un `parametros_invalidos` trae en `data` el `campo` que no vale (con el nombre con que
+  se escribe en la petición) y su `valor`, además del `message`. Un campo desconocido trae solo el `campo`; uno
+  con el tipo equivocado trae en `valor` el tipo que llegó (`number`, `string`…). Un JSON mal formado no apunta a
+  ningún campo y no trae ninguno de los dos. El `valor` nunca es el de una variable: en un `Entorno` inválido,
+  `campo` es `Entorno` y `valor` es el nombre de la variable, nunca su valor. Lo traen todos los contextos
+  (`intentar` y `simular` incluidos) cuando lo rechazado es un valor de la petición: `Ambiente`, `HastaPaso`,
+  `Despliegue`, `Solicitante`, `Entorno`, `FuenteDelProyecto`, `FuenteDelPipeline` o `CopiaDeTrabajo`. Lo que
+  rompe una regla interna de lo que dice el pipeline (un comando sin línea, una expresión regular mala) o un
+  dato guardado en el historial no es un campo de la petición y no lo trae. Un commit que no está no dice cuál
+  falla, la fuente o el commit, y tampoco lo trae.
 - **Consultas del Historial.** Solo lectura. Lo que dicen los registros de cada contexto (`Contenido`) viaja
   opaco. `intentos` responde la estructura compacta de cada intento, que `vexd` arma a partir del `historial.Intento`
   que publica el borde; el intento completo (`Apertura`, `Registros`…) se pide con `intento`.

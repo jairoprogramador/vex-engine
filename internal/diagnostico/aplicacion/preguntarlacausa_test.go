@@ -285,6 +285,21 @@ func TestPreguntarLaCausa_UnAmbienteVacioEsInvalido(t *testing.T) {
 	require.ErrorIs(t, err, publicado.ErrInvalido)
 }
 
+func TestPreguntarLaCausa_UnIntentoYUnLanzamientoALaVezEsInvalidoYDiceElCampo(t *testing.T) {
+	h := nuevoHistorialFalso()
+
+	_, err := nuevoServicio(h).PreguntarLaCausa(context.Background(), publicado.PeticionDeDiagnostico{
+		Intento: "i1", Lanzamiento: "lz1", Ambiente: "prod",
+	})
+
+	require.ErrorIs(t, err, publicado.ErrInvalido)
+	var parametro interface{ ParametroInvalido() (string, string) }
+	require.ErrorAs(t, err, &parametro)
+	campo, valor := parametro.ParametroInvalido()
+	require.Equal(t, "Lanzamiento", campo)
+	require.Equal(t, "lz1", valor)
+}
+
 func TestPreguntarLaCausa_PropagaElErrorDelHistorial(t *testing.T) {
 	h := nuevoHistorialFalso()
 	_, err := nuevoServicio(h).PreguntarLaCausa(context.Background(), publicado.PeticionDeDiagnostico{Intento: "i-desconocido"})

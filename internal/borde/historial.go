@@ -111,5 +111,23 @@ func filtroDeSalidas(resultado string) (historialpublicado.FiltroDeSalidas, erro
 	case "fallido":
 		return historialpublicado.SoloLasFallidas, nil
 	}
-	return 0, fmt.Errorf("%w: Resultado %q (admitidos: \"exitoso\", \"fallido\" o vacío)", ErrPeticionInvalida, resultado)
+	return 0, &PeticionInvalidaError{
+		Campo: "Resultado", Valor: resultado, Motivo: "admitidos: \"exitoso\", \"fallido\" o vacío",
+	}
 }
+
+// PeticionInvalidaError es un ErrPeticionInvalida que dice qué campo y qué valor no valen, para que quien
+// presenta el error no tenga que leer el texto.
+type PeticionInvalidaError struct {
+	Campo  string
+	Valor  string
+	Motivo string
+}
+
+func (e *PeticionInvalidaError) Error() string {
+	return fmt.Sprintf("%s: %s %q (%s)", ErrPeticionInvalida, e.Campo, e.Valor, e.Motivo)
+}
+
+func (e *PeticionInvalidaError) Is(destino error) bool { return destino == ErrPeticionInvalida }
+
+func (e *PeticionInvalidaError) ParametroInvalido() (campo, valor string) { return e.Campo, e.Valor }

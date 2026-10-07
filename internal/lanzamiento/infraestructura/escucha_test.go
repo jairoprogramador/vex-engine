@@ -47,6 +47,12 @@ func (h *historialFalso) VersionesConocidas(context.Context) ([]dominio.VersionC
 	return nil, nil
 }
 
+func (h *historialFalso) LanzamientosDeUnAmbiente(
+	context.Context, dominio.Ambiente,
+) ([]dominio.LanzamientoRegistrado, error) {
+	return nil, nil
+}
+
 func (h *historialFalso) RegistrarLanzamiento(
 	_ context.Context, ambiente dominio.Ambiente, lanzamiento dominio.Lanzamiento,
 ) (dominio.LanzamientoRegistrado, error) {

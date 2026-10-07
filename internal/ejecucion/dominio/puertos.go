@@ -29,9 +29,23 @@ type Pipeline struct {
 // ComprobarAmbiente rechaza un ambiente que el pipeline no declara en environments.yaml.
 func (p Pipeline) ComprobarAmbiente(valor string) error {
 	if !slices.Contains(p.Ambientes, valor) {
-		return invalido("%q no es un ambiente de este pipeline", valor)
+		return invalidoElCampo("Ambiente", valor, "%q no es un ambiente de este pipeline", valor)
 	}
 	return nil
+}
+
+// ComprobarHastaPaso rechaza un paso que el pipeline no declara. Vacío vale: es hasta el último. Lo decide el
+// pipeline y no el Historial, para que se rechace antes de ubicar nada ni abrir el intento.
+func (p Pipeline) ComprobarHastaPaso(nombre string) error {
+	if nombre == "" {
+		return nil
+	}
+	for _, paso := range p.Pasos {
+		if paso.Nombre() == nombre {
+			return nil
+		}
+	}
+	return invalidoElCampo("HastaPaso", nombre, "%q no es un paso de este pipeline", nombre)
 }
 
 // PasoDeEjecucion es un paso del pipeline con todo lo que un intento necesita de él: su lugar en el orden y su

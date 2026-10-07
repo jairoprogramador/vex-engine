@@ -42,6 +42,7 @@ var (
 	_ publicado.ParaEjecucion   = (*Servicio)(nil)
 	_ publicado.ParaResolucion  = (*Servicio)(nil)
 	_ publicado.ParaLanzamiento = (*Servicio)(nil)
+	_ publicado.ParaCatalogo    = (*Servicio)(nil)
 	_ publicado.ParaDiagnostico = (*Servicio)(nil)
 	_ publicado.ParaBorde       = (*Servicio)(nil)
 	_ reservado.Valores         = (*Servicio)(nil)

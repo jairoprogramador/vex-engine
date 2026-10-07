@@ -145,9 +145,9 @@ por separado: `vex` puede comprobar compatibilidad antes de enviar nada.
 | `-32700` | `json_invalido` | la línea no es JSON | 2 |
 | `-32600` | `peticion_invalida` | no es JSON-RPC válido (falta `method`/`id`, línea demasiado larga) | 2 |
 | `-32601` | `operacion_desconocida` | `method` no existe | 2 |
-| `-32602` | `parametros_invalidos` | campo desconocido o `ErrPeticionInvalida`, `*.ErrInvalido` | 2 |
+| `-32602` | `parametros_invalidos` | campo desconocido o `ErrPeticionInvalida`, `*.ErrInvalido`. `data.campo` y `data.valor` si el error los trae (cada contexto lo publica con `ParametroInvalido() (campo, valor string)`; `vexd` lo reconoce por esa interfaz). Solo los valores de la petición lo llevan, no las reglas internas del pipeline | 2 |
 | `-32001` | `version_no_soportada` | `borde.ErrVersionNoSoportada` | 2 |
-| `-32002` | `rechazado` | `ejecucion.ErrRechazado`, `historial.ErrRechazado` | 1 |
+| `-32002` | `rechazado` | `ejecucion.ErrRechazado`, `historial.ErrRechazado`, `catalogo.ErrRechazado` | 1 |
 | `-32003` | `no_existe` | `historial.ErrNoExiste`: lo consultado no está (un intento que no existe…) | 1 |
 | `-32009` | `historial_sin_intentos` | `borde.ErrHistorialSinIntentos`: `logs` sin pedir intento, y el historial no tiene ninguno. Es un caso de `no_existe` con tipo propio, para que `vex` lo distinga de «ese intento no existe» sin leer el texto | 1 |
 | `-32004` | `ambiente_ocupado` | `*historial.AmbienteOcupadoError` (`data.intento`) | 1 |

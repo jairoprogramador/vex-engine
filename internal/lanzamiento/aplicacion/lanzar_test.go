@@ -24,6 +24,17 @@ func TestLanzar_ConNombreLoConserva(t *testing.T) {
 	require.Equal(t, "d1", l.Despliegue)
 }
 
+func TestLanzar_DevuelveLaIdentidadQueDecidioElHistorial(t *testing.T) {
+	h := nuevoHistorialFalso()
+	h.hashes["d1"] = hash(t, "h1")
+	s := nuevoServicio(h)
+
+	l, err := s.Lanzar(context.Background(), "staging", "d1", "")
+
+	require.NoError(t, err)
+	require.Equal(t, "lz-1", l.Id)
+}
+
 func TestLanzar_SinNombreTomaLaVersion(t *testing.T) {
 	h := nuevoHistorialFalso()
 	h.hashes["d1"] = hash(t, "h1")

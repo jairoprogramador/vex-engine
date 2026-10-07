@@ -44,6 +44,11 @@ func (s *Servicio) Intentar(
 		return publicado.Resultado{}, traducir(err)
 	}
 
+	// Un paso que el pipeline no declara, también, y por el mismo motivo.
+	if err := pipeline.ComprobarHastaPaso(p.HastaPaso); err != nil {
+		return publicado.Resultado{}, traducir(err)
+	}
+
 	// Con una copia de trabajo, la fuente del proyecto puede venir vacía: es ella quien lo identifica.
 	fuenteDelProyecto := p.FuenteDelProyecto
 	if esCopiaDeTrabajo {

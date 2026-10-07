@@ -173,3 +173,27 @@ func TestAdaptadorDeHistorial_HashDelCodigoDeUnDespliegue(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "h1", hash.String())
 }
+
+func TestAdaptadorDeHistorial_LanzamientosDeUnAmbienteFiltraYDecodificaVersionYNombre(t *testing.T) {
+	h, ctx := nuevoHistorialReal(t)
+	adaptador := infraestructura.NuevoHistorial(h)
+	d1 := desplegar(t, h, ctx, "staging", "h1")
+	d2 := desplegar(t, h, ctx, "prod", "h2")
+	primero, err := adaptador.RegistrarLanzamiento(
+		ctx, mustAmbiente(t, "staging"), dominio.NuevoLanzamiento(mustIdDespliegue(t, d1), mustHash(t, "h1"), mustVersion(t, 1), "uno"))
+	require.NoError(t, err)
+	_, err = adaptador.RegistrarLanzamiento(
+		ctx, mustAmbiente(t, "prod"), dominio.NuevoLanzamiento(mustIdDespliegue(t, d2), mustHash(t, "h2"), mustVersion(t, 2), "dos"))
+	require.NoError(t, err)
+
+	lanzamientos, err := adaptador.LanzamientosDeUnAmbiente(ctx, mustAmbiente(t, "staging"))
+
+	require.NoError(t, err)
+	require.Len(t, lanzamientos, 1)
+	require.Equal(t, primero.Id, lanzamientos[0].Id)
+	require.NotEmpty(t, lanzamientos[0].Id)
+	require.Equal(t, d1, lanzamientos[0].Despliegue.String())
+	require.Equal(t, 1, lanzamientos[0].Version.Numero())
+	require.Equal(t, "uno", lanzamientos[0].Nombre.String())
+	require.Equal(t, primero.Instante, lanzamientos[0].Instante)
+}

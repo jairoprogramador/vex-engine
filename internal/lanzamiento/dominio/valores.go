@@ -7,7 +7,7 @@ type Ambiente struct{ valor string }
 
 func NuevaAmbiente(valor string) (Ambiente, error) {
 	if valor == "" {
-		return Ambiente{}, invalido("un ambiente no puede tener el nombre vacío")
+		return Ambiente{}, invalido("Ambiente", valor, "un ambiente no puede tener el nombre vacío")
 	}
 	return Ambiente{valor: valor}, nil
 }
@@ -20,7 +20,7 @@ type IdDespliegue struct{ valor string }
 
 func NuevoIdDespliegue(valor string) (IdDespliegue, error) {
 	if valor == "" {
-		return IdDespliegue{}, invalido("un despliegue no puede tener la identidad vacía")
+		return IdDespliegue{}, invalido("Despliegue", valor, "un despliegue no puede tener la identidad vacía")
 	}
 	return IdDespliegue{valor: valor}, nil
 }
@@ -33,7 +33,7 @@ type HashDelCodigo struct{ valor string }
 
 func NuevoHashDelCodigo(valor string) (HashDelCodigo, error) {
 	if valor == "" {
-		return HashDelCodigo{}, invalido("un hash del código no puede estar vacío")
+		return HashDelCodigo{}, invalido("HashDelCodigo", valor, "un hash del código no puede estar vacío")
 	}
 	return HashDelCodigo{valor: valor}, nil
 }
@@ -46,7 +46,7 @@ type Version struct{ numero int }
 
 func NuevaVersion(numero int) (Version, error) {
 	if numero < 1 {
-		return Version{}, invalido("una versión no puede ser menor que uno: %d", numero)
+		return Version{}, invalido("Version", strconv.Itoa(numero), "una versión no puede ser menor que uno: %d", numero)
 	}
 	return Version{numero: numero}, nil
 }

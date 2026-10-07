@@ -13,14 +13,23 @@ type Destino struct {
 	commitDelPipeline string
 }
 
+// ComprobarDespliegue rechaza un despliegue vacío: sin él no hay a qué volver, y no hace falta preguntar al
+// Historial para saberlo. Que el despliegue no exista es otra cosa, y es del Historial.
+func ComprobarDespliegue(despliegue string) error {
+	if despliegue == "" {
+		return invalidoElCampo("Despliegue", despliegue, "un rollback necesita el despliegue al que volver")
+	}
+	return nil
+}
+
 func NuevoDestino(
 	despliegue, ambiente, fuenteDelProyecto, commitDelProyecto, fuenteDelPipeline, commitDelPipeline string,
 ) (Destino, error) {
 	switch {
 	case despliegue == "":
-		return Destino{}, invalido("un destino no puede tener el despliegue vacío")
+		return Destino{}, invalidoElCampo("Despliegue", despliegue, "un destino no puede tener el despliegue vacío")
 	case ambiente == "":
-		return Destino{}, invalido("%q: un destino no puede tener el ambiente vacío", despliegue)
+		return Destino{}, invalidoElCampo("Ambiente", ambiente, "%q: un destino no puede tener el ambiente vacío", despliegue)
 	case fuenteDelProyecto == "" || commitDelProyecto == "":
 		return Destino{}, invalido("%q: un destino necesita la fuente y el commit del proyecto", despliegue)
 	case fuenteDelPipeline == "" || commitDelPipeline == "":

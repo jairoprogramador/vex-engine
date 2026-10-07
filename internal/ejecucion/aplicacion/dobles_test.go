@@ -145,7 +145,9 @@ type historialFalso struct {
 
 	errAbrir  error
 	idAbierto string
-	aperturas []dominio.AperturaDeIntento
+	// destinoConsultado dice si se llegó a pedir el despliegue de un rollback.
+	destinoConsultado bool
+	aperturas         []dominio.AperturaDeIntento
 
 	abandonados  []string
 	errAbandonar error
@@ -274,6 +276,7 @@ func (h *historialFalso) UltimaVezDeUnPaso(_ context.Context, paso string, _ dom
 }
 
 func (h *historialFalso) DespliegueParaRollback(context.Context, string) (dominio.Destino, error) {
+	h.destinoConsultado = true
 	return h.destinoParaRollback, h.errDestinoParaRollback
 }
 

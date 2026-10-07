@@ -24,7 +24,8 @@ func NuevasFuentes(f suministropublicado.ParaEjecucion) *Fuentes {
 func (f *Fuentes) TraerDeHoy(ctx context.Context, fuente string) (dominio.Material, error) {
 	m, err := f.fuentes.TraerDeHoy(ctx, fuente)
 	if err != nil {
-		return dominio.Material{}, delContextoDeArriba(fmt.Errorf("ejecución: el material de %q: %w", fuente, err))
+		return dominio.Material{}, delContextoDeArribaEnElCampo(
+			fmt.Errorf("ejecución: el material de %q: %w", fuente, err), "FuenteDelProyecto", fuente)
 	}
 	return materialDeDominio(m)
 }
@@ -40,7 +41,8 @@ func (f *Fuentes) TraerDeUnCommit(ctx context.Context, fuente, commit string) (d
 func (f *Fuentes) TraerCopiaDeTrabajo(ctx context.Context, directorio string) (dominio.Material, error) {
 	m, err := f.fuentes.TraerCopiaDeTrabajo(ctx, directorio)
 	if err != nil {
-		return dominio.Material{}, delContextoDeArriba(fmt.Errorf("ejecución: la copia de trabajo de %q: %w", directorio, err))
+		return dominio.Material{}, delContextoDeArribaEnElCampo(
+			fmt.Errorf("ejecución: la copia de trabajo de %q: %w", directorio, err), "CopiaDeTrabajo", directorio)
 	}
 	return materialDeDominio(m)
 }

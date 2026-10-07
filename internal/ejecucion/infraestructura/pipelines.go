@@ -22,7 +22,8 @@ func NuevosPipelines(p definicionpublicado.ParaEjecucion) *Pipelines {
 func (p *Pipelines) DeHoy(ctx context.Context, fuente string) (dominio.Pipeline, error) {
 	pipeline, err := p.pipelines.DeHoy(ctx, fuente)
 	if err != nil {
-		return dominio.Pipeline{}, delContextoDeArriba(fmt.Errorf("ejecución: el pipeline de %q: %w", fuente, err))
+		return dominio.Pipeline{}, delContextoDeArribaEnElCampo(
+			fmt.Errorf("ejecución: el pipeline de %q: %w", fuente, err), "FuenteDelPipeline", fuente)
 	}
 	return pipelineDeDominio(pipeline)
 }

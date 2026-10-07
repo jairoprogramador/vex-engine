@@ -23,10 +23,10 @@ type Entorno struct {
 func NuevoEntorno(variables map[string]string) (Entorno, error) {
 	for nombre, valor := range variables {
 		if !esNombreDeVariableDeEntorno(nombre) {
-			return Entorno{}, invalido("el nombre de variable de entorno %q no vale: letras, números y _, sin empezar por un número", nombre)
+			return Entorno{}, invalidoElCampo("Entorno", nombre, "el nombre de variable de entorno %q no vale: letras, números y _, sin empezar por un número", nombre)
 		}
 		if strings.ContainsRune(valor, 0) {
-			return Entorno{}, invalido("el valor de la variable de entorno %q tiene un carácter NUL", nombre)
+			return Entorno{}, invalidoElCampo("Entorno", nombre, "el valor de la variable de entorno %q tiene un carácter NUL", nombre)
 		}
 	}
 	if len(variables) == 0 {

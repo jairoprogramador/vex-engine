@@ -30,15 +30,36 @@ func codificarContenido(l dominio.Lanzamiento) (historialpublicado.Contenido, er
 	return historialpublicado.Contenido{Contexto: contextoLanzamiento, Datos: datos}, nil
 }
 
-// decodificarVersionConocida decodifica solo lo que DecidirVersion necesita: el hash y la versión.
-func decodificarVersionConocida(c historialpublicado.Contenido) (dominio.VersionConocida, error) {
+// decodificarLanzamiento decodifica lo que se muestra de un lanzamiento: su versión y su nombre.
+func decodificarLanzamiento(c historialpublicado.Contenido) (dominio.Version, dominio.Nombre, error) {
+	cl, err := decodificar(c)
+	if err != nil {
+		return dominio.Version{}, "", err
+	}
+	version, err := dominio.NuevaVersion(cl.Version)
+	if err != nil {
+		return dominio.Version{}, "", err
+	}
+	return version, dominio.Nombre(cl.Nombre), nil
+}
+
+func decodificar(c historialpublicado.Contenido) (contenidoLanzamiento, error) {
 	if c.Contexto != contextoLanzamiento {
-		return dominio.VersionConocida{},
+		return contenidoLanzamiento{},
 			fmt.Errorf("lanzamiento: contenido de contexto %q, se esperaba %q", c.Contexto, contextoLanzamiento)
 	}
 	var cl contenidoLanzamiento
 	if err := json.Unmarshal(c.Datos, &cl); err != nil {
-		return dominio.VersionConocida{}, fmt.Errorf("lanzamiento: decodificar el contenido: %w", err)
+		return contenidoLanzamiento{}, fmt.Errorf("lanzamiento: decodificar el contenido: %w", err)
+	}
+	return cl, nil
+}
+
+// decodificarVersionConocida decodifica solo lo que DecidirVersion necesita: el hash y la versión.
+func decodificarVersionConocida(c historialpublicado.Contenido) (dominio.VersionConocida, error) {
+	cl, err := decodificar(c)
+	if err != nil {
+		return dominio.VersionConocida{}, err
 	}
 	hash, err := dominio.NuevoHashDelCodigo(cl.Hash)
 	if err != nil {
