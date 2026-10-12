@@ -3,8 +3,9 @@ name: Motor
 # El motor (internal/, cmd/vexd) y su regla de dependencias (docs/rediseno/RD-01).
 
 on:
-  push:
   pull_request:
+  push:
+    branches: [main, develop]
 
 jobs:
   reglas:
