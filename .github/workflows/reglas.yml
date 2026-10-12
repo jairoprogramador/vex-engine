@@ -27,6 +27,9 @@ jobs:
       - name: Probar
         run: go test ./...
 
+      - name: Vulnerabilidades
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
       - name: Regla de dependencias
         run: |
           go list -f '{{.ImportPath}}{{range .Imports}} {{.}}{{end}}' ./... \
