@@ -1,6 +1,6 @@
 module github.com/jairoprogramador/vex-engine
 
-go 1.25.0
+go 1.27.2
 
 require (
 	github.com/go-git/go-git/v5 v5.19.2
