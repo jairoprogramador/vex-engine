@@ -67,6 +67,7 @@ type salidaV1 struct {
 	Description string `yaml:"description"`
 	Probe       string `yaml:"probe"`
 	Scope       string `yaml:"scope"`
+	Show        bool   `yaml:"show"`
 }
 
 type configuracionV1 struct {
@@ -184,6 +185,7 @@ func (l *lectura) paso(directorio string) (dominio.PasoDeclarado, error) {
 			for _, s := range c.Outputs {
 				comando.Variables = append(comando.Variables, dominio.VariableDeComandoDeclarada{
 					Nombre: s.Name, Descripcion: s.Description, Expresion: s.Probe, Ambito: s.Scope,
+					Mostrar: s.Show,
 				})
 			}
 			paso.Comandos.Datos = append(paso.Comandos.Datos, comando)

@@ -17,9 +17,21 @@ import (
 func (s *Servicio) Intentar(
 	ctx context.Context, p publicado.PeticionDeIntento, variablesDeEntorno publicado.Entorno,
 ) (resultado publicado.Resultado, err error) {
-	// Lo primero: un entorno que no vale se rechaza antes de abrir ni traer nada.
+	// Lo primero: un entorno o un contexto que no valen se rechazan antes de abrir ni traer nada.
 	entorno, err := dominio.NuevoEntorno(variablesDeEntorno)
 	if err != nil {
+		return publicado.Resultado{}, traducir(err)
+	}
+	contexto, err := dominio.NuevoContexto(p.Contexto)
+	if err != nil {
+		return publicado.Resultado{}, traducir(err)
+	}
+	if err := comprobarMetadatos(p.Metadatos); err != nil {
+		return publicado.Resultado{}, traducir(err)
+	}
+	// El ambiente también acaba en la línea de un comando (environment). Que sea uno del pipeline se comprueba
+	// después, cuando ya se tiene el pipeline.
+	if err := dominio.ComprobarMetadato("Ambiente", p.Ambiente); err != nil {
 		return publicado.Resultado{}, traducir(err)
 	}
 	esCopiaDeTrabajo := p.CopiaDeTrabajo != ""
@@ -88,9 +100,11 @@ func (s *Servicio) Intentar(
 		return publicado.Resultado{}, traducir(s.abandonar(ctx, id, err))
 	}
 
+	var visibles []dominio.VariableVisible
 	c := contextoDelIntento{
 		id: id, ambiente: p.Ambiente, ubicacion: ubicacion, fuenteDelPipeline: p.FuenteDelPipeline, commitDelPipeline: pipeline.Commit,
-		hashDelCodigo: material.Hash, pasosPorNombre: pasosPorNombre, entorno: entorno,
+		hashDelCodigo: material.Hash, pasosPorNombre: pasosPorNombre, entorno: entorno, contexto: contexto,
+		visibles: &visibles,
 		estandarCompartidas: estandarCompartidas(
 			p.Metadatos, p.Ambiente, material.Hash.String(), material.Commit, material.Directorio, s.d.NombreDeLaHerramienta,
 		),
@@ -98,7 +112,7 @@ func (s *Servicio) Intentar(
 	if err := s.recorrer(ctx, c, intento); err != nil {
 		return publicado.Resultado{}, traducir(s.cerrarPorError(ctx, id, intento, "", err))
 	}
-	return s.cerrar(ctx, id, intento, "")
+	return s.cerrar(ctx, id, intento, "", visibles)
 }
 
 func (s *Servicio) traerMaterialDelProyecto(ctx context.Context, p publicado.PeticionDeIntento) (dominio.Material, error) {

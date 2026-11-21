@@ -28,6 +28,16 @@ type paramsDeProgreso struct {
 	Paso    string `json:"paso,omitempty"`
 	Comando string `json:"comando,omitempty"`
 	Estado  string `json:"estado,omitempty"`
+	// Visibles solo va en paso_terminado, y solo si el paso tiene variables marcadas con show.
+	Visibles []visibleDeProgreso `json:"visibles,omitempty"`
+}
+
+// visibleDeProgreso es una variable marcada con show, con su valor: la única excepción a que el progreso no
+// lleva valores.
+type visibleDeProgreso struct {
+	Nombre      string `json:"nombre"`
+	Descripcion string `json:"descripcion,omitempty"`
+	Valor       string `json:"valor"`
 }
 
 // progresoPorElProtocolo es el dominio.Progreso de vexd: manda cada evento a quien invoca como una notificación.
@@ -73,6 +83,7 @@ func (p *progresoPorElProtocolo) escribir() {
 func (p *progresoPorElProtocolo) Emitir(_ context.Context, e dominio.EventoDeProgreso) {
 	notificacion := protocolo.NuevaNotificacion(metodoProgreso, paramsDeProgreso{
 		Evento: string(e.Tipo), Intento: e.Intento, Paso: e.Paso, Comando: e.Comando, Estado: e.Estado,
+		Visibles: visiblesDeProgreso(e.Visibles),
 	})
 	p.cerrojo.RLock()
 	defer p.cerrojo.RUnlock()
@@ -84,6 +95,17 @@ func (p *progresoPorElProtocolo) Emitir(_ context.Context, e dominio.EventoDePro
 	default:
 		p.descartados.Add(1)
 	}
+}
+
+func visiblesDeProgreso(visibles []dominio.VariableVisible) []visibleDeProgreso {
+	if len(visibles) == 0 {
+		return nil
+	}
+	lista := make([]visibleDeProgreso, 0, len(visibles))
+	for _, v := range visibles {
+		lista = append(lista, visibleDeProgreso{Nombre: v.Nombre, Descripcion: v.Descripcion, Valor: v.Valor})
+	}
+	return lista
 }
 
 // cerrar escribe lo que queda en la cola y deja de aceptar eventos. Se puede llamar más de una vez. Dice, en la

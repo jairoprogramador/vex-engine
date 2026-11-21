@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/jairoprogramador/vex-engine/internal/borde"
 	catalogoaplicacion "github.com/jairoprogramador/vex-engine/internal/catalogo/aplicacion"
@@ -26,13 +27,17 @@ import (
 	suministroinfraestructura "github.com/jairoprogramador/vex-engine/internal/suministro/infraestructura"
 )
 
-// rutas son los tres lugares del disco que da quien invoca (DEC-06.18): el almacén del Historial, el espacio
-// de trabajo de los ambientes y donde Suministro pone el material de las fuentes. Solo el almacén es la
-// verdad; el material es una copia que se puede borrar sin que cambie ninguna decisión.
+// rutas son los lugares del disco que da quien invoca (DEC-06.18): el almacén del Historial, el espacio de
+// trabajo de los ambientes, donde Suministro pone el material de las fuentes y dónde va el directorio efímero de
+// cada paso. Solo el almacén es la verdad; el material es una copia que se puede borrar sin que cambie ninguna
+// decisión, y el efímero no dura más que un paso.
 type rutas struct {
 	almacen  string
 	espacio  string
 	material string
+	// efimero es la base del directorio efímero del paso (<efimero>/vex-step-tmp). Vacío: uno temporal, de este
+	// proceso (ejecucioninfraestructura.RutaDelDirectorioEfimero).
+	efimero string
 }
 
 // validar dice qué falta de la configuración del proceso para atender la operación: el almacén siempre, el
@@ -43,6 +48,9 @@ func (r rutas) validar(op operacion) error {
 	}
 	if op.ejecutaComandos && r.espacio == "" {
 		return fmt.Errorf("%w: falta %s: dónde trabajan los pasos de cada ambiente", errConfiguracion, nombreEspacio)
+	}
+	if op.ejecutaComandos && r.efimero != "" && !filepath.IsAbs(r.efimero) {
+		return fmt.Errorf("%w: %s tiene que ser una ruta absoluta: dónde va el directorio efímero de cada paso", errConfiguracion, nombreEfimero)
 	}
 	return nil
 }
@@ -88,6 +96,8 @@ func componer(r rutas, progreso ejecuciondominio.Progreso) (*borde.Servicio, err
 		Historial:             ejecucioninfraestructura.NuevoHistorial(historial),
 		Comandos:              ejecucioninfraestructura.NuevosComandos(),
 		EspacioDeTrabajo:      ejecucioninfraestructura.NuevoEspacioDeTrabajo(r.espacio),
+		DirectorioEfimero:     ejecucioninfraestructura.NuevoDirectorioEfimero(ejecucioninfraestructura.RutaDelDirectorioEfimero(r.efimero)),
+		Supervivientes:        ejecucioninfraestructura.NuevosSupervivientes(),
 		Progreso:              progreso,
 		NombreDeLaHerramienta: "vexd",
 	})

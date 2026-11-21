@@ -2,7 +2,6 @@ package dominio
 
 import (
 	"context"
-	"io"
 	"slices"
 	"time"
 )
@@ -150,9 +149,10 @@ type AperturaDeIntento struct {
 	OrdenDeAmbientes []string
 }
 
-// Comandos ejecuta un comando en el espacio de trabajo de su ambiente y recoge su resultado. La salida se
-// reenvía en vivo, tal cual, mientras el comando corre (DEC-12.5); io.Writer es lo mínimo que necesita, y ya lo
-// entiende la biblioteca estándar.
+// Comandos ejecuta un comando en el espacio de trabajo de su ambiente y recoge su resultado. Lo que el comando
+// escribe —salida y error juntos, en el orden en que se produjeron— se acumula en salida, que lo acota
+// (SalidaDeComando): es el único sitio donde se guarda, y sobre lo que se conserva se comprueban las aserciones y
+// se capturan las variables.
 //
 // lineaInterpolada es la línea con sus ${var.<nombre>} ya resueltos — lo que de verdad corre. comando sigue
 // siendo la forma declarada, sin resolver: de ahí salen su directorio y las expresiones con las que se
@@ -161,7 +161,8 @@ type AperturaDeIntento struct {
 // este comando.
 type Comandos interface {
 	Ejecutar(
-		ctx context.Context, directorio, lineaInterpolada string, comando ComandoDeclarado, entorno Entorno, salida io.Writer,
+		ctx context.Context, directorio, lineaInterpolada string, comando ComandoDeclarado, entorno Entorno,
+		salida *SalidaDeComando,
 	) (ResultadoDeUnComando, error)
 }
 
@@ -175,11 +176,38 @@ type EspacioDeTrabajo interface {
 	// RehacerParteDelMotor copia el material declarado de todos los pasos, entero, al empezar el intento. Si el
 	// ambiente no se puede alcanzar, el error envuelve ErrNoDisponible (EJ-5, DEC-06.18).
 	RehacerParteDelMotor(ctx context.Context, u Ubicacion, pasos []PasoDeEjecucion) error
+	// RehacerElPaso vuelve a dejar el directorio de un paso solo con su material declarado, partiendo de vacío.
+	// Se llama cuando le toca al paso, justo antes de decidirlo: lo que un paso anterior haya dejado en él
+	// —ficheros o enlaces— no llega a sus comandos. No sigue enlaces simbólicos al borrar ni al escribir.
+	RehacerElPaso(ctx context.Context, u Ubicacion, paso PasoDeEjecucion) error
 	// DirectorioDelPaso es donde corren los comandos de un paso.
 	DirectorioDelPaso(u Ubicacion, paso string) string
 	// InterpolarPlantillas reescribe, en su sitio, los ficheros que el paso marca como plantilla. Se llama
 	// justo antes de ejecutar sus comandos, para que puedan usar variables producidas por pasos anteriores.
 	InterpolarPlantillas(ctx context.Context, u Ubicacion, paso PasoDeEjecucion, interpolar Interpolador) error
+}
+
+// VariableDelDirectorioEfimero es la variable de entorno con la que cada comando sabe dónde está el directorio
+// efímero de su paso (DirectorioEfimero). La pone el motor, y pisa a la que quien invoca pida con ese nombre.
+const VariableDelDirectorioEfimero = "VEX_STEP_TMP"
+
+// DirectorioEfimero es un directorio que solo existe mientras un paso se ejecuta: vacío al empezar y borrado al
+// terminar, salga como salga. Es donde va lo que no debe pasar de un paso al siguiente —la sesión de una
+// herramienta de nube, por ejemplo—. El motor no sabe qué se guarda ahí. La ruta es siempre la misma: quien
+// invoca puede apuntar a ella antes de que exista.
+type DirectorioEfimero interface {
+	// Crear lo deja vacío y solo para el usuario del motor, y dice dónde está. Borra lo que hubiera en su sitio.
+	Crear(ctx context.Context) (ruta string, err error)
+	// Borrar lo quita con todo lo que tenga. Si no existe, no es un error.
+	Borrar(ctx context.Context) error
+}
+
+// Supervivientes acaba con los procesos que los comandos de un paso dejaron vivos: los que escaparon de su grupo
+// (setsid) y por eso no murieron con su comando. Sin esto, un proceso de un paso seguiría ahí durante el
+// siguiente, viendo lo que solo es de ese. Solo se puede donde el motor es el primer proceso de su contenedor;
+// donde no, no hace nada y no falla.
+type Supervivientes interface {
+	Acabar(ctx context.Context) error
 }
 
 // Interpolador sustituye cada ${var.<nombre>} por su valor. Lo da Resolución, a través de la aplicación.

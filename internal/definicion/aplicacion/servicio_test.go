@@ -106,6 +106,17 @@ func TestTraeElPipelineComprobadoEnElLenguajePublicado(t *testing.T) {
 	}, p)
 }
 
+func TestElShowDeUnaVariableDeSalidaLlegaAlLenguajePublicado(t *testing.T) {
+	d := declaracion()
+	d.Pasos[0].Comandos.Datos[0].Variables[0].Mostrar = true
+	s := aplicacion.NuevoServicio(aplicacion.Dependencias{Pipelines: pipelinesEnMemoria{declaracion: d}})
+
+	p, err := s.DeHoy(context.Background(), "pipeline")
+	require.NoError(t, err)
+	require.Equal(t, []publicado.VariableDeSalida{{Nombre: "registro", Expresion: "(.+)", Compartida: true, Mostrar: true}},
+		p.Pasos[0].Comandos[0].Salidas)
+}
+
 func TestTraeElPipelineDeUnaCopiaDeTrabajo(t *testing.T) {
 	s := aplicacion.NuevoServicio(aplicacion.Dependencias{Pipelines: pipelinesEnMemoria{declaracion: declaracion()}})
 

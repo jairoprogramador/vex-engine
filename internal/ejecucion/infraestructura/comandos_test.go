@@ -1,7 +1,6 @@
 package infraestructura_test
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"testing"
@@ -21,36 +20,36 @@ func comandoDeclarado(t *testing.T, linea string, salidas []dominio.VariableDeSa
 }
 
 func TestComandos_UnComandoExitosoLlegaALaSalidaEnVivo(t *testing.T) {
-	var recibido bytes.Buffer
+	recibido := dominio.NuevaSalidaDeComando()
 	comandos := infraestructura.NuevosComandos()
 	linea := "echo marcador-de-salida"
 
-	resultado, err := comandos.Ejecutar(context.Background(), t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), dominio.Entorno{}, &recibido)
+	resultado, err := comandos.Ejecutar(context.Background(), t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), dominio.Entorno{}, recibido)
 
 	require.NoError(t, err)
 	require.True(t, resultado.Exitoso)
-	require.Contains(t, recibido.String(), "marcador-de-salida")
+	require.Contains(t, recibido.Texto(), "marcador-de-salida")
 }
 
 func TestComandos_CorreLaLineaInterpoladaYNoLaDeclarada(t *testing.T) {
-	var recibido bytes.Buffer
+	recibido := dominio.NuevaSalidaDeComando()
 	comandos := infraestructura.NuevosComandos()
 
 	resultado, err := comandos.Ejecutar(
 		context.Background(), t.TempDir(), "echo interpolada",
-		comandoDeclarado(t, "echo ${var.no-deberia-correr}", nil, nil), dominio.Entorno{}, &recibido,
+		comandoDeclarado(t, "echo ${var.no-deberia-correr}", nil, nil), dominio.Entorno{}, recibido,
 	)
 
 	require.NoError(t, err)
 	require.True(t, resultado.Exitoso)
-	require.Contains(t, recibido.String(), "interpolada")
+	require.Contains(t, recibido.Texto(), "interpolada")
 }
 
 func TestComandos_UnComandoQueSaleConErrorNoEsExitoso(t *testing.T) {
 	comandos := infraestructura.NuevosComandos()
 	linea := "exit 1"
 
-	resultado, err := comandos.Ejecutar(context.Background(), t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), dominio.Entorno{}, &bytes.Buffer{})
+	resultado, err := comandos.Ejecutar(context.Background(), t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), dominio.Entorno{}, dominio.NuevaSalidaDeComando())
 
 	require.NoError(t, err)
 	require.False(t, resultado.Exitoso)
@@ -64,7 +63,7 @@ func TestComandos_CapturaUnaVariableDeSalidaDeclarada(t *testing.T) {
 
 	resultado, err := comandos.Ejecutar(
 		context.Background(), t.TempDir(), linea,
-		comandoDeclarado(t, linea, []dominio.VariableDeSalidaDeclarada{salida}, nil), dominio.Entorno{}, &bytes.Buffer{},
+		comandoDeclarado(t, linea, []dominio.VariableDeSalidaDeclarada{salida}, nil), dominio.Entorno{}, dominio.NuevaSalidaDeComando(),
 	)
 
 	require.NoError(t, err)
@@ -83,7 +82,7 @@ func TestComandos_UnaVariableDeSalidaQueNoMatcheaNoEsExitoso(t *testing.T) {
 
 	resultado, err := comandos.Ejecutar(
 		context.Background(), t.TempDir(), linea,
-		comandoDeclarado(t, linea, []dominio.VariableDeSalidaDeclarada{salida}, nil), dominio.Entorno{}, &bytes.Buffer{},
+		comandoDeclarado(t, linea, []dominio.VariableDeSalidaDeclarada{salida}, nil), dominio.Entorno{}, dominio.NuevaSalidaDeComando(),
 	)
 
 	require.NoError(t, err)
@@ -98,7 +97,7 @@ func TestComandos_UnaAsercionQueNoCumpleNoEsExitoso(t *testing.T) {
 
 	resultado, err := comandos.Ejecutar(
 		context.Background(), t.TempDir(), linea,
-		comandoDeclarado(t, linea, nil, []dominio.AsercionDeclarada{asercion}), dominio.Entorno{}, &bytes.Buffer{},
+		comandoDeclarado(t, linea, nil, []dominio.AsercionDeclarada{asercion}), dominio.Entorno{}, dominio.NuevaSalidaDeComando(),
 	)
 
 	require.NoError(t, err)
@@ -111,7 +110,7 @@ func TestComandos_LaCancelacionMataElProcesoYPropagaElError(t *testing.T) {
 	comandos := infraestructura.NuevosComandos()
 	linea := "sleep 5"
 
-	_, err := comandos.Ejecutar(ctx, t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), dominio.Entorno{}, &bytes.Buffer{})
+	_, err := comandos.Ejecutar(ctx, t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), dominio.Entorno{}, dominio.NuevaSalidaDeComando())
 
 	require.Error(t, err)
 }
@@ -124,42 +123,42 @@ func entornoDePrueba(t *testing.T, variables map[string]string) dominio.Entorno 
 }
 
 func TestComandos_ElComandoVeLasVariablesDeEntornoQueSePidieron(t *testing.T) {
-	var recibido bytes.Buffer
+	recibido := dominio.NuevaSalidaDeComando()
 	linea := `echo "url=$REGISTRY_URL region=$REGION"`
 	entorno := entornoDePrueba(t, map[string]string{"REGISTRY_URL": "registry.local", "REGION": "sur"})
 
 	resultado, err := infraestructura.NuevosComandos().Ejecutar(
-		context.Background(), t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), entorno, &recibido)
+		context.Background(), t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), entorno, recibido)
 
 	require.NoError(t, err)
 	require.True(t, resultado.Exitoso)
-	require.Equal(t, "url=registry.local region=sur\n", recibido.String())
+	require.Equal(t, "url=registry.local region=sur\n", recibido.Texto())
 }
 
 func TestComandos_LasVariablesPedidasPisanLasHeredadasYLasDemasSiguenAhi(t *testing.T) {
 	t.Setenv("VEX_PRUEBA_HEREDADA", "del-proceso")
 	t.Setenv("VEX_PRUEBA_PISADA", "del-proceso")
-	var recibido bytes.Buffer
+	recibido := dominio.NuevaSalidaDeComando()
 	linea := `echo "$VEX_PRUEBA_HEREDADA $VEX_PRUEBA_PISADA"`
 	entorno := entornoDePrueba(t, map[string]string{"VEX_PRUEBA_PISADA": "pedida"})
 
 	_, err := infraestructura.NuevosComandos().Ejecutar(
-		context.Background(), t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), entorno, &recibido)
+		context.Background(), t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), entorno, recibido)
 
 	require.NoError(t, err)
-	require.Equal(t, "del-proceso pedida\n", recibido.String(), "la heredada sigue; la pedida gana")
+	require.Equal(t, "del-proceso pedida\n", recibido.Texto(), "la heredada sigue; la pedida gana")
 }
 
 func TestComandos_SinEntornoElComandoHeredaElDelProcesoComoSiempre(t *testing.T) {
 	t.Setenv("VEX_PRUEBA_HEREDADA", "del-proceso")
-	var recibido bytes.Buffer
+	recibido := dominio.NuevaSalidaDeComando()
 	linea := `echo "$VEX_PRUEBA_HEREDADA"`
 
 	_, err := infraestructura.NuevosComandos().Ejecutar(
-		context.Background(), t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), dominio.Entorno{}, &recibido)
+		context.Background(), t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil), dominio.Entorno{}, recibido)
 
 	require.NoError(t, err)
-	require.Equal(t, "del-proceso\n", recibido.String())
+	require.Equal(t, "del-proceso\n", recibido.Texto())
 }
 
 func TestComandos_ElEntornoNoCambiaElDelProcesoDeVexd(t *testing.T) {
@@ -167,7 +166,7 @@ func TestComandos_ElEntornoNoCambiaElDelProcesoDeVexd(t *testing.T) {
 
 	_, err := infraestructura.NuevosComandos().Ejecutar(
 		context.Background(), t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil),
-		entornoDePrueba(t, map[string]string{"VEX_PRUEBA_NO_DEBE_FILTRARSE": "x"}), &bytes.Buffer{})
+		entornoDePrueba(t, map[string]string{"VEX_PRUEBA_NO_DEBE_FILTRARSE": "x"}), dominio.NuevaSalidaDeComando())
 
 	require.NoError(t, err)
 	_, hay := os.LookupEnv("VEX_PRUEBA_NO_DEBE_FILTRARSE")
@@ -180,7 +179,7 @@ func TestComandos_UnErrorDelComandoNoCuentaLosValoresDelEntorno(t *testing.T) {
 	linea := "echo $TOKEN"
 
 	_, err := infraestructura.NuevosComandos().Ejecutar(ctx, t.TempDir(), linea, comandoDeclarado(t, linea, nil, nil),
-		entornoDePrueba(t, map[string]string{"TOKEN": "valor-sensible-123"}), &bytes.Buffer{})
+		entornoDePrueba(t, map[string]string{"TOKEN": "valor-sensible-123"}), dominio.NuevaSalidaDeComando())
 
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "valor-sensible-123")

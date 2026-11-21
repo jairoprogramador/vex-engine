@@ -1,7 +1,6 @@
 package aplicacion
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,7 +12,8 @@ import (
 // pasos anteriores—, interpola y ejecuta sus comandos en orden, y entrega a Resolución lo que producen. Se
 // detiene en el primer comando que no sale exitoso: exitoso=false y err=nil. Un error de verdad (interpolar,
 // ejecutar, registrar) siempre es err != nil. La salida de cada comando se entrega al Historial al terminar,
-// salga como salga.
+// salga como salga, acotada (dominio.SalidaDeComando) y con lo que tenga forma de secreto conocido redactado
+// (dominio.Redactar).
 func (s *Servicio) ejecutarPaso(
 	ctx context.Context, intento string, ubicacion dominio.Ubicacion, paso dominio.PasoDeEjecucion, ambito dominio.Ambito,
 	entorno dominio.Entorno,
@@ -33,13 +33,16 @@ func (s *Servicio) ejecutarPaso(
 			return false, fmt.Errorf("ejecución: interpolar el comando %q del paso %q: %w", comando.Nombre(), paso.Nombre(), err)
 		}
 
-		var salida bytes.Buffer
-		resultado, err := s.d.Comandos.Ejecutar(ctx, directorio, lineaInterpolada, comando, entorno, &salida)
+		salida := dominio.NuevaSalidaDeComando()
+		resultado, err := s.d.Comandos.Ejecutar(ctx, directorio, lineaInterpolada, comando, entorno, salida)
 		if err != nil {
 			err = fmt.Errorf("ejecución: el comando %q del paso %q: %w", comando.Nombre(), paso.Nombre(), err)
 		}
 		salioBien := err == nil && resultado.Exitoso
-		if errSalida := s.registrarSalida(ctx, intento, paso.Nombre(), comando.Nombre(), salioBien, salida.String()); errSalida != nil {
+		// Se redacta aquí, una vez y sobre el texto completo: lo que el comando captura y comprueba (probe) ya lo
+		// hizo Comandos con la salida sin redactar, y un token partido entre dos escrituras no se escapa.
+		if errSalida := s.registrarSalida(ctx, intento, paso.Nombre(), comando.Nombre(), salioBien,
+			dominio.Redactar(salida.Texto())); errSalida != nil {
 			return false, errors.Join(err, errSalida)
 		}
 		// Su salida ya está en el Historial: quien reciba este aviso puede pedir logs y encontrarla.
@@ -59,6 +62,30 @@ func (s *Servicio) ejecutarPaso(
 		}
 	}
 	return true, nil
+}
+
+// ejecutarPasoAislado ejecuta el paso con su directorio efímero: vacío antes del primer comando y borrado al
+// terminar, salga como salga. Antes de borrarlo acaba con los procesos que el paso dejó vivos, que si no podrían
+// seguir escribiendo en él, o esperar a lo que el paso siguiente reciba. Si no puede dejar limpio el paso, es un
+// error: el intento no sigue con algo de un paso metido en el siguiente.
+func (s *Servicio) ejecutarPasoAislado(
+	ctx context.Context, c contextoDelIntento, paso dominio.PasoDeEjecucion, ambito dominio.Ambito,
+) (exitoso bool, err error) {
+	// La limpieza no depende del ctx: tras una cancelación es cuando más falta hace.
+	sinCancelar := context.WithoutCancel(ctx)
+	defer func() {
+		if errLimpiar := errors.Join(s.d.Supervivientes.Acabar(sinCancelar), s.d.DirectorioEfimero.Borrar(sinCancelar)); errLimpiar != nil {
+			exitoso = false
+			err = errors.Join(err, fmt.Errorf("ejecución: dejar limpio el paso %q: %w", paso.Nombre(), errLimpiar))
+		}
+	}()
+
+	efimero, err := s.d.DirectorioEfimero.Crear(ctx)
+	if err != nil {
+		return false, fmt.Errorf("ejecución: el directorio efímero del paso %q: %w", paso.Nombre(), err)
+	}
+	entorno := c.entorno.Con(dominio.VariableDelDirectorioEfimero, efimero)
+	return s.ejecutarPaso(ctx, c.id, c.ubicacion, paso, ambito, entorno)
 }
 
 func estadoDelComando(salioBien bool) string {

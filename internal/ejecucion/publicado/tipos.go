@@ -27,6 +27,11 @@ type PeticionDeIntento struct {
 
 	HastaPaso string
 
+	// Contexto es una cadena opaca y opcional que dice en qué entorno externo corre el intento (ver
+	// dominio.ContextoDeEjecucion): se mezcla en la huella de variables de cada paso, así que cambiarla
+	// re-ejecuta los pasos cuya regla mira variables. Vacío no cambia nada.
+	Contexto string
+
 	// DirectorioDeEspacioDeTrabajo y DirectorioDelAlmacen los da la invocación (DEC-06.18): dónde está el
 	// espacio de trabajo del ambiente y cómo llegar al almacén del Historial.
 	DirectorioDeEspacioDeTrabajo string
@@ -42,6 +47,9 @@ type PeticionDeRollback struct {
 	Despliegue  string
 	Solicitante string
 
+	// Contexto: opaco, como en PeticionDeIntento (ver dominio.ContextoDeEjecucion).
+	Contexto string
+
 	DirectorioDeEspacioDeTrabajo string
 	DirectorioDelAlmacen         string
 
@@ -55,6 +63,17 @@ type Resultado struct {
 	Estado     string
 	Despliegue string
 	Detalle    Detalle
+	// Visibles son las variables que el pipeline marcó con show, de los pasos que terminaron bien —ejecutados
+	// o no re-ejecutados—, en el orden en que terminaron. Vacío si el intento no terminó exitoso.
+	Visibles []VariableVisible
+}
+
+// VariableVisible es una variable de salida que el pipeline pidió enseñar a quien ejecuta, con su valor. Es la
+// única excepción a «ningún valor de variable sale del motor», y la decide quien escribe el pipeline.
+type VariableVisible struct {
+	Nombre      string
+	Descripcion string
+	Valor       string
 }
 
 // Detalle cuenta cómo fue el intento: cuánto tardó y qué pasó con cada paso que se llegó a dar. No se guarda —

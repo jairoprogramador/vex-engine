@@ -173,6 +173,15 @@ func TestUnaDeclaracionBienFormadaDaUnPipeline(t *testing.T) {
 		require.Nil(t, despliegue.Comandos[0].VariablesDeSalida[0].Ambito, "sin scope, la del ambiente en ejecución")
 	})
 
+	t.Run("show llega a la variable de salida comprobada, y sin show no se muestra", func(t *testing.T) {
+		require.False(t, registro.Comandos[0].VariablesDeSalida[0].Mostrar)
+
+		d := valida()
+		d.Pasos[0].Comandos.Datos[0].Variables[0].Mostrar = true
+		paso, _ := comprobar(t, d).Paso("registro")
+		require.True(t, paso.Comandos[0].VariablesDeSalida[0].Mostrar)
+	})
+
 	t.Run("sin rules.yaml, los valores por defecto", func(t *testing.T) {
 		require.Equal(t, []dominio.Regla{dominio.ReglaCodigo, dominio.ReglaInstrucciones, dominio.ReglaVariables},
 			despliegue.Reglas, "sin rules, las tres cosas")
@@ -444,6 +453,14 @@ func TestCadaFilaDeLaComprobacionProduceSuFallo(t *testing.T) {
 			},
 			invariante: dominio.Formato, fichero: "steps/01-registro/commands.yaml",
 			detalle: "una aserción con scope \"shared\"",
+		},
+		{
+			nombre: "una aserción con show",
+			mutar: func(d *dominio.PipelineDeclarado) {
+				d.Pasos[0].Comandos.Datos[0].Variables[1].Mostrar = true
+			},
+			invariante: dominio.Formato, fichero: "steps/01-registro/commands.yaml",
+			detalle: "el comando 1 tiene un outputs con show pero sin name",
 		},
 
 		{

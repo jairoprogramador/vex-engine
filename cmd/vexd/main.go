@@ -36,6 +36,7 @@ const (
 	nombreAlmacen    = "VEX_ALMACEN"
 	nombreEspacio    = "VEX_ESPACIO"
 	nombreMaterial   = "VEX_MATERIAL"
+	nombreEfimero    = "VEX_EFIMERO"
 	estadoExitoso    = "exitoso"
 	estadoFallido    = "fallido"
 	estadoCancelado  = "cancelado"
@@ -59,6 +60,7 @@ func rutasDelEntorno(getenv func(string) string) rutas {
 		almacen:  getenv(nombreAlmacen),
 		espacio:  getenv(nombreEspacio),
 		material: getenv(nombreMaterial),
+		efimero:  getenv(nombreEfimero),
 	}
 	if r.material == "" {
 		r.material = materialPorDefecto()

@@ -52,6 +52,8 @@ type VariableDeComandoDeclarada struct {
 	Descripcion string
 	Expresion   string
 	Ambito      string
+	// Mostrar: quien escribe el pipeline pide que el valor producido se enseñe a quien ejecuta (`show`).
+	Mostrar bool
 }
 
 type VariableDePipelineDeclarada struct {

@@ -40,7 +40,7 @@ por la entrada y la salida estándar** (`docs/rediseno/RD-13-protocolo.md`). No 
 | **`method`** | `intentar` `rollback` `simular` `lanzar` `reservar` `liberar` `diagnosticar` `abandonar` `intento` `intentos` `despliegues` `lanzamientos` `ambientes` `pasos` `logs` `describir` |
 | **`params`** | Los campos del tipo de la tabla de abajo, con su `Version` (los nombres de campo de Go, sin distinguir mayúsculas). Un campo que el tipo no tiene se rechaza |
 | **`result`** | Lo que devuelve la operación, completo. Las que no devuelven nada responden `{}`; una lista sin elementos es `[]` |
-| **`progreso`** | Notificaciones (sin `id`) que `intentar` y `rollback` envían **antes** de la respuesta, que es la última línea: `intento_iniciado`, `paso_iniciado`, `comando_terminado`, `paso_terminado`. Solo nombres y resultados, nunca la salida de un comando. Ver `RD-13` |
+| **`progreso`** | Notificaciones (sin `id`) que `intentar` y `rollback` envían **antes** de la respuesta, que es la última línea: `intento_iniciado`, `paso_iniciado`, `comando_terminado`, `paso_terminado`. Solo nombres y resultados, nunca la salida de un comando; la única excepción son las variables marcadas con `show` en `paso_terminado` (`visibles`). Ver `RD-13` |
 | **`error`** | `{code, message, data}`; `data.tipo` es el nombre estable. Ver el catálogo en `RD-13` |
 | **`entorno`** | Miembro opcional de la petición, fuera de `params`: variables de entorno (nombre → valor) para los comandos. Solo `intentar` y `rollback`. No son variables del pipeline ni secretos que el motor gestione: no se guardan ni pasan por Resolución. Ver `RD-13`, «Entorno de los comandos» |
 | **Salida de los comandos** | no se muestra al intentar: se guarda en el Historial y se consulta con `logs` |
@@ -81,6 +81,15 @@ configuración son inválidas (incluida una versión no soportada) · `130` canc
 
 - **Intentar / Hacer rollback.** Lo que imprimen los comandos de cada paso **no se muestra**: Ejecución lo
   entrega al Historial al terminar cada comando, y se consulta con `logs`. La respuesta es solo el `Resultado`.
+  El `Resultado` trae `Visibles`: nombre, descripción y valor (`Nombre`, `Descripcion`, `Valor`) de las variables
+  con `show` de los pasos que terminaron bien, ejecutados o reutilizados, en el orden en que terminaron; `[]` si
+  no hay ninguna o si el intento no terminó `exitoso`. Se resuelven por interpolación (`${var.x}`), no por una
+  operación de lectura de Resolución.
+  `Contexto` (opcional, en las dos peticiones): cadena opaca de hasta 128 bytes de `[A-Za-z0-9._:/@+=-]` que se
+  mezcla en la huella de variables de cada paso. Cambiarla re-ejecuta los pasos cuya regla mira `variables`.
+  Vacía = comportamiento anterior. Otra cosa es `parametros_invalidos` (`campo`: `Contexto`, sin `valor`), antes
+  de abrir el intento. Es un campo aditivo: no sube la versión, pero un motor anterior lo rechaza como campo
+  desconocido.
   Un intento con copia de trabajo (`CopiaDeTrabajo`) nunca llega a despliegue. Un rollback
   toma el ambiente y las fuentes del propio despliegue destino.
   Un `Ambiente` o un `HastaPaso` que el pipeline no declara, y un rollback sin `Despliegue`, son

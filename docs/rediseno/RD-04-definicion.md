@@ -403,3 +403,17 @@ pasa la regla de dependencias.
     pero llamando a `TraerCopiaDeTrabajo` (nuevo en `suministro/publicado.ParaDefinicion`, RD-03 §9 hallazgo
     11). Sin cambios en la comprobación: `comprobar(material)` ya era genérica sobre cualquier origen del
     material.
+22. **Un `outputs` puede pedir que su valor se enseñe: `show`** (plan de la etapa 2, paso 07.01a). El formato
+    v1 no tenía forma de decir «esto es lo que el usuario quiere ver» (la URL de la aplicación), y la lectura
+    estricta rechazaba `show:` como clave desconocida.
+    - **Dónde se escribe.** `show: true | false` en un `outputs` con `name`; por defecto, `false`. Es un
+      cambio aditivo: un pipeline sin `show` se lee igual, y cualquier otra clave se sigue rechazando.
+    - **Qué rechaza la comprobación.** Un `outputs` sin `name` es una aserción y no produce ninguna variable:
+      con `show` falla con invariante `formato` (*«el comando 1 tiene un outputs con show pero sin name: show
+      solo aplica a una variable de salida»*), igual que una aserción con `scope`. Ignorarlo en silencio haría
+      creer al autor que se muestra algo.
+    - **Hasta dónde llega.** `VariableDeComandoDeclarada.Mostrar` → `VariableDeComandoComprobada.Mostrar` →
+      `publicado.VariableDeSalida.Mostrar`. Definición solo lo declara: qué se hace con él es de Ejecución
+      (RD-13, `paso_terminado`).
+    - **Seguridad.** El motor no juzga si un valor es un secreto: marcar `show` es decisión de quien escribe
+      el pipeline.

@@ -22,6 +22,10 @@ type dependenciasDePrueba struct {
 	comandos         *comandosFalsos
 	espacioDeTrabajo *espacioDeTrabajoFalso
 	progreso         *progresoFalso
+	efimero          *efimeroFalso
+	supervivientes   *supervivientesFalsos
+	// bitacora es lo que hicieron, en orden, el espacio de trabajo, el efímero, los comandos y los supervivientes.
+	bitacora *[]string
 }
 
 func nuevasDependenciasDePrueba(t *testing.T, nombresDePasos ...string) (aplicacion.Dependencias, *dependenciasDePrueba) {
@@ -43,9 +47,14 @@ func nuevasDependenciasDePrueba(t *testing.T, nombresDePasos ...string) (aplicac
 		espacioDeTrabajo: &espacioDeTrabajoFalso{},
 		progreso:         &progresoFalso{},
 	}
+	d.bitacora = &[]string{}
+	d.comandos.bitacora, d.espacioDeTrabajo.bitacora = d.bitacora, d.bitacora
+	d.efimero = &efimeroFalso{bitacora: d.bitacora}
+	d.supervivientes = &supervivientesFalsos{bitacora: d.bitacora}
 	return aplicacion.Dependencias{
 		Pipelines: d.pipelines, Fuentes: d.fuentes, Variables: d.variables, Historial: d.historial,
 		Comandos: d.comandos, EspacioDeTrabajo: d.espacioDeTrabajo, Progreso: d.progreso, NombreDeLaHerramienta: "vexd",
+		DirectorioEfimero: d.efimero, Supervivientes: d.supervivientes,
 	}, d
 }
 
@@ -256,4 +265,99 @@ func TestIntentar_SiSeAbandonaAntesDeEmpezarNoQuedaLatiendo(t *testing.T) {
 	latidos := d.historial.cantidadDeLatidos()
 	time.Sleep(30 * time.Millisecond)
 	require.Equal(t, latidos, d.historial.cantidadDeLatidos(), "un intento abandonado deja de latir")
+}
+
+// --- el contexto de ejecución ---
+
+// intentosConContexto intenta una vez por cada contexto, contra un Historial que recuerda lo que dejó el intento
+// anterior, y devuelve cómo terminó cada paso en cada intento, leído del avance: "variables:ejecutado".
+func intentosConContexto(t *testing.T, contextos ...string) [][]string {
+	t.Helper()
+	deps, d := nuevasDependenciasDePrueba(t)
+	// «variables» mira las tres cosas; «codigo» no mira las variables.
+	soloCodigo := pasoSimple(t, "codigo", false)
+	regla, err := dominio.NuevaRegla(true, false, false, 0)
+	require.NoError(t, err)
+	soloCodigo.Regla = regla
+	d.pipelines.pipeline.Pasos = []dominio.PasoDeEjecucion{pasoSimple(t, "variables", false), soloCodigo}
+	d.historial.recuerda = true
+	servicio := aplicacion.NuevoServicio(deps)
+
+	estados := make([][]string, 0, len(contextos))
+	for _, contexto := range contextos {
+		d.progreso.eventos = nil
+		peticion := peticionDePrueba()
+		peticion.Contexto = contexto
+
+		resultado, err := servicio.Intentar(context.Background(), peticion, nil)
+
+		require.NoError(t, err)
+		require.Equal(t, "exitoso", resultado.Estado)
+		var delIntento []string
+		for _, e := range d.progreso.eventos {
+			if e.Tipo == dominio.PasoTerminado {
+				delIntento = append(delIntento, e.Paso+":"+e.Estado)
+			}
+		}
+		estados = append(estados, delIntento)
+	}
+	return estados
+}
+
+func TestContexto_ElMismoContextoReutilizaYOtroReejecutaLosPasosQueMiranVariables(t *testing.T) {
+	estados := intentosConContexto(t, "A", "A", "B", "B")
+
+	require.Equal(t, [][]string{
+		{"variables:ejecutado", "codigo:ejecutado"},
+		{"variables:precargado", "codigo:precargado"},
+		{"variables:ejecutado", "codigo:precargado"},
+		{"variables:precargado", "codigo:precargado"},
+	}, estados, "con otro contexto se re-ejecuta el paso que mira variables, y solo él; después se vuelve a reutilizar")
+}
+
+func TestContexto_VolverAlContextoAnteriorTambienReejecuta(t *testing.T) {
+	estados := intentosConContexto(t, "A", "B", "A")
+
+	require.Equal(t, "variables:ejecutado", estados[2][0],
+		"la última vez es la de B: lo que hay desplegado ya no es lo de A")
+}
+
+func TestContexto_PasarDeNoTenerloATenerloReejecutaUnaVez(t *testing.T) {
+	estados := intentosConContexto(t, "", "A", "A")
+
+	require.Equal(t, [][]string{
+		{"variables:ejecutado", "codigo:ejecutado"},
+		{"variables:ejecutado", "codigo:precargado"},
+		{"variables:precargado", "codigo:precargado"},
+	}, estados)
+}
+
+func TestContexto_SinContextoTodoSigueComoAntes(t *testing.T) {
+	estados := intentosConContexto(t, "", "")
+
+	require.Equal(t, []string{"variables:precargado", "codigo:precargado"}, estados[1])
+}
+
+func TestContexto_SinContextoLaHuellaQueSeComparaEsLaDeResolucion(t *testing.T) {
+	// Compatibilidad: lo que el Historial guardó antes de que existiera el contexto sigue valiendo.
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
+	d.historial.ultimaVezPorPaso["01-pruebas"] = ultimaVezValidaDeUnPaso(t, d, "01-pruebas")
+
+	_, err := aplicacion.NuevoServicio(deps).Intentar(context.Background(), peticionDePrueba(), nil)
+
+	require.NoError(t, err)
+	require.Empty(t, d.comandos.llamados)
+}
+
+func TestContexto_UnRollbackTambienLoMezcla(t *testing.T) {
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
+	d.historial.destinoParaRollback = destinoDePrueba(t)
+	d.historial.ultimaVezPorPaso["01-pruebas"] = ultimaVezValidaDeUnPaso(t, d, "01-pruebas")
+
+	_, err := aplicacion.NuevoServicio(deps).HacerRollback(context.Background(), publicado.PeticionDeRollback{
+		Version: "1", Despliegue: "dep-1", Solicitante: "ana", Contexto: "A",
+	}, nil)
+
+	require.NoError(t, err)
+	require.Len(t, d.comandos.llamados, 1, "la última vez se hizo sin contexto: con uno, el paso se re-ejecuta")
 }

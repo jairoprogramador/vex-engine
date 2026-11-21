@@ -13,6 +13,9 @@ type Dependencias struct {
 	Historial        dominio.Historial
 	Comandos         dominio.Comandos
 	EspacioDeTrabajo dominio.EspacioDeTrabajo
+	// DirectorioEfimero y Supervivientes son lo que impide que algo de un paso pase al siguiente.
+	DirectorioEfimero dominio.DirectorioEfimero
+	Supervivientes    dominio.Supervivientes
 
 	// Progreso es a dónde se cuenta cómo avanza un intento. Es opcional: sin él no se cuenta nada.
 	Progreso dominio.Progreso

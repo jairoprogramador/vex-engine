@@ -38,6 +38,32 @@ func comprobarDirectorio(t *testing.T, raiz string) (*dominio.PipelineComprobado
 	return dominio.Comprobar(d)
 }
 
+// La carpeta bootstrap/<nube>/ de la raíz de un pipeline es de la CLI, no del motor: tenerla no cambia lo que se
+// lee ni lo que se comprueba. Es una comparación con y sin ella, para que un cambio futuro de la lectura («rechazar
+// lo desconocido en la raíz») no rompa en silencio los pipelines que la traen.
+func TestLaCarpetaBootstrapDeLaRaizNoCambiaLaLectura(t *testing.T) {
+	sin, err := leer(ejemplo)
+	require.NoError(t, err)
+
+	raiz := copiarEjemplo(t)
+	escribir(t, raiz, "bootstrap/azure/bootstrap.yaml",
+		"contract: azure/v1\nproviders:\n  - Microsoft.App\ntemplate: main.json\noutputs:\n  stateAccount: VEX_BOOTSTRAP_STATE_ACCOUNT\n")
+	escribir(t, raiz, "bootstrap/azure/main.json",
+		"{\"$schema\":\"https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#\",\"contentVersion\":\"1.0.0.0\",\"resources\":[]}\n")
+	escribir(t, raiz, "bootstrap/azure/main.bicep", "param location string\n")
+	escribir(t, raiz, "bootstrap/aws/template.yaml", "Resources: {}\n") // otra nube: tampoco se lee
+
+	con, err := leer(raiz)
+	require.NoError(t, err)
+	require.Equal(t, sin, con, "bootstrap/ de la raíz no forma parte de la declaración del pipeline")
+	require.Empty(t, con.Desconocidos)
+	require.Empty(t, con.Ilegibles)
+
+	p, err := comprobarDirectorio(t, raiz)
+	require.NoError(t, err, "el pipeline sigue pasando la comprobación")
+	require.NotNil(t, p)
+}
+
 func TestElPipelineDeEjemploPasaLaComprobacion(t *testing.T) {
 	p, err := comprobarDirectorio(t, ejemplo)
 	require.NoError(t, err)

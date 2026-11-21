@@ -77,6 +77,12 @@ vex ◄─ {response} ──────────   vexd escribe UNA respuest
   variable, nunca su valor. Un valor que no es una cadena no es una petición válida (`-32600`). Solo lo admiten las
   operaciones que ejecutan comandos (`intentar` y `rollback`): en cualquier otra, un `entorno` con variables es
   `-32602`, nunca se ignora en silencio.
+- `Metadatos` (`ProjectId`, `ProjectName`, `ProjectOrganization`, `ProjectTeam`) y `Ambiente` acaban, tal cual,
+  en la línea de los comandos (`${var.project_name}`…), que corre con `sh -c`. Por eso solo admiten
+  `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$` (o vacío, en los metadatos): letras ASCII, números y `. _ -`, sin
+  espacios, empezando por letra o número. Otra cosa es `-32602` con `data.campo` (`Metadatos.ProjectName`,
+  `Ambiente`…) y **sin** `data.valor`: el error no repite el valor. Se comprueba en `intentar` y `rollback`,
+  antes de abrir el intento ni traer nada. `simular` no lo comprueba: no ejecuta nada.
 - `id` es obligatorio: sin `id` sería una notificación y no habría respuesta.
 
 ### Respuesta
@@ -118,10 +124,20 @@ protocolo y no un tipo publicado:
 | `intento_iniciado` | El intento está abierto y su espacio listo; va a dar su primer paso. Si el ambiente está ocupado o el espacio no está disponible (EJ-5), no hay intento y no se cuenta nada | `intento` |
 | `paso_iniciado` | Un paso empieza a ejecutarse, con su registro de comienzo ya escrito. Un paso que no se reejecuta no empieza: solo termina | `intento`, `paso` |
 | `comando_terminado` | Un comando terminó y **su salida ya está en el Historial**: quien lo recibe puede pedir `logs` y encontrarla | `intento`, `paso`, `comando`, `estado`: `exitoso` o `fallido` |
-| `paso_terminado` | Un paso terminó, con su registro escrito | `intento`, `paso`, `estado`: `ejecutado` o `precargado` si salió bien; `fallido` o `cancelado` si no |
+| `paso_terminado` | Un paso terminó, con su registro escrito | `intento`, `paso`, `estado`: `ejecutado` o `precargado` si salió bien; `fallido` o `cancelado` si no; `visibles` (opcional): lista de `{nombre, descripcion, valor}`, solo si el paso salió bien y tiene variables marcadas con `show` (`descripcion` se omite si está vacía) |
 
-- **Nunca llevan la salida de un comando ni el valor de una variable**: solo nombres y resultados. La salida se
-  lee con `logs`.
+- **Nunca llevan la salida de un comando ni el valor de una variable**: solo nombres y resultados, salvo
+  `visibles` de `paso_terminado`, que contiene únicamente variables que el pipeline marcó con `show`. La salida
+  se lee con `logs`.
+- **`visibles` es una excepción explícita y acotada.** La decide quien escribe el pipeline, variable por variable;
+  el motor no juzga si un valor es un secreto. Lo lleva también un paso `precargado`: la URL que un paso produjo
+  en un intento anterior sigue siendo el resultado de este. Los mismos valores van en `Visibles` del `Resultado`
+  (en `PascalCase`, como el resto del resultado) cuando el intento termina `exitoso`, porque un `progreso` se
+  puede perder y la respuesta no. Una variable que no se puede resolver se omite, sin hacer fallar el intento.
+  Es un cambio aditivo: no sube la versión del lenguaje, y quien no conozca el campo lo ignora.
+- **`visibles` tiene tope.** Un intento enseña como mucho **32** variables (las que pasan no van, ni en el
+  evento ni en el `Resultado`), y de cada valor, **4 KiB**: lo que pase se corta y termina en `… [TRUNCADO]`.
+  Los valores pasan por la misma redacción que la salida guardada.
 - **Llegan en el orden en que ocurrieron**, y los de la cancelación también (se emiten sin depender del contexto
   cancelado, como el registro en el Historial).
 - **No bloquean al motor.** Los escribe una sola goroutine desde una cola de 256. Si quien invoca no lee la salida,
@@ -220,6 +236,7 @@ Cambiarlos es un cambio de contrato y exigiría una versión nueva del lenguaje.
 | `VEX_ALMACEN` | siempre | almacén del Historial; el directorio tiene que existir |
 | `VEX_ESPACIO` | solo `intentar` y `rollback` | espacio de trabajo de los ambientes |
 | `VEX_MATERIAL` | no | copia desechable del material de las fuentes; sin ella, un directorio temporal |
+| `VEX_EFIMERO` | no | base del directorio efímero del paso, que es `$VEX_EFIMERO/vex-step-tmp`. Ruta absoluta (si no, `configuracion_invalida`), del contenedor y no de un volumen compartido. Sin ella, `<tmp>/vex-step-tmp-<pid>` |
 
 - Solo `main` lee el entorno. `ejecutar` recibe la configuración ya resuelta, para poder probarlo entero.
 - Una variable obligatoria ausente **no es culpa de la petición**: responde `error` con
@@ -239,10 +256,51 @@ alguna sea sensible es decisión de quien la pasa.
   No pasan por `docker inspect` ni por argumentos.
 - No son variables del pipeline: no pasan por Resolución, no entran en ningún hash ni se guardan en el Historial
   (`DEC-04.7`: el motor no guarda valores de variables).
-- No hay enmascarado ni transformación: lo que un comando imprima se guarda como cualquier salida y se lee con
-  `logs`. Un comando que haga `env` mostrará lo que recibió.
+- No hay enmascarado de las variables del `entorno`: lo que un comando imprima se guarda como cualquier salida y
+  se lee con `logs`. Un comando que haga `env` mostrará lo que recibió. **Excepción de mejor esfuerzo (AJ-21):**
+  antes de guardar la salida de un comando, lo que tiene forma de secreto conocido se guarda como
+  `[REDACTADO]`: un JWT (`eyJ…`.`…`.`…`); una clave privada en PEM (`-----BEGIN … PRIVATE KEY-----`, entera);
+  el valor de `AccountKey=`, `SharedAccessKey=` y `SharedAccessSignature=` de una cadena de conexión; la firma
+  de una SAS en una URL (`?sig=`, `&sig=`); y el token que sigue a `Bearer` (20 caracteres o más, con algún
+  número). El nombre se conserva (`AccountKey=[REDACTADO]`). **No es una garantía** ni gestión de secretos: no
+  detecta otras formas (una contraseña suelta, un certificado), ni otras codificaciones (base64, un token
+  partido por un salto de línea antes de su segundo punto). Se aplica una vez, sobre la salida completa del comando —también
+  la de uno fallido o cancelado— y a los valores de `visibles`. La captura de variables y las aserciones
+  (`probe`) trabajan con la salida **sin** redactar: un pipeline puede capturar un token y usarlo en el comando
+  siguiente. **Lo capturado se guarda en el almacén tal cual, sin redactar**: quien pueda leer el almacén lo
+  lee. No es configurable.
+- De la salida de cada comando se conservan **16 MiB**; lo que pase se descarta (la tubería se sigue vaciando,
+  el comando no se entera) y la salida guardada termina con `[SALIDA TRUNCADA: …]`. Las aserciones y las
+  capturas solo ven lo conservado.
+- **Directorio efímero del paso.** Antes del primer comando de cada paso que se ejecuta, el motor crea un
+  directorio **vacío**, solo para su usuario (`0700`), y lo **borra al terminar el paso**: bien, mal o
+  cancelado. Cada comando recibe su ruta en `VEX_STEP_TMP`, que pone el motor y pisa a la que venga en
+  `entorno`. La ruta es **la misma en todos los pasos** (lo que cambia es el contenido), así que quien invoca
+  puede apuntar a ella de antemano: con `VEX_EFIMERO=/tmp` en el contenedor, es `/tmp/vex-step-tmp`, y
+  `entorno` puede llevar `AZURE_CONFIG_DIR=/tmp/vex-step-tmp/azure`. Es neutral: el motor no sabe qué se
+  guarda ahí. Un paso que no se re-ejecuta no tiene directorio efímero. Es aditivo (versión `1`): un motor
+  anterior no lo crea ni lo borra, y una herramienta que cree ella sola el directorio al que se le apunta lo
+  dejaría para los demás pasos.
+- Las credenciales de nube llegan como **ruta de archivo e identificadores** (`AZURE_FEDERATED_TOKEN_FILE`,
+  `ARM_OIDC_TOKEN_FILE_PATH`, `AZURE_CLIENT_ID`…) por `entorno`; el archivo lo monta y lo renueva `vex`, y el
+  motor nunca lo lee ni lo conoce (`DEC-08.8`).
 - Higiene mínima, no gestión: el motor no copia los valores a sus propios errores, a `stderr` ni a `progreso`.
 - Dentro del contenedor, el proceso hijo las tiene en `/proc/<pid>/environ`. Es el riesgo que asume quien las pasa.
+- Al terminar cada comando (bien, mal o cancelado) se acaba con **todo** su grupo de procesos. Un comando no
+  puede dejar procesos en segundo plano para el siguiente: un pipeline que necesite un servicio entre comandos
+  tiene que iniciarlo y usarlo en el **mismo** comando. No aplica a un proceso que cree su propio grupo
+  (`setsid`) ni en Windows, donde no hay grupos de procesos (AJ-08).
+- Al terminar cada **paso** que se ejecutó (bien, mal o cancelado), y antes de contar `paso_terminado`, el motor
+  mata **todos** los demás procesos (`kill(-1, SIGKILL)`) y los recoge: tampoco lo que escapó con `setsid`
+  llega al paso siguiente. Solo si `vexd` es el proceso 1 de un contenedor Linux, que es como lo lanza `vex`
+  (`ENTRYPOINT ["vexd"]`, `docker run` sin `--init`). Con `--init`, fuera de un contenedor o en otro sistema no
+  se mata nada: ahí «todos los demás» no son del motor. Si no puede dejar limpio el paso, el intento falla en
+  vez de seguir.
+- El directorio de cada paso se rehace desde su material declarado cuando le toca, sin seguir enlaces
+  simbólicos: un paso no puede dejar ficheros ni enlaces en el directorio de otro.
+- **La frontera de confianza es el intento (el contenedor), no el paso.** Qué quita cada una de estas medidas
+  y qué no (`HOME`, los binarios del `PATH`, el material del proyecto) está en
+  `docs/modelo/contextos/ejecucion.md`, «La frontera de confianza es el intento, no el paso».
 - Valen para todos los comandos del intento. Declararlas por paso exigiría un cambio en Definición y no está
   previsto.
 

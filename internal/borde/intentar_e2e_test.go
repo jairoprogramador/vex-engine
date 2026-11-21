@@ -89,6 +89,8 @@ func montarSistema(t *testing.T) *sistema {
 		Historial:             ejecucioninfraestructura.NuevoHistorial(historialServicio),
 		Comandos:              ejecucioninfraestructura.NuevosComandos(),
 		EspacioDeTrabajo:      espacio,
+		DirectorioEfimero:     ejecucioninfraestructura.NuevoDirectorioEfimero(filepath.Join(t.TempDir(), "efimero")),
+		Supervivientes:        ejecucioninfraestructura.NuevosSupervivientes(),
 		NombreDeLaHerramienta: "vexd-e2e",
 	})
 
@@ -479,6 +481,101 @@ func TestE2E_LasVariablesDeEntornoLasVeElComandoYNoQuedanEnNingunRegistro(t *tes
 	for _, d := range datos {
 		require.NotContains(t, string(d), valor, "ni en el contenido de ningún registro")
 	}
+}
+
+// El contexto que declara quien invoca (en qué entorno externo corre el intento) cuenta como una variable más de
+// cada paso: con el mismo se reutiliza, y con otro se re-ejecutan los pasos cuya regla mira las variables, y solo
+// esos. El Historial guarda la huella combinada, nunca la cadena.
+func TestE2E_CambiarElContextoReejecutaLosPasosQueMiranLasVariables(t *testing.T) {
+	s := montarSistema(t)
+	// En el ejemplo todos los pasos miran las variables: se le quita a uno, para ver que ese no se entera.
+	const sinVariables = "acr"
+	dir, repo := nuevoRepoVacio(t)
+	ejemplo := filepath.Join("..", "ejecucion", "testdata", "ejemplo")
+	copiarArbol(t, ejemplo, dir)
+	configuracion, err := os.ReadFile(filepath.Join(ejemplo, "config.yaml"))
+	require.NoError(t, err)
+	cambiada := strings.Replace(string(configuracion),
+		sinVariables+":\n    rules: [ instructions, code, variables ]", sinVariables+":\n    rules: [ instructions, code ]", 1)
+	require.NotEqual(t, string(configuracion), cambiada, "el ejemplo ya no declara así las reglas de %s", sinVariables)
+	escribirFichero(t, dir, "config.yaml", cambiada)
+	commitear(t, repo)
+	s.repoPipeline = dir
+	ctx := context.Background()
+	intentarCon := func(contexto string) ejecucionpublicado.Resultado {
+		peticion := s.peticion(t)
+		peticion.Contexto = contexto
+		resultado, err := s.borde.Intentar(ctx, peticion, nil)
+		require.NoError(t, err)
+		require.Equal(t, "exitoso", resultado.Estado)
+		return resultado
+	}
+
+	primero := intentarCon("azure/v1:aaaa")
+	segundo := intentarCon("azure/v1:aaaa")
+	tercero := intentarCon("azure/v1:bbbb")
+
+	for _, paso := range primero.Detalle.Pasos {
+		require.Equal(t, "ejecutado", paso.Estado, "el primero lo ejecuta todo: %s", paso.Nombre)
+	}
+	for _, paso := range segundo.Detalle.Pasos {
+		require.Equal(t, "precargado", paso.Estado, "con el mismo contexto se reutiliza: %s", paso.Nombre)
+	}
+	require.Len(t, tercero.Detalle.Pasos, len(primero.Detalle.Pasos))
+	for _, paso := range tercero.Detalle.Pasos {
+		esperado := "ejecutado"
+		if paso.Nombre == sinVariables {
+			esperado = "precargado"
+		}
+		require.Equal(t, esperado, paso.Estado, "con otro contexto: %s", paso.Nombre)
+	}
+
+	for _, resultado := range []ejecucionpublicado.Resultado{primero, segundo, tercero} {
+		intento, err := s.historial.Intento(ctx, resultado.Intento)
+		require.NoError(t, err)
+		datos := [][]byte{intento.Apertura.Contenido.Datos}
+		for _, r := range intento.Registros {
+			datos = append(datos, r.Contenido.Datos)
+		}
+		for _, d := range datos {
+			require.NotContains(t, string(d), "azure/v1:", "el Historial no guarda la cadena del contexto")
+		}
+	}
+}
+
+func TestE2E_SinContextoUnIntentoPosteriorAUnoConContextoReejecutaYLuegoReutiliza(t *testing.T) {
+	s := montarSistema(t)
+	ctx := context.Background()
+	conContexto := s.peticion(t)
+	conContexto.Contexto = "azure/v1:aaaa"
+	_, err := s.borde.Intentar(ctx, conContexto, nil)
+	require.NoError(t, err)
+
+	sinContexto, err := s.borde.Intentar(ctx, s.peticion(t), nil)
+	require.NoError(t, err)
+	otraVez, err := s.borde.Intentar(ctx, s.peticion(t), nil)
+	require.NoError(t, err)
+
+	for _, paso := range sinContexto.Detalle.Pasos {
+		require.Equal(t, "ejecutado", paso.Estado, "la huella guardada llevaba contexto: %s", paso.Nombre)
+	}
+	for _, paso := range otraVez.Detalle.Pasos {
+		require.Equal(t, "precargado", paso.Estado, "y sin contexto la huella vuelve a ser la de siempre: %s", paso.Nombre)
+	}
+}
+
+func TestE2E_UnContextoInvalidoSeRechazaSinAbrirNingunIntento(t *testing.T) {
+	s := montarSistema(t)
+	ctx := context.Background()
+	peticion := s.peticion(t)
+	peticion.Contexto = "con espacio"
+
+	_, err := s.borde.Intentar(ctx, peticion, nil)
+
+	require.ErrorIs(t, err, ejecucionpublicado.ErrInvalido)
+	intentos, err := s.historial.IntentosDeUnAmbiente(ctx, "prod")
+	require.NoError(t, err)
+	require.Empty(t, intentos, "el ambiente no se ocupó")
 }
 
 func TestE2E_UnEntornoConUnNombreInvalidoSeRechazaSinAbrirNingunIntento(t *testing.T) {

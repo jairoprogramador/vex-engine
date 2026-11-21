@@ -290,6 +290,32 @@ func TestLogs_SinIntentoMuestraLosComandosDelUltimoConSuSalida(t *testing.T) {
 	require.Less(t, primeraSalidaDe(l, "acr"), primeraSalidaDe(l, "deploy"))
 }
 
+func TestLogs_UnJWTQueImprimeUnComandoSeGuardaRedactadoYLoCapturadoConservaSuValor(t *testing.T) {
+	const jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln"
+	e := nuevoEntornoConPipeline(t, func(dir string) {
+		escribir(t, dir, "steps/05-deploy/commands.yaml", `- name: imprime-el-token
+  description: lo imprime, y lo captura para el comando siguiente
+  cmd: echo token=`+jwt+`
+  outputs:
+    - name: token
+      probe: 'token=(\S+)'
+
+- name: usa-el-token
+  description: el valor capturado es el real, no el redactado
+  cmd: test "${var.token}" = "`+jwt+`" && echo coincide
+`)
+	})
+	intento := intentar(t, e, e.intento(), salidaBien)
+
+	r := logs(t, e, `{"Version":"1","Intento":`+quote(intento)+`}`)
+
+	deploy := delPaso(leerLogs(t, r), "deploy")
+	require.Equal(t, []string{"imprime-el-token", "usa-el-token"}, comandosDe(deploy))
+	require.Equal(t, "token=[REDACTADO]\n", deploy[0].Texto)
+	require.Equal(t, "coincide\n", deploy[1].Texto, "la captura trabaja con la salida sin redactar")
+	require.NotContains(t, r.salida, "eyJ", "el token no sale por logs")
+}
+
 func TestLogs_ConIntentoMuestraLosDeEseIntento(t *testing.T) {
 	e := nuevoEntorno(t)
 	intento := intentar(t, e, e.intento(), salidaBien)
@@ -445,6 +471,55 @@ func TestReservarYLiberar_ResponderUnObjetoVacio(t *testing.T) {
 	}
 }
 
+// conContexto es la petición de intento con el campo de contexto escrito como se diga.
+func (e entorno) conContexto(campo, valor string) string {
+	return strings.TrimSuffix(strings.TrimSpace(e.intento()), "}") + `,` + quote(campo) + `:` + quote(valor) + `}`
+}
+
+func TestIntentar_ElContextoDecideSiLosPasosSeReutilizan(t *testing.T) {
+	e := nuevoEntorno(t)
+	estadosDe := func(params string) []string {
+		r := invocar(t, e.rutas, "intentar", params)
+		require.Equal(t, salidaBien, r.codigo, r.errores)
+		var estados []string
+		for _, ev := range r.progreso(t) {
+			if ev.Evento == "paso_terminado" {
+				estados = append(estados, ev.Estado)
+			}
+		}
+		require.NotEmpty(t, estados)
+		return estados
+	}
+	todos := func(estado string, estados []string) {
+		t.Helper()
+		for _, e := range estados {
+			require.Equal(t, estado, e)
+		}
+	}
+
+	todos("ejecutado", estadosDe(e.conContexto("Contexto", "x")))
+	todos("precargado", estadosDe(e.conContexto("Contexto", "x")))
+	// En el pipeline de ejemplo todos los pasos miran las variables.
+	todos("ejecutado", estadosDe(e.conContexto("Contexto", "y")))
+	todos("precargado", estadosDe(e.conContexto("contexto", "y")))
+}
+
+func TestIntentar_UnContextoQueNoValeEsUnaPeticionInvalida(t *testing.T) {
+	e := nuevoEntorno(t)
+
+	r := invocar(t, e.rutas, "intentar", e.conContexto("Contexto", "con espacio"))
+
+	require.Equal(t, salidaInvalida, r.codigo)
+	respuesta := r.error(t)
+	require.Equal(t, protocolo.CodigoParametrosInvalidos, respuesta.Error.Code)
+	require.Equal(t, "Contexto", respuesta.Error.Data["campo"])
+	require.NotContains(t, r.salida, "con espacio", "la respuesta no repite el contexto")
+	require.Empty(t, r.progreso(t), "no hay intento")
+
+	intentos := invocar(t, e.rutas, "intentos", `{"Version":"1","Ambiente":"prod"}`)
+	require.JSONEq(t, `[]`, string(intentos.respuesta(t).Result), "ni queda nada en el historial")
+}
+
 func TestUnaVersionNoSoportadaSeRechazaConCodigoDeInvalida(t *testing.T) {
 	e := nuevoEntorno(t)
 
@@ -462,6 +537,7 @@ func TestPeticionesInvalidas(t *testing.T) {
 	sinAlmacen := rutas{}
 	sinEspacio := rutas{almacen: t.TempDir()}
 	almacenInexistente := rutas{almacen: filepath.Join(t.TempDir(), "no-existe")}
+	efimeroRelativo := rutas{almacen: t.TempDir(), espacio: t.TempDir(), efimero: "tmp"}
 	casos := map[string]struct {
 		linea    string
 		rutas    rutas
@@ -478,6 +554,7 @@ func TestPeticionesInvalidas(t *testing.T) {
 		"entorno sin comandos":  {`{"jsonrpc":"2.0","id":"1","method":"intentos","params":{},"entorno":{"A":"1"}}`, e.rutas, protocolo.CodigoParametrosInvalidos, tipoParametrosInvalidos, "no ejecuta comandos"},
 		"sin almacén":           {peticion("intentos", `{"Version":"1","Ambiente":"prod"}`), sinAlmacen, codigoConfiguracionInvalida, tipoConfiguracionInvalida, nombreAlmacen},
 		"intentar sin espacio":  {peticion("intentar", `{}`), sinEspacio, codigoConfiguracionInvalida, tipoConfiguracionInvalida, nombreEspacio},
+		"efímero relativo":      {peticion("intentar", `{}`), efimeroRelativo, codigoConfiguracionInvalida, tipoConfiguracionInvalida, nombreEfimero},
 		"almacén inexistente":   {peticion("intentos", `{"Version":"1","Ambiente":"prod"}`), almacenInexistente, codigoConfiguracionInvalida, tipoConfiguracionInvalida, nombreAlmacen},
 	}
 	for nombre, c := range casos {

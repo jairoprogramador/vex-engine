@@ -3,6 +3,7 @@ package aplicacion
 import (
 	"maps"
 
+	"github.com/jairoprogramador/vex-engine/internal/ejecucion/dominio"
 	"github.com/jairoprogramador/vex-engine/internal/ejecucion/publicado"
 )
 
@@ -29,6 +30,24 @@ func estandarCompartidas(
 		"project_workdir":      directorioDelProyecto,
 		"tool_name":            herramienta,
 	}
+}
+
+// comprobarMetadatos rechaza, antes de abrir ni traer nada, un metadato que no sea un nombre simple
+// (dominio.ComprobarMetadato): llegan de quien invoca y se interpolan tal cual en la línea de un comando, que
+// corre con `sh -c`. Lo demás que se interpola no lo escribe quien invoca: el hash y el commit los calcula
+// Suministro, y los nombres de los pasos son del pipeline.
+func comprobarMetadatos(meta publicado.Metadatos) error {
+	for _, m := range []struct{ campo, valor string }{
+		{"Metadatos.ProjectId", meta.ProjectId},
+		{"Metadatos.ProjectName", meta.ProjectName},
+		{"Metadatos.ProjectOrganization", meta.ProjectOrganization},
+		{"Metadatos.ProjectTeam", meta.ProjectTeam},
+	} {
+		if err := dominio.ComprobarMetadato(m.campo, m.valor); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // conElPaso añade las dos que son de cada paso, sin mutar el mapa compartido.

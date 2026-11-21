@@ -72,6 +72,9 @@ type VariableDeSalida struct {
 	Expresion   string
 	// Compartida: lo que produce es del ámbito compartido. Si no, del ámbito del ambiente en ejecución.
 	Compartida bool
+	// Mostrar: el pipeline pide enseñar el valor a quien ejecuta. El motor no juzga si es un secreto:
+	// marcarlo es decisión de quien escribe el pipeline.
+	Mostrar bool
 }
 
 // Asercion es una expresión regular que la salida de un comando tiene que cumplir para que el comando se dé

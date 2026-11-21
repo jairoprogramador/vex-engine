@@ -335,6 +335,9 @@ func (po *procesadorOutputs) procesarAsersion(salida VariableDeComandoDeclarada)
 		po.falla(Formato, "%s tiene una aserción con scope %q, y una aserción no produce ninguna variable: el "+
 			"ámbito es de lo que se produce", po.donde, salida.Ambito)
 	}
+	if salida.Mostrar {
+		po.falla(Formato, "%s tiene un outputs con show pero sin name: show solo aplica a una variable de salida", po.donde)
+	}
 	po.comando.Aserciones = append(po.comando.Aserciones, AsercionComprobada{Descripcion: salida.Descripcion, Expresion: salida.Expresion})
 }
 
@@ -344,7 +347,10 @@ func (po *procesadorOutputs) procesarVariable(declarada VariableDeComandoDeclara
 	}
 
 	po.nombresVisto = append(po.nombresVisto, declarada.Nombre)
-	salida := VariableDeComandoComprobada{Nombre: declarada.Nombre, Descripcion: declarada.Descripcion, Expresion: declarada.Expresion}
+	salida := VariableDeComandoComprobada{
+		Nombre: declarada.Nombre, Descripcion: declarada.Descripcion, Expresion: declarada.Expresion,
+		Mostrar: declarada.Mostrar,
+	}
 	po.asignarAmbito(&salida, declarada.Ambito)
 	po.validarProbe(declarada.Nombre, declarada.Expresion)
 	po.comando.VariablesDeSalida = append(po.comando.VariablesDeSalida, salida)

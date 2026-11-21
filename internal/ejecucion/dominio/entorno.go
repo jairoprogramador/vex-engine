@@ -53,6 +53,17 @@ func esNombreDeVariableDeEntorno(nombre string) bool {
 	return true
 }
 
+// Con devuelve un entorno con una variable más, que pisa a la que hubiera con ese nombre. No cambia el original.
+// El nombre lo pone el motor, no quien invoca: por eso no se comprueba.
+func (e Entorno) Con(nombre, valor string) Entorno {
+	copia := make(map[string]string, len(e.variables)+1)
+	for n, v := range e.variables {
+		copia[n] = v
+	}
+	copia[nombre] = valor
+	return Entorno{variables: copia}
+}
+
 // Vacio dice si no hay ninguna variable.
 func (e Entorno) Vacio() bool { return len(e.variables) == 0 }
 

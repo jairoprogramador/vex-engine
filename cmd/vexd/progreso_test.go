@@ -162,7 +162,97 @@ func TestProgresoPorElProtocolo_NoLlevaLaSalidaDeNingunComando(t *testing.T) {
 		strings.TrimSpace(salida.String()))
 }
 
+func TestProgresoPorElProtocolo_LosVisiblesVanEnMinusculaYSoloSiLosHay(t *testing.T) {
+	var salida, errores bytes.Buffer
+	p := nuevoProgreso(protocolo.NuevoEmisor(&salida), &errores)
+
+	p.Emitir(context.Background(), dominio.EventoDeProgreso{
+		Tipo: dominio.PasoTerminado, Intento: "i", Paso: "supply", Estado: "ejecutado",
+		Visibles: []dominio.VariableVisible{
+			{Nombre: "app_url", Descripcion: "URL pública de la aplicación", Valor: "https://x.invalid"},
+			{Nombre: "revision", Valor: "r1"},
+		},
+	})
+	p.Emitir(context.Background(), dominio.EventoDeProgreso{Tipo: dominio.PasoTerminado, Intento: "i", Paso: "deploy", Estado: "ejecutado"})
+	p.cerrar()
+
+	lineas := strings.Split(strings.TrimSpace(salida.String()), "\n")
+	require.Len(t, lineas, 2)
+	require.JSONEq(t,
+		`{"jsonrpc":"2.0","method":"progreso","params":{"evento":"paso_terminado","intento":"i","paso":"supply","estado":"ejecutado",
+		  "visibles":[{"nombre":"app_url","descripcion":"URL pública de la aplicación","valor":"https://x.invalid"},
+		              {"nombre":"revision","valor":"r1"}]}}`,
+		lineas[0], "una descripción vacía se omite")
+	require.JSONEq(t,
+		`{"jsonrpc":"2.0","method":"progreso","params":{"evento":"paso_terminado","intento":"i","paso":"deploy","estado":"ejecutado"}}`,
+		lineas[1], "sin visibles, el campo no va")
+
+	// Un cliente que no conoce el campo y no decodifica en modo estricto (la CLI de antes) lo ignora.
+	var deAntes struct {
+		Params struct {
+			Evento, Intento, Paso, Estado string
+		}
+	}
+	require.NoError(t, json.Unmarshal([]byte(lineas[0]), &deAntes))
+	require.Equal(t, "supply", deAntes.Params.Paso)
+	require.Equal(t, "ejecutado", deAntes.Params.Estado)
+}
+
 // --- de punta a punta, por el protocolo ---
+
+// conUnaSalidaVisible cambia el último paso del pipeline de ejemplo por uno que produce una URL marcada con show.
+func conUnaSalidaVisible(t *testing.T) entorno {
+	t.Helper()
+	return nuevoEntornoConPipeline(t, func(dir string) {
+		escribir(t, dir, "steps/05-deploy/commands.yaml", `- name: publicar
+  description: deja la URL
+  cmd: echo url=https://x.invalid
+  outputs:
+    - name: url
+      description: URL pública de la aplicación
+      probe: 'url=(\S+)'
+      show: true
+`)
+	})
+}
+
+func TestProgreso_LasVariablesConShowLleganEnPasoTerminadoYEnElResultado(t *testing.T) {
+	e := conUnaSalidaVisible(t)
+	const visibles = `[{"Nombre":"url","Descripcion":"URL pública de la aplicación","Valor":"https://x.invalid"}]`
+
+	for _, estado := range []string{"ejecutado", "precargado"} {
+		r := invocar(t, e.rutas, "intentar", e.intento())
+
+		require.Equal(t, salidaBien, r.codigo, r.errores)
+		eventos := r.progreso(t)
+		ultimo := eventos[len(eventos)-1]
+		require.Equal(t, "deploy", ultimo.Paso)
+		require.Equal(t, estado, ultimo.Estado)
+		require.Equal(t, []visibleDeProgreso{{Nombre: "url", Descripcion: "URL pública de la aplicación", Valor: "https://x.invalid"}},
+			ultimo.Visibles, "también cuando el paso no se re-ejecuta")
+		for _, ev := range eventos[:len(eventos)-1] {
+			require.Empty(t, ev.Visibles, "los pasos sin show no llevan valores: %s %s", ev.Evento, ev.Paso)
+		}
+		lineas := r.lineas(t)
+		require.Contains(t, lineas[len(lineas)-2], `"visibles":[{"nombre":"url"`, "en el cable, en minúscula")
+
+		var resultado struct{ Visibles json.RawMessage }
+		r.resultado(t, &resultado)
+		require.JSONEq(t, visibles, string(resultado.Visibles), "en el resultado, en PascalCase como el resto")
+	}
+}
+
+func TestProgreso_SinVariablesConShowElResultadoTraeVisiblesVacio(t *testing.T) {
+	e := nuevoEntorno(t)
+
+	r := invocar(t, e.rutas, "intentar", e.intento())
+
+	require.Equal(t, salidaBien, r.codigo, r.errores)
+	var resultado struct{ Visibles json.RawMessage }
+	r.resultado(t, &resultado)
+	require.JSONEq(t, `[]`, string(resultado.Visibles), "Visibles es [], no null")
+	require.NotContains(t, r.salida, `"visibles"`, "y ningún evento lleva el campo")
+}
 
 func TestProgreso_UnIntentoCuentaSuAvanceAntesDeLaRespuesta(t *testing.T) {
 	e := nuevoEntorno(t)

@@ -91,10 +91,11 @@ use la misma lista.
 |---|---|
 | `config.yaml` | `schema_version: 1`. Una versión distinta se rechaza, diciendo cuál se espera. Además, bajo `steps`, la configuración de cada paso por su nombre: `rules: [code, instructions, variables]` · `max_age` · `scope: environment \| shared`, los tres opcionales — el ámbito **propio** del paso: decide qué ve, bajo qué ámbito archiva su historia, y qué hereda por defecto lo que produce sin `scope` propio. Sin `scope`, es el que representa al ambiente en que se ejecuta. Un paso ausente de `steps` usa los tres valores por defecto (RD-04 §9.20) |
 | `environments.yaml` | los ambientes, en orden: `name`, `description`, `value` |
-| `steps/NN-<paso>/commands.yaml` | los comandos: `name`, `description`, `cmd`, `workdir`, `templates` y `outputs`. Cada `outputs` con `name` es una **variable de salida** (`name`, `description`, `probe`, `scope: environment \| shared`); sin `name` y con `probe` es una **aserción**; sin ninguno de los dos no declara nada |
+| `steps/NN-<paso>/commands.yaml` | los comandos: `name`, `description`, `cmd`, `workdir`, `templates` y `outputs`. Cada `outputs` con `name` es una **variable de salida** (`name`, `description`, `probe`, `scope: environment \| shared`, `show: true \| false`); sin `name` y con `probe` es una **aserción**; sin ninguno de los dos no declara nada |
 | `steps/NN-<paso>/…` | todo lo demás es **material** del paso |
 | `variables/<value>/*.yaml` | variables del **ámbito de ese ambiente**: `name`, `description` y `value` |
 | `variables/*.yaml` | variables del **ámbito compartido**, declaradas una sola vez |
+| `bootstrap/<nube>/…` | **No es del formato.** El motor no lo lee ni lo valida: lo lee la CLI (contrato, `cloud_steps` y hash). En el MVP no se aplica nada de esa carpeta con permisos de administrador: el bootstrap es el núcleo embebido de `vex bootstrap` (etapa 08). Cambiarlo cambia el hash del pipeline, pero no su declaración |
 
 - **Identidad y orden.** Un paso se identifica por su nombre sin `NN-`, y `NN` es solo el orden.
 - **Un valor declarado es un literal**, que puede usar otras variables visibles, también las de salida:
@@ -107,7 +108,12 @@ use la misma lista.
 - **Interpolación.** Solo se interpola el material listado en `templates`, y el resto se copia tal cual.
 - **Valores por defecto.** Sin `rules`, un paso mira las tres cosas. Sin `max_age`, no caduca. Sin `scope`
   para un paso en `config.yaml` (o sin entrada de `steps` para él), el paso es del ámbito del ambiente en que
-  se ejecuta. Sin `scope` en un `outputs`, lo que produce hereda el ámbito de su paso.
+  se ejecuta. Sin `scope` en un `outputs`, lo que produce hereda el ámbito de su paso. Sin `show`, el valor
+  de una variable de salida no se enseña.
+- **`show`.** `show: true` en una variable de salida pide enseñar su valor a quien ejecuta (la URL que dejó
+  un despliegue). Solo vale con `name`. El motor no juzga si el valor es un secreto: marcar `show` es
+  decisión de quien escribe el pipeline. No forma parte de las instrucciones: alternarlo no re-ejecuta el
+  paso.
 - **Visibilidad** *(RD-04 §9, precisado en §9.19)*. Un paso ve desde **su propio ámbito**: las variables
   estándar siempre, las declaradas visibles desde ese ámbito, y las variables de salida **ya producidas** que
   se ven desde él. Sin `scope` propio, su ámbito es el que representa al ambiente en que se ejecuta, así que
@@ -118,7 +124,7 @@ use la misma lista.
   ambiente**: un valor compartido que dependiera de un ambiente dejaría de ser el mismo en todos, y un paso
   de `scope: shared` que dependiera de uno tendría el mismo problema.
 - **La comprobación rechaza además**:
-  - un `outputs` sin `name` ni `probe`, y una aserción con `scope`;
+  - un `outputs` sin `name` ni `probe`, y una aserción con `scope` o con `show` (invariante `formato`);
   - un mismo nombre declarado en el ámbito compartido y en el de un ambiente, o dos veces en un mismo ámbito;
   - un mismo nombre producido en dos sitios que se ven a la vez;
   - una variable usada antes de que se produzca lo que hace falta para resolverla;

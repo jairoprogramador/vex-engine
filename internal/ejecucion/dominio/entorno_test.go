@@ -82,3 +82,14 @@ func TestEntorno_AlImprimirloSoloDiceLosNombres(t *testing.T) {
 		require.NotContains(t, texto, "otro-valor")
 	}
 }
+
+func TestEntorno_ConAnadeUnaVariableSinCambiarElOriginal(t *testing.T) {
+	original, err := dominio.NuevoEntorno(map[string]string{"A": "1", "VEX_STEP_TMP": "/lo-que-pidieron"})
+	require.NoError(t, err)
+
+	con := original.Con("VEX_STEP_TMP", "/tmp/efimero")
+
+	require.Equal(t, []string{"A=1", "VEX_STEP_TMP=/tmp/efimero"}, con.Lista(), "la del motor pisa a la que se pidió")
+	require.Equal(t, []string{"A=1", "VEX_STEP_TMP=/lo-que-pidieron"}, original.Lista())
+	require.Equal(t, []string{"X=1"}, dominio.Entorno{}.Con("X", "1").Lista(), "también sobre el entorno vacío")
+}

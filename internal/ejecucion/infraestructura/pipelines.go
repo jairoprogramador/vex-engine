@@ -111,7 +111,7 @@ func comandoDeDominio(c definicionpublicado.Comando) (dominio.ComandoDeclarado, 
 		if err != nil {
 			return dominio.ComandoDeclarado{}, err
 		}
-		salidas = append(salidas, salida)
+		salidas = append(salidas, salida.ConVisibilidad(s.Mostrar, s.Descripcion))
 	}
 
 	aserciones := make([]dominio.AsercionDeclarada, 0, len(c.Aserciones))

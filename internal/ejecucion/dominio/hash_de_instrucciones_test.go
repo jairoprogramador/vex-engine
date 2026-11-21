@@ -62,3 +62,18 @@ func TestElHashDeInstruccionesCambiaSiCambiaElOrdenDeLosComandos(t *testing.T) {
 
 	require.NotEqual(t, a, b)
 }
+
+func TestElHashDeInstruccionesNoCambiaAlAlternarShowEnUnaSalida(t *testing.T) {
+	salida, err := dominio.NuevaVariableDeSalidaDeclarada("app_url", `app_url=(\S+)`, false)
+	require.NoError(t, err)
+	conSalida := func(s dominio.VariableDeSalidaDeclarada) []dominio.ComandoDeclarado {
+		c, err := dominio.NuevoComandoDeclarado("apply", "terraform apply", "", nil, []dominio.VariableDeSalidaDeclarada{s}, nil)
+		require.NoError(t, err)
+		return []dominio.ComandoDeclarado{c}
+	}
+
+	sinShow := dominio.CalcularHashDeInstrucciones(conSalida(salida), nil)
+	conShow := dominio.CalcularHashDeInstrucciones(conSalida(salida.ConVisibilidad(true, "URL pública")), nil)
+
+	require.Equal(t, sinShow, conShow, "enseñar un valor no cambia lo que el paso hace: no lo re-ejecuta")
+}

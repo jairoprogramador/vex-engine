@@ -42,9 +42,11 @@ func (c ComandoDeclarado) Aserciones() []AsercionDeclarada { return c.aserciones
 // VariableDeSalidaDeclarada es un nombre y la expresión regular que dice qué forma tendrá su valor, tal como el
 // paso la declara — sin resolver: el valor real solo existe después de ejecutar el comando.
 type VariableDeSalidaDeclarada struct {
-	nombre     string
-	expresion  string
-	compartida bool
+	nombre      string
+	expresion   string
+	compartida  bool
+	mostrar     bool
+	descripcion string
 }
 
 func NuevaVariableDeSalidaDeclarada(nombre, expresion string, compartida bool) (VariableDeSalidaDeclarada, error) {
@@ -62,6 +64,19 @@ func (v VariableDeSalidaDeclarada) Nombre() string { return v.nombre }
 func (v VariableDeSalidaDeclarada) Expresion() string { return v.expresion }
 
 func (v VariableDeSalidaDeclarada) Compartida() bool { return v.compartida }
+
+// ConVisibilidad devuelve la misma variable diciendo si el pipeline pidió enseñar su valor a quien ejecuta
+// (`show`) y con qué descripción. No cambia lo que el comando hace, y por eso no entra en el hash de
+// instrucciones.
+func (v VariableDeSalidaDeclarada) ConVisibilidad(mostrar bool, descripcion string) VariableDeSalidaDeclarada {
+	v.mostrar, v.descripcion = mostrar, descripcion
+	return v
+}
+
+// Mostrar dice si el pipeline pidió enseñar el valor producido a quien ejecuta.
+func (v VariableDeSalidaDeclarada) Mostrar() bool { return v.mostrar }
+
+func (v VariableDeSalidaDeclarada) Descripcion() string { return v.descripcion }
 
 // AsercionDeclarada es una expresión regular que la salida de un comando tiene que cumplir para que el comando
 // se dé por bueno. No produce ninguna variable.

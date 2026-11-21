@@ -50,8 +50,11 @@ func (s *Servicio) cerrarPorError(
 }
 
 // cerrar registra el desenlace del intento y, si llega a despliegue, deja su identidad en el resultado —
-// nunca la tiene si el intento se hizo con una copia de trabajo (DEC-10.7) o no terminó exitoso.
-func (s *Servicio) cerrar(ctx context.Context, id string, intento *dominio.IntentoEnCurso, destino string) (publicado.Resultado, error) {
+// nunca la tiene si el intento se hizo con una copia de trabajo (DEC-10.7) o no terminó exitoso. Los visibles
+// solo van en el resultado de un intento exitoso: son lo que el intento logró.
+func (s *Servicio) cerrar(
+	ctx context.Context, id string, intento *dominio.IntentoEnCurso, destino string, visibles []dominio.VariableVisible,
+) (publicado.Resultado, error) {
 	desenlace, hay := intento.Desenlace()
 	if !hay {
 		return publicado.Resultado{}, fmt.Errorf("ejecución: el intento %q no llegó a un desenlace", id)
@@ -68,5 +71,8 @@ func (s *Servicio) cerrar(ctx context.Context, id string, intento *dominio.Inten
 	if err != nil {
 		detalle = dominio.DetalleDelIntento{}
 	}
-	return resultadoAPublicado(id, desenlace, despliegue, detalle), nil
+	if desenlace != dominio.Exitoso {
+		visibles = nil
+	}
+	return resultadoAPublicado(id, desenlace, despliegue, detalle, visibles), nil
 }

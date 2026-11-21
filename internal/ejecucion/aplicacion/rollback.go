@@ -18,6 +18,13 @@ func (s *Servicio) HacerRollback(
 	if err != nil {
 		return publicado.Resultado{}, traducir(err)
 	}
+	contexto, err := dominio.NuevoContexto(p.Contexto)
+	if err != nil {
+		return publicado.Resultado{}, traducir(err)
+	}
+	if err := comprobarMetadatos(p.Metadatos); err != nil {
+		return publicado.Resultado{}, traducir(err)
+	}
 	if err := dominio.ComprobarDespliegue(p.Despliegue); err != nil {
 		return publicado.Resultado{}, traducir(err)
 	}
@@ -73,9 +80,11 @@ func (s *Servicio) HacerRollback(
 		return publicado.Resultado{}, traducir(s.abandonar(ctx, id, err))
 	}
 
+	var visibles []dominio.VariableVisible
 	c := contextoDelIntento{
 		id: id, ambiente: destino.Ambiente(), ubicacion: ubicacion, fuenteDelPipeline: destino.FuenteDelPipeline(), commitDelPipeline: destino.CommitDelPipeline(),
-		hashDelCodigo: material.Hash, pasosPorNombre: pasosPorNombre, entorno: entorno,
+		hashDelCodigo: material.Hash, pasosPorNombre: pasosPorNombre, entorno: entorno, contexto: contexto,
+		visibles: &visibles,
 		estandarCompartidas: estandarCompartidas(
 			p.Metadatos, destino.Ambiente(), material.Hash.String(), material.Commit, material.Directorio, s.d.NombreDeLaHerramienta,
 		),
@@ -83,5 +92,5 @@ func (s *Servicio) HacerRollback(
 	if err := s.recorrer(ctx, c, intento); err != nil {
 		return publicado.Resultado{}, traducir(s.cerrarPorError(ctx, id, intento, destino.Despliegue(), err))
 	}
-	return s.cerrar(ctx, id, intento, destino.Despliegue())
+	return s.cerrar(ctx, id, intento, destino.Despliegue(), visibles)
 }

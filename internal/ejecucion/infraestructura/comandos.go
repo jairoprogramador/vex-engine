@@ -1,11 +1,9 @@
 package infraestructura
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,14 +48,14 @@ func (c Comandos) plazo() time.Duration {
 	return c.plazoDeGracia
 }
 
-// Ejecutar corre el comando y reenvía su salida a salida, a la vez que la acumula en un
-// búfer transitorio — nunca expuesto fuera de esta función — para comprobar sus aserciones y capturar sus
-// variables de salida una vez termina. Si ctx se cancela, se acaba con el comando y con todo lo que lanzó (no
-// solo con el shell) y el error se propaga: es la aplicación quien lo traduce en una cancelación del intento
-// (EJ-3), no este puerto.
+// Ejecutar corre el comando y acumula lo que escribe en salida, que es quien lo acota: no hay otra copia. Sobre
+// lo que salida conserva se comprueban sus aserciones y se capturan sus variables de salida una vez termina. Si
+// ctx se cancela, se acaba con el comando y con todo lo que lanzó (no solo con el shell) y el error se propaga:
+// es la aplicación quien lo traduce en una cancelación del intento (EJ-3), no este puerto. Termine como termine,
+// lo que el comando haya dejado en segundo plano muere con él (prepararProceso).
 func (c Comandos) Ejecutar(
 	ctx context.Context, directorio, lineaInterpolada string, comando dominio.ComandoDeclarado, entorno dominio.Entorno,
-	salida io.Writer,
+	salida *dominio.SalidaDeComando,
 ) (dominio.ResultadoDeUnComando, error) {
 	nombreDelShell, flag := "sh", "-c"
 	if runtime.GOOS == "windows" {
@@ -71,16 +69,14 @@ func (c Comandos) Ejecutar(
 	}
 	terminar := prepararProceso(cmd, c.plazo())
 
-	var capturada bytes.Buffer
 	// Un solo escritor para los dos flujos: exec lo reconoce y los lleva por la misma tubería, así que no hay
-	// escrituras concurrentes sobre salida ni sobre capturada, y salida y error quedan en el orden en que se
-	// produjeron.
-	escritor := io.MultiWriter(salida, &capturada)
-	cmd.Stdout = escritor
-	cmd.Stderr = escritor
+	// escrituras concurrentes sobre salida, y salida y error quedan en el orden en que se produjeron. salida
+	// acepta todo lo que le escriban aunque ya no lo conserve: la tubería se vacía siempre.
+	cmd.Stdout = salida
+	cmd.Stderr = salida
 
 	err := cmd.Run()
-	terminar(ctx.Err() != nil)
+	terminar()
 	if ctx.Err() != nil {
 		// La cancelación mató el proceso: es un error de este puerto, nunca un resultado no exitoso — es la
 		// aplicación quien la traduce en la cancelación del intento (EJ-3), no este puerto (DEC-09.2).
@@ -92,7 +88,7 @@ func (c Comandos) Ejecutar(
 		// código de salida 0
 	case errors.Is(err, exec.ErrWaitDelay):
 		// terminó con código 0, pero dejó un proceso en segundo plano con la tubería abierta: no es un fallo
-		// suyo, y lo escrito hasta aquí es todo lo que va a haber.
+		// suyo, y lo escrito hasta aquí es todo lo que va a haber. Ese proceso ya no existe: terminar acabó con él.
 	case errors.As(err, &salioConError):
 		// el comando corrió y terminó con un código distinto de 0: no exitoso, pero no es un error de este
 		// puerto — lo dice el resultado.
@@ -101,7 +97,7 @@ func (c Comandos) Ejecutar(
 		return dominio.ResultadoDeUnComando{}, fmt.Errorf("ejecución: ejecutar %q: %w", comando.Nombre(), err)
 	}
 
-	texto := capturada.String()
+	texto := salida.Texto()
 	for _, a := range comando.Aserciones() {
 		cumple, err := regexp.MatchString(a.Expresion(), texto)
 		if err != nil {

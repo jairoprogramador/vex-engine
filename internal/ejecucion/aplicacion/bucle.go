@@ -20,6 +20,13 @@ type contextoDelIntento struct {
 	estandarCompartidas map[string]string
 	// entorno son las variables de entorno que se pidieron para los comandos de este intento.
 	entorno dominio.Entorno
+
+	// contexto es el que declaró quien invoca: se mezcla en la huella de variables de cada paso.
+	contexto dominio.ContextoDeEjecucion
+
+	// visibles acumula, en el orden en que terminan los pasos, las variables marcadas con show. Es un puntero
+	// porque este contexto se pasa por valor.
+	visibles *[]dominio.VariableVisible
 }
 
 // recorrer es el bucle explícito de EJ-1/EJ-2 (docs/modelo/contextos/ejecucion.md, «Servicio de aplicación:
@@ -52,6 +59,12 @@ func (s *Servicio) darUnPaso(ctx context.Context, c contextoDelIntento, intento 
 		return err
 	}
 
+	// Cuando le toca, y no solo al empezar el intento: lo que un paso anterior haya dejado en el directorio de
+	// este no llega a sus comandos. También si no se re-ejecuta: su material queda como se declaró.
+	if err := s.d.EspacioDeTrabajo.RehacerElPaso(ctx, c.ubicacion, pasoDeEjecucion); err != nil {
+		return err
+	}
+
 	directorioDelPaso := s.d.EspacioDeTrabajo.DirectorioDelPaso(c.ubicacion, paso.Nombre())
 	estandar := conElPaso(c.estandarCompartidas, paso.Nombre(), directorioDelPaso)
 	if err := s.d.Variables.DeclararVariablesDeUnPaso(
@@ -60,7 +73,7 @@ func (s *Servicio) darUnPaso(ctx context.Context, c contextoDelIntento, intento 
 		return err
 	}
 
-	decision, ahora, err := s.decidirPaso(ctx, c.id, pasoDeEjecucion, ambito, c.hashDelCodigo)
+	decision, ahora, err := s.decidirPaso(ctx, c.id, pasoDeEjecucion, ambito, c.hashDelCodigo, c.contexto)
 	if err != nil {
 		return err
 	}
@@ -68,7 +81,7 @@ func (s *Servicio) darUnPaso(ctx context.Context, c contextoDelIntento, intento 
 	if decision.SeReejecuta() {
 		return s.reejecutarPaso(ctx, c, intento, paso, pasoDeEjecucion, ambito, ahora)
 	}
-	return s.dejarSinReejecutar(ctx, c, intento, paso, ambito, decision, ahora)
+	return s.dejarSinReejecutar(ctx, c, intento, paso, pasoDeEjecucion, ambito, decision, ahora)
 }
 
 // reejecutarPaso es la mitad de EJ-1 que de verdad hace algo: deja un registro al empezar, antes del primer
@@ -89,7 +102,7 @@ func (s *Servicio) reejecutarPaso(
 	}
 	s.emitir(ctx, dominio.EventoDeProgreso{Tipo: dominio.PasoIniciado, Intento: c.id, Paso: paso.Nombre()})
 
-	exitoso, err := s.ejecutarPaso(ctx, c.id, c.ubicacion, pasoDeEjecucion, ambito, c.entorno)
+	exitoso, err := s.ejecutarPasoAislado(ctx, c, pasoDeEjecucion, ambito)
 	ctxDelRegistro, cancelado := ctx, false
 	if err != nil {
 		if ctx.Err() == nil {
@@ -110,8 +123,14 @@ func (s *Servicio) reejecutarPaso(
 	if cancelado {
 		intento.Cancelar()
 	}
+	// Un paso fallido o cancelado no enseña nada: lo que produjo a medias no es un resultado.
+	var visibles []dominio.VariableVisible
+	if exitoso && !cancelado {
+		visibles = s.acumularVisibles(ctx, c, pasoDeEjecucion, ambito)
+	}
 	s.emitir(ctx, dominio.EventoDeProgreso{
 		Tipo: dominio.PasoTerminado, Intento: c.id, Paso: paso.Nombre(), Estado: estadoDelPasoTerminado(exitoso, cancelado),
+		Visibles: visibles,
 	})
 	return nil
 }
@@ -131,7 +150,7 @@ func estadoDelPasoTerminado(exitoso, cancelado bool) string {
 
 func (s *Servicio) dejarSinReejecutar(
 	ctx context.Context, c contextoDelIntento, intento *dominio.IntentoEnCurso, paso dominio.PasoDelPipeline,
-	ambito dominio.Ambito, decision dominio.Decision, ahora dominio.RecursosDeUnPaso,
+	pasoDeEjecucion dominio.PasoDeEjecucion, ambito dominio.Ambito, decision dominio.Decision, ahora dominio.RecursosDeUnPaso,
 ) error {
 	if err := s.d.Variables.NoReejecutado(ctx, c.id, paso.Nombre(), ambito); err != nil {
 		return err
@@ -142,8 +161,11 @@ func (s *Servicio) dejarSinReejecutar(
 	if err := intento.Completar(paso.Nombre(), true); err != nil {
 		return err
 	}
+	// También un paso que no se re-ejecuta enseña sus visibles: la URL que produjo la primera vez sigue siendo
+	// el resultado del intento.
 	s.emitir(ctx, dominio.EventoDeProgreso{
 		Tipo: dominio.PasoTerminado, Intento: c.id, Paso: paso.Nombre(), Estado: string(dominio.PasoPrecargado),
+		Visibles: s.acumularVisibles(ctx, c, pasoDeEjecucion, ambito),
 	})
 	return nil
 }

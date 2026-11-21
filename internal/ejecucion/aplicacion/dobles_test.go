@@ -3,7 +3,6 @@ package aplicacion_test
 import (
 	"context"
 	"errors"
-	"io"
 	"sync"
 	"testing"
 	"time"
@@ -81,6 +80,10 @@ type variablesFalsas struct {
 	// errInterpolar hace fallar solo a Interpolar —no a declarar variables—, que es lo que pasa cuando un
 	// comando usa una variable que no está disponible: el paso ya empezó cuando se descubre.
 	errInterpolar error
+	// interpolados son los textos que Interpolar resuelve a otro valor; los demás los devuelve tal cual.
+	interpolados map[string]string
+	// errPorTexto hace fallar a Interpolar solo con esos textos.
+	errPorTexto map[string]error
 	// alUsarVariables, si no es nil, se llama la primera vez que se pide algo a Resolución, para cancelar el
 	// ctx a mitad de un paso, como haría una cancelación de verdad.
 	alUsarVariables func()
@@ -101,6 +104,12 @@ func (v *variablesFalsas) Interpolar(_ context.Context, _, _ string, _ dominio.A
 	}
 	if v.errInterpolar != nil {
 		return "", v.errInterpolar
+	}
+	if err := v.errPorTexto[texto]; err != nil {
+		return "", err
+	}
+	if valor, hay := v.interpolados[texto]; hay {
+		return valor, v.err
 	}
 	return texto, v.err
 }
@@ -157,6 +166,10 @@ type historialFalso struct {
 	registros        []registroDeHistorial
 	salidas          []salidaRegistrada
 
+	// recuerda hace que cada paso que termina bien, o que no se re-ejecuta, quede como su última vez, con los
+	// recursos con que se registró: así un segundo intento decide contra lo que dejó el primero.
+	recuerda bool
+
 	// intervaloDeLatido es el que publica el Historial; cero desactiva el latido.
 	intervaloDeLatido time.Duration
 	latidos           int
@@ -208,7 +221,7 @@ func (h *historialFalso) RegistrarComienzo(_ context.Context, _, paso string, _ 
 	return nil
 }
 
-func (h *historialFalso) RegistrarFinal(_ context.Context, _, paso string, exitoso bool, _ dominio.RecursosDeUnPaso) error {
+func (h *historialFalso) RegistrarFinal(_ context.Context, _, paso string, exitoso bool, recursos dominio.RecursosDeUnPaso) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.fallarRegistrar[paso] {
@@ -219,7 +232,19 @@ func (h *historialFalso) RegistrarFinal(_ context.Context, _, paso string, exito
 		tipo = "final-fallido"
 	}
 	h.registros = append(h.registros, registroDeHistorial{tipo, paso})
+	if exitoso {
+		h.recordar(paso, recursos)
+	}
 	return nil
+}
+
+func (h *historialFalso) recordar(paso string, recursos dominio.RecursosDeUnPaso) {
+	if !h.recuerda {
+		return
+	}
+	h.ultimaVezPorPaso[paso] = dominio.UltimaVezDeUnPaso{
+		Hay: true, Valida: true, Recursos: recursos, Evidencia: dominio.Evidencia{Intento: h.idAbierto, Paso: paso},
+	}
 }
 
 func (h *historialFalso) RegistrarSalida(_ context.Context, _, paso, comando string, exitoso bool, texto string) error {
@@ -230,7 +255,7 @@ func (h *historialFalso) RegistrarSalida(_ context.Context, _, paso, comando str
 }
 
 func (h *historialFalso) RegistrarNoReejecucion(
-	_ context.Context, _, paso string, _ dominio.Evidencia, _ dominio.RecursosDeUnPaso,
+	_ context.Context, _, paso string, _ dominio.Evidencia, recursos dominio.RecursosDeUnPaso,
 ) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -238,6 +263,7 @@ func (h *historialFalso) RegistrarNoReejecucion(
 		return errors.New("falla simulada de RegistrarNoReejecucion")
 	}
 	h.registros = append(h.registros, registroDeHistorial{"no-reejecucion", paso})
+	h.recordar(paso, recursos)
 	return nil
 }
 
@@ -272,6 +298,8 @@ func (h *historialFalso) CerrarIntento(
 }
 
 func (h *historialFalso) UltimaVezDeUnPaso(_ context.Context, paso string, _ dominio.Ambito) (dominio.UltimaVezDeUnPaso, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	return h.ultimaVezPorPaso[paso], nil
 }
 
@@ -293,20 +321,36 @@ type comandosFalsos struct {
 	llamados  []string
 	entornos  []dominio.Entorno // el que recibió cada llamada
 
+	// trozos, si no está vacío, es lo que el comando escribe en su salida, una escritura por trozo, en vez de
+	// «salida de <línea>».
+	trozos []string
+
+	// bitacora, si no es nil, recibe «comando <línea>» en cada llamada: para comprobar el orden con otros dobles.
+	bitacora *[]string
+
 	// alEjecutar, si no es nil, se llama antes de devolver — la prueba de EJ-3 lo usa para cancelar el ctx a
 	// mitad de un comando, como haría una cancelación de verdad.
 	alEjecutar func()
 }
 
 func (c *comandosFalsos) Ejecutar(
-	_ context.Context, _, lineaInterpolada string, _ dominio.ComandoDeclarado, entorno dominio.Entorno, salida io.Writer,
+	_ context.Context, _, lineaInterpolada string, _ dominio.ComandoDeclarado, entorno dominio.Entorno, salida *dominio.SalidaDeComando,
 ) (dominio.ResultadoDeUnComando, error) {
 	c.mu.Lock()
 	c.llamados = append(c.llamados, lineaInterpolada)
 	c.entornos = append(c.entornos, entorno)
+	if c.bitacora != nil {
+		*c.bitacora = append(*c.bitacora, "comando "+lineaInterpolada)
+	}
 	c.mu.Unlock()
 	if salida != nil {
-		_, _ = salida.Write([]byte("salida de " + lineaInterpolada))
+		trozos := c.trozos
+		if len(trozos) == 0 {
+			trozos = []string{"salida de " + lineaInterpolada}
+		}
+		for _, trozo := range trozos {
+			_, _ = salida.Write([]byte(trozo))
+		}
 	}
 	if c.alEjecutar != nil {
 		c.alEjecutar()
@@ -320,6 +364,20 @@ type espacioDeTrabajoFalso struct {
 	errRehacer  error
 	rehecho     bool
 	interpolado bool
+
+	// pasosRehechos son los pasos cuyo directorio se rehízo cuando les tocó, en orden.
+	pasosRehechos    []string
+	errRehacerElPaso error
+	// bitacora, si no es nil, recibe «rehacer <paso>» cada vez: para comprobar el orden con otros dobles.
+	bitacora *[]string
+}
+
+func (e *espacioDeTrabajoFalso) RehacerElPaso(_ context.Context, _ dominio.Ubicacion, paso dominio.PasoDeEjecucion) error {
+	e.pasosRehechos = append(e.pasosRehechos, paso.Nombre())
+	if e.bitacora != nil {
+		*e.bitacora = append(*e.bitacora, "rehacer "+paso.Nombre())
+	}
+	return e.errRehacerElPaso
 }
 
 func (e *espacioDeTrabajoFalso) Ubicar(_, _, ambiente string) (dominio.Ubicacion, error) {
@@ -341,3 +399,41 @@ func (e *espacioDeTrabajoFalso) InterpolarPlantillas(context.Context, dominio.Ub
 }
 
 var _ dominio.EspacioDeTrabajo = (*espacioDeTrabajoFalso)(nil)
+
+// rutaDelEfimeroDePrueba es la ruta que da efimeroFalso: siempre la misma, como el de verdad.
+const rutaDelEfimeroDePrueba = "/tmp/efimero-de-prueba"
+
+// efimeroFalso apunta en la bitácora cuándo se crea y se borra el directorio efímero.
+type efimeroFalso struct {
+	bitacora  *[]string
+	errCrear  error
+	errBorrar error
+	// ctxDeBorrar es el estado del ctx con que se pidió el último borrado: nil si no estaba cancelado.
+	ctxDeBorrar error
+}
+
+func (e *efimeroFalso) Crear(context.Context) (string, error) {
+	*e.bitacora = append(*e.bitacora, "crear efímero")
+	return rutaDelEfimeroDePrueba, e.errCrear
+}
+
+func (e *efimeroFalso) Borrar(ctx context.Context) error {
+	*e.bitacora = append(*e.bitacora, "borrar efímero")
+	e.ctxDeBorrar = ctx.Err()
+	return e.errBorrar
+}
+
+var _ dominio.DirectorioEfimero = (*efimeroFalso)(nil)
+
+// supervivientesFalsos apunta en la bitácora cuándo se acaba con los procesos que dejó un paso.
+type supervivientesFalsos struct {
+	bitacora *[]string
+	err      error
+}
+
+func (s *supervivientesFalsos) Acabar(context.Context) error {
+	*s.bitacora = append(*s.bitacora, "acabar con los supervivientes")
+	return s.err
+}
+
+var _ dominio.Supervivientes = (*supervivientesFalsos)(nil)

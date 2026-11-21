@@ -108,6 +108,26 @@ func TestElPipelineDeHoyYElDeUnCommit(t *testing.T) {
 	vacio(t, base)
 }
 
+func TestUnPipelineConBootstrapSeLeeIgualYSoloCambiaElHash(t *testing.T) {
+	ctx := context.Background()
+	pipelines, base := nuevosPipelines(t)
+	f := fuenteDelEjemplo(t)
+	f.commitear()
+	sin, err := pipelines.DeHoy(ctx, f.dir)
+	require.NoError(t, err)
+
+	f.escribir("bootstrap/azure/bootstrap.yaml", "contract: azure/v1\ntemplate: main.json\n").
+		escribir("bootstrap/azure/main.json", "{}\n").commitear()
+	con, err := pipelines.DeHoy(ctx, f.dir)
+	require.NoError(t, err, "una carpeta bootstrap/ no impide cargar el pipeline")
+
+	require.Equal(t, sin.Pasos(), con.Pasos(), "ni cambia lo que declara")
+	require.Equal(t, sin.Ambientes(), con.Ambientes())
+	require.Equal(t, sin.Variables(), con.Variables())
+	require.NotEqual(t, sin.Hash(), con.Hash(), "el hash cubre todo el árbol, incluido bootstrap/")
+	vacio(t, base)
+}
+
 func TestElPipelineDeUnaCopiaDeTrabajo(t *testing.T) {
 	ctx := context.Background()
 	pipelines, base := nuevosPipelines(t)

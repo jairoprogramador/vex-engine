@@ -18,6 +18,19 @@ func listas(d *dependenciasDePrueba) [][]string {
 	return listas
 }
 
+// efimeroEnElEntorno es la variable que el motor añade siempre: dónde está el directorio efímero del paso.
+const efimeroEnElEntorno = "VEX_STEP_TMP=" + rutaDelEfimeroDePrueba
+
+func TestEntorno_LaVariableDelDirectorioEfimeroLaPoneElMotorAunqueSePidaOtra(t *testing.T) {
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
+	servicio := aplicacion.NuevoServicio(deps)
+
+	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), publicado.Entorno{"VEX_STEP_TMP": "/home/vex"})
+
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{efimeroEnElEntorno}}, listas(d))
+}
+
 func TestEntorno_LlegaACadaComandoDeCadaPaso(t *testing.T) {
 	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas", "02-despliegue")
 	servicio := aplicacion.NuevoServicio(deps)
@@ -26,19 +39,19 @@ func TestEntorno_LlegaACadaComandoDeCadaPaso(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, [][]string{
-		{"A=1", "REGISTRY_URL=registry.local"},
-		{"A=1", "REGISTRY_URL=registry.local"},
+		{"A=1", "REGISTRY_URL=registry.local", efimeroEnElEntorno},
+		{"A=1", "REGISTRY_URL=registry.local", efimeroEnElEntorno},
 	}, listas(d), "los dos comandos, uno por paso, lo reciben")
 }
 
-func TestEntorno_SinVariablesLosComandosNoRecibenNinguna(t *testing.T) {
+func TestEntorno_SinVariablesLosComandosSoloRecibenLaDelDirectorioEfimero(t *testing.T) {
 	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
 	servicio := aplicacion.NuevoServicio(deps)
 
 	_, err := servicio.Intentar(context.Background(), peticionDePrueba(), nil)
 
 	require.NoError(t, err)
-	require.Equal(t, [][]string{{}}, listas(d))
+	require.Equal(t, [][]string{{efimeroEnElEntorno}}, listas(d))
 }
 
 func TestEntorno_UnNombreInvalidoSeRechazaAntesDeAbrirNiTraerNada(t *testing.T) {
@@ -66,7 +79,7 @@ func TestEntorno_UnRollbackTambienLoPasaALosComandos(t *testing.T) {
 	}, publicado.Entorno{"A": "1"})
 
 	require.NoError(t, err)
-	require.Equal(t, [][]string{{"A=1"}}, listas(d))
+	require.Equal(t, [][]string{{"A=1", efimeroEnElEntorno}}, listas(d))
 }
 
 func TestEntorno_UnRollbackConUnNombreInvalidoSeRechazaSinAbrirNada(t *testing.T) {

@@ -2,7 +2,9 @@ package infraestructura
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -10,7 +12,8 @@ import (
 )
 
 // EspacioDeTrabajo es el espacio de trabajo de verdad, en disco: bajo raiz/<proyecto>/<pipeline>/<ambiente>/
-// hay un directorio por paso, que se rehace entero al empezar cada intento (DEC-06.19). Cualquier otra cosa
+// hay un directorio por paso, que se rehace entero al empezar cada intento (DEC-06.19) y otra vez cuando le toca
+// a cada paso (RehacerElPaso). Cualquier otra cosa
 // que los comandos del pipeline escriban en el ambiente, este puerto ni la lee ni la borra.
 type EspacioDeTrabajo struct {
 	raiz string
@@ -42,20 +45,60 @@ func (e *EspacioDeTrabajo) DirectorioDelPaso(u dominio.Ubicacion, paso string) s
 	return filepath.Join(e.directorioDelAmbiente(u), paso)
 }
 
-func (e *EspacioDeTrabajo) RehacerParteDelMotor(_ context.Context, u dominio.Ubicacion, pasos []dominio.PasoDeEjecucion) error {
+func (e *EspacioDeTrabajo) RehacerParteDelMotor(ctx context.Context, u dominio.Ubicacion, pasos []dominio.PasoDeEjecucion) error {
 	for _, paso := range pasos {
-		directorioDelPaso := e.DirectorioDelPaso(u, paso.Nombre())
-		if err := os.RemoveAll(directorioDelPaso); err != nil {
-			return fmt.Errorf("ejecución: el ambiente %q: %w: %w", u.Ambiente, dominio.ErrNoDisponible, err)
+		if err := e.RehacerElPaso(ctx, u, paso); err != nil {
+			return err
 		}
-		if err := os.MkdirAll(directorioDelPaso, 0o755); err != nil {
-			return fmt.Errorf("ejecución: el ambiente %q: %w: %w", u.Ambiente, dominio.ErrNoDisponible, err)
+	}
+	return nil
+}
+
+// RehacerElPaso borra el directorio del paso y lo vuelve a crear con su material declarado. No sigue enlaces
+// simbólicos: si el directorio del ambiente es un enlace, no se toca nada y es un error (el paso correría en
+// otro sitio); si lo es el del paso, se borra el enlace y no aquello a lo que apunta; y cada fichero se crea
+// nuevo, nunca a través de un enlace que ya estuviera.
+//
+// Lo que queda fuera: los directorios de más arriba (proyecto, pipeline) y todo lo que los comandos comparten a
+// propósito —el resto del ambiente, el material del proyecto—, que este puerto no rehace.
+func (e *EspacioDeTrabajo) RehacerElPaso(_ context.Context, u dominio.Ubicacion, paso dominio.PasoDeEjecucion) error {
+	if err := e.rehacerElPaso(u, paso); err != nil {
+		return fmt.Errorf("ejecución: el ambiente %q: %w: %w", u.Ambiente, dominio.ErrNoDisponible, err)
+	}
+	return nil
+}
+
+func (e *EspacioDeTrabajo) rehacerElPaso(u dominio.Ubicacion, paso dominio.PasoDeEjecucion) error {
+	directorioDelAmbiente := e.directorioDelAmbiente(u)
+	if err := os.MkdirAll(directorioDelAmbiente, 0o755); err != nil {
+		return err
+	}
+	if err := comprobarQueEsUnDirectorio(directorioDelAmbiente); err != nil {
+		return err
+	}
+	directorioDelPaso := e.DirectorioDelPaso(u, paso.Nombre())
+	if err := os.RemoveAll(directorioDelPaso); err != nil { // de un enlace, borra el enlace
+		return err
+	}
+	if err := os.Mkdir(directorioDelPaso, 0o755); err != nil { // Mkdir y no MkdirAll: tiene que crearlo ahora
+		return err
+	}
+	for _, f := range paso.Material {
+		if err := escribirFichero(directorioDelPaso, f); err != nil {
+			return err
 		}
-		for _, f := range paso.Material {
-			if err := escribirFichero(directorioDelPaso, f); err != nil {
-				return fmt.Errorf("ejecución: el ambiente %q: %w: %w", u.Ambiente, dominio.ErrNoDisponible, err)
-			}
-		}
+	}
+	return nil
+}
+
+// comprobarQueEsUnDirectorio falla si la ruta es un enlace simbólico, o cualquier cosa que no sea un directorio.
+func comprobarQueEsUnDirectorio(ruta string) error {
+	info, err := os.Lstat(ruta)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s no es un directorio de verdad (%s): no se trabaja a través de un enlace", ruta, info.Mode().Type())
 	}
 	return nil
 }
@@ -68,16 +111,35 @@ func escribirFichero(directorioDelPaso string, f dominio.FicheroDeclarado) error
 	if f.Enlace() != "" {
 		return os.Symlink(filepath.FromSlash(f.Enlace()), destino)
 	}
-	permisos := os.FileMode(0o644)
-	if f.Ejecutable() {
-		permisos = 0o755
-	}
-	return os.WriteFile(destino, []byte(f.Contenido()), permisos)
+	return escribirNuevo(destino, f.Contenido(), permisosDe(f))
 }
 
-// InterpolarPlantillas reescribe, en su sitio, los ficheros que el paso marca como plantilla — llamarlo justo
-// antes de ejecutar los comandos del paso es lo que permite que una plantilla use variables producidas por
-// pasos anteriores (docs/modelo/contextos/ejecucion.md, «Espacio de trabajo»).
+func permisosDe(f dominio.FicheroDeclarado) os.FileMode {
+	if f.Ejecutable() {
+		return 0o755
+	}
+	return 0o644
+}
+
+// escribirNuevo crea el fichero, que no puede existir: con O_EXCL, si en su sitio hay un enlace simbólico la
+// escritura falla en vez de seguirlo. os.WriteFile lo seguiría, y escribiría donde el enlace dijera.
+func escribirNuevo(ruta, contenido string, permisos os.FileMode) error {
+	fichero, err := os.OpenFile(ruta, os.O_WRONLY|os.O_CREATE|os.O_EXCL, permisos)
+	if err != nil {
+		return err
+	}
+	if _, err := fichero.WriteString(contenido); err != nil {
+		_ = fichero.Close()
+		return err
+	}
+	return fichero.Close()
+}
+
+// InterpolarPlantillas reescribe los ficheros que el paso marca como plantilla — llamarlo justo antes de
+// ejecutar los comandos del paso es lo que permite que una plantilla use variables producidas por pasos
+// anteriores (docs/modelo/contextos/ejecucion.md, «Espacio de trabajo»). Lo que interpola es el contenido
+// declarado, no lo que haya en el disco, y lo escribe en un fichero nuevo: ni lee ni escribe a través de un
+// enlace que alguien haya puesto en su sitio.
 func (e *EspacioDeTrabajo) InterpolarPlantillas(
 	_ context.Context, u dominio.Ubicacion, paso dominio.PasoDeEjecucion, interpolar dominio.Interpolador,
 ) error {
@@ -86,20 +148,15 @@ func (e *EspacioDeTrabajo) InterpolarPlantillas(
 		if !f.Plantilla() {
 			continue
 		}
-		ruta := filepath.Join(directorioDelPaso, filepath.FromSlash(f.Ruta()))
-		contenido, err := os.ReadFile(ruta)
-		if err != nil {
-			return fmt.Errorf("ejecución: leer la plantilla %q del paso %q: %w", f.Ruta(), paso.Nombre(), err)
-		}
-		interpolado, err := interpolar(string(contenido))
+		interpolado, err := interpolar(f.Contenido())
 		if err != nil {
 			return fmt.Errorf("ejecución: interpolar la plantilla %q del paso %q: %w", f.Ruta(), paso.Nombre(), err)
 		}
-		permisos := os.FileMode(0o644)
-		if f.Ejecutable() {
-			permisos = 0o755
+		ruta := filepath.Join(directorioDelPaso, filepath.FromSlash(f.Ruta()))
+		if err := os.Remove(ruta); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("ejecución: reescribir la plantilla %q del paso %q: %w", f.Ruta(), paso.Nombre(), err)
 		}
-		if err := os.WriteFile(ruta, []byte(interpolado), permisos); err != nil {
+		if err := escribirNuevo(ruta, interpolado, permisosDe(f)); err != nil {
 			return fmt.Errorf("ejecución: reescribir la plantilla %q del paso %q: %w", f.Ruta(), paso.Nombre(), err)
 		}
 	}

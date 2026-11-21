@@ -21,13 +21,24 @@ const (
 )
 
 // EventoDeProgreso es un dato del avance de un intento: solo nombres y resultados, nunca la salida de un comando
-// ni el valor de una variable.
+// ni el valor de una variable, salvo las variables que el pipeline marcó con `show`.
 type EventoDeProgreso struct {
 	Tipo    TipoDeProgreso
 	Intento string
 	Paso    string // vacío en IntentoIniciado
 	Comando string // solo en ComandoTerminado
 	Estado  string // solo en PasoTerminado y ComandoTerminado
+	// Visibles: solo en PasoTerminado, y solo si el paso salió bien (ejecutado o precargado).
+	Visibles []VariableVisible
+}
+
+// VariableVisible es una variable de salida que el pipeline marcó con `show`, con el valor que tiene al terminar
+// su paso. Es la única forma en que un valor sale hacia quien invoca: lo decide quien escribe el pipeline, y el
+// motor no juzga si es un secreto.
+type VariableVisible struct {
+	Nombre      string
+	Descripcion string
+	Valor       string
 }
 
 // Progreso es a dónde cuenta Ejecución cómo avanza un intento, mientras avanza. Quien lo implementa decide qué

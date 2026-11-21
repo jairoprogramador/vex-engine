@@ -44,6 +44,22 @@ func TestHacerRollback_UsaElMaterialYElPipelineDelDestino(t *testing.T) {
 	require.Len(t, apertura.Pasos, 2)
 }
 
+func TestHacerRollback_UnContextoQueNoValeEsInvalidoYNoPreguntaAlHistorial(t *testing.T) {
+	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
+	d.historial.destinoParaRollback = destinoDePrueba(t)
+
+	_, err := aplicacion.NuevoServicio(deps).HacerRollback(context.Background(), publicado.PeticionDeRollback{
+		Version: "1", Despliegue: "dep-1", Solicitante: "ana", Contexto: "azure;v1",
+	}, nil)
+
+	require.ErrorIs(t, err, publicado.ErrInvalido)
+	campo, _ := campoYValorDe(t, err)
+	require.Equal(t, "Contexto", campo)
+	require.False(t, d.historial.destinoConsultado, "ni se consulta el destino")
+	require.Empty(t, d.historial.aperturas)
+	require.Empty(t, d.fuentes.retirados)
+}
+
 func TestHacerRollback_UnAmbienteOcupadoNoTocaElEspacioDeTrabajo(t *testing.T) {
 	deps, d := nuevasDependenciasDePrueba(t, "01-pruebas")
 	d.historial.destinoParaRollback = destinoDePrueba(t)

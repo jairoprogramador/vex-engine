@@ -35,9 +35,11 @@ func (e *errorTraducido) Unwrap() []error { return []error{e.publicado, e.causa}
 
 func resultadoAPublicado(
 	intento string, desenlace dominio.Desenlace, despliegue string, detalle dominio.DetalleDelIntento,
+	visibles []dominio.VariableVisible,
 ) publicado.Resultado {
 	return publicado.Resultado{
 		Intento: intento, Estado: desenlace.String(), Despliegue: despliegue, Detalle: detalleAPublicado(detalle),
+		Visibles: visiblesAPublicado(visibles),
 	}
 }
 

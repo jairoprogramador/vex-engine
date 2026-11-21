@@ -46,6 +46,7 @@ type VariableDeComandoComprobada struct {
 	Descripcion string
 	Expresion   string
 	Ambito      *Ambito
+	Mostrar     bool
 }
 
 type AsercionComprobada struct {

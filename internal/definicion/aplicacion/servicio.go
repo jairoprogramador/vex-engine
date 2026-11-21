@@ -97,6 +97,7 @@ func traducirPaso(paso dominio.PasoComprobado) publicado.Paso {
 		for _, s := range c.VariablesDeSalida {
 			comando.Salidas = append(comando.Salidas, publicado.VariableDeSalida{
 				Nombre: s.Nombre, Descripcion: s.Descripcion, Expresion: s.Expresion, Compartida: s.Ambito != nil,
+				Mostrar: s.Mostrar,
 			})
 		}
 		for _, a := range c.Aserciones {

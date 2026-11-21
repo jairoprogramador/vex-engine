@@ -3,6 +3,7 @@ package infraestructura
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -102,6 +103,36 @@ func TestLoQueNoSeLeeNoSeDecideAlLeer(t *testing.T) {
 	require.Empty(t, d.Pasos[1].Comandos.Datos, "un commands.yaml vacío no declara nada")
 	require.ElementsMatch(t, []string{"steps/01-test/commands.yaml"}, ficheros(d.Ilegibles))
 	require.Equal(t, []string{"steps/notas.md", "variables/sand/extra/", "variables/sand/test.yml"}, d.Desconocidos)
+}
+
+func TestShowDeUnOutputsSeLeeYCualquierOtraClaveSigueRechazada(t *testing.T) {
+	const comandos = `
+- name: apply terraform
+  cmd: terraform apply -input=false -auto-approve plan.out
+  outputs:
+    - name: app_url
+      description: URL pública de la aplicación
+      probe: 'app_url\s*=\s*"([^"]+)"'
+      show: true
+    - name: grupo
+      probe: grupo=(\S+)
+`
+	raiz := t.TempDir()
+	escribir(t, raiz, "steps/01-supply/commands.yaml", comandos)
+
+	d, err := leer(raiz)
+	require.NoError(t, err)
+	require.Empty(t, d.Ilegibles)
+	require.Equal(t, []dominio.VariableDeComandoDeclarada{
+		{Nombre: "app_url", Descripcion: "URL pública de la aplicación", Expresion: `app_url\s*=\s*"([^"]+)"`, Mostrar: true},
+		{Nombre: "grupo", Expresion: `grupo=(\S+)`},
+	}, d.Pasos[0].Comandos.Datos[0].Variables, "show: true se lee en Mostrar, y sin show es falso")
+
+	escribir(t, raiz, "steps/01-supply/commands.yaml", strings.Replace(comandos, "show: true", "mostrar: true", 1))
+	d, err = leer(raiz)
+	require.NoError(t, err)
+	require.Equal(t, []string{"steps/01-supply/commands.yaml"}, ficheros(d.Ilegibles),
+		"la lectura sigue siendo estricta: una clave que el formato no tiene hace ilegible el fichero")
 }
 
 func ficheros(ilegibles []dominio.FicheroIlegibleDeclarado) []string {
